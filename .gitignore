@@ -1,0 +1,12 @@
+node_modules/
+dist/
+frontend/dist/
+.firebase/
+**/.firebase/
+frontend/.env.production
+deploy/cloudrun-env.generated.yaml
+.env
+.env.local
+backend/.env
+*.log
+.DS_Store
