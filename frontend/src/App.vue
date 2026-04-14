@@ -32,7 +32,10 @@ watchEffect(() => {
     <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="top-bar">
       <div class="top-inner">
-        <RouterLink to="/" class="brand" aria-label="BiteBud home">BiteBud</RouterLink>
+        <RouterLink to="/" class="brand" aria-label="BiteBud home">
+          <img class="brand-logo" src="/bitebud-mark.png" alt="BiteBud" />
+          <span class="brand-text">BiteBud</span>
+        </RouterLink>
         <nav class="primary-nav" aria-label="Primary">
           <RouterLink to="/search">Find a recipe</RouterLink>
           <RouterLink to="/sensory">Sensory profile</RouterLink>
@@ -68,14 +71,28 @@ watchEffect(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.75rem 1rem;
 }
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-decoration: none;
+  min-width: 44px;
+}
+.brand-logo {
+  height: 34px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+}
+.brand-text {
   font-family: var(--bb-font-headline);
-  font-weight: 800;
-  font-size: 1.5rem;
+  font-weight: 900;
+  font-size: 1.35rem;
   letter-spacing: -0.02em;
   color: var(--bb-primary);
-  text-decoration: none;
+  line-height: 1;
 }
 .primary-nav {
   font-family: var(--bb-font-headline);
@@ -94,5 +111,31 @@ watchEffect(() => {
 }
 .main {
   flex: 1;
+}
+
+@media (max-width: 640px) {
+  .top-inner {
+    padding: 0.75rem 1rem;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .brand {
+    flex: 1 1 auto;
+  }
+  .brand-logo {
+    height: 30px;
+  }
+  .brand-text {
+    font-size: 1.2rem;
+  }
+  .primary-nav {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 0.85rem 1rem;
+  }
+  .primary-nav a {
+    font-size: 0.95rem;
+    padding: 0.35rem 0;
+  }
 }
 </style>
