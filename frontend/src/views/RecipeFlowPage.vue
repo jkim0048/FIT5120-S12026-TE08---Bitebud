@@ -326,7 +326,7 @@ function timelineEffort(step: RecipeNode): string {
             <svg class="cta-play" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
               <path fill="currentColor" d="M8 5v14l11-7L8 5z" />
             </svg>
-            Start Guided Cooking
+            Begin Guided Cooking
           </button>
         </div>
       </section>

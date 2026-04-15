@@ -49,7 +49,7 @@ const rating = ref(4)
 
     <nav class="actions">
       <RouterLink class="bb-btn bb-btn--primary" to="/search">Find another recipe</RouterLink>
-      <RouterLink class="bb-btn bb-btn--secondary" :to="`/recipe/${route.params.id}`">Back to recipe</RouterLink>
+      <RouterLink class="bb-btn bb-btn--primary" :to="`/recipe/${route.params.id}`">Back to recipe</RouterLink>
     </nav>
   </div>
 </template>
