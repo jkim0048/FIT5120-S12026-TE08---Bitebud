@@ -62,33 +62,54 @@ function readFromStorage(key: string): UserSettings {
     const raw = localStorage.getItem(key)
     if (!raw) return DEFAULTS
     const parsed = JSON.parse(raw) as Partial<UserSettings>
-    return normalize(parsed)
+    // Always boot in normal mode; dark mode can still be enabled manually after load.
+    return {
+      ...normalize(parsed),
+      darkMode: false,
+    }
   } catch {
     return DEFAULTS
   }
 }
 
+const sharedSettings = ref<UserSettings>(DEFAULTS)
+let sharedInitDone = false
+let sharedStorageWatchStop: (() => void) | null = null
+
 export function useSettings() {
   const uid = getBiteBudUserId()
   const key = computed(() => storageKey(getBiteBudUserId() ?? uid ?? null))
-  const settings = ref<UserSettings>(readFromStorage(key.value))
+
+  if (!sharedInitDone) {
+    sharedSettings.value = readFromStorage(key.value)
+
+    sharedStorageWatchStop = watch(
+      sharedSettings,
+      (s) => {
+        localStorage.setItem(key.value, JSON.stringify(normalize(s)))
+      },
+      { deep: true },
+    )
+
+    sharedInitDone = true
+  }
 
   watch(
     key,
     (k) => {
-      settings.value = readFromStorage(k)
+      sharedStorageWatchStop?.()
+      sharedSettings.value = readFromStorage(k)
+      sharedStorageWatchStop = watch(
+        sharedSettings,
+        (s) => {
+          localStorage.setItem(k, JSON.stringify(normalize(s)))
+        },
+        { deep: true },
+      )
     },
     { immediate: false },
   )
 
-  watch(
-    settings,
-    (s) => {
-      localStorage.setItem(key.value, JSON.stringify(normalize(s)))
-    },
-    { deep: true },
-  )
-
-  return { settings }
+  return { settings: sharedSettings }
 }
 

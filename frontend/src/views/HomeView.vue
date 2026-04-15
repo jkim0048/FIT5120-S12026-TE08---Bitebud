@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import { useSession } from '../composables/useSession'
+
+const { isSignedIn } = useSession()
 </script>
 
 <template>
@@ -17,7 +20,14 @@ import { RouterLink } from 'vue-router'
         </p>
         <div class="ctas">
           <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Visualise Recipe</RouterLink>
-          <RouterLink to="/sensory" class="bb-btn bb-btn--secondary cta">Setup Sensory profile</RouterLink>
+          <RouterLink
+            v-if="!isSignedIn"
+            to="/auth"
+            class="bb-btn bb-btn--secondary cta"
+          >
+            Sign in / Sign-up
+          </RouterLink>
+          <span v-else class="bb-btn bb-btn--secondary cta cta--disabled" aria-disabled="true">Sign in / Sign-up</span>
         </div>
       </div>
 
@@ -85,7 +95,8 @@ import { RouterLink } from 'vue-router'
             Set up your sensory profile now. Filter by texture, temperature, and smell—so recipes feel safer and more
             predictable.
           </p>
-          <RouterLink to="/sensory" class="tile-link">Setup sensory profile →</RouterLink>
+          <RouterLink v-if="!isSignedIn" to="/auth" class="tile-link">Sign in / Sign-up →</RouterLink>
+          <span v-else class="tile-link tile-link--disabled">Signed in</span>
         </article>
 
         <article class="tile">
@@ -116,7 +127,8 @@ import { RouterLink } from 'vue-router'
         </div>
         <div class="cta-actions">
           <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Find a recipe</RouterLink>
-          <RouterLink to="/sensory" class="bb-btn bb-btn--secondary cta">Sensory profile</RouterLink>
+          <RouterLink v-if="!isSignedIn" to="/auth" class="bb-btn bb-btn--secondary cta">Sign in / Sign-up</RouterLink>
+          <span v-else class="bb-btn bb-btn--secondary cta cta--disabled" aria-disabled="true">Sign in / Sign-up</span>
         </div>
       </div>
     </section>
@@ -182,6 +194,15 @@ import { RouterLink } from 'vue-router'
   padding: 0.85rem 1.15rem;
   font-family: var(--bb-font-headline);
   font-weight: 700;
+}
+.cta--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.tile-link--disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .hero-media {
