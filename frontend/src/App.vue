@@ -1,9 +1,17 @@
 <script setup lang="ts">
 import { watchEffect } from 'vue'
-import { RouterLink, RouterView } from 'vue-router'
+import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useSettings } from './composables/useSettings'
+import { useSession } from './composables/useSession'
 
 const { settings } = useSettings()
+const router = useRouter()
+const { userId, isSignedIn, logout } = useSession()
+
+function onSignOut() {
+  logout()
+  void router.push({ name: 'home' })
+}
 
 watchEffect(() => {
   const html = document.documentElement
@@ -32,14 +40,23 @@ watchEffect(() => {
     <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="top-bar">
       <div class="top-inner">
-        <RouterLink to="/" class="brand" aria-label="BiteBud home">
-          <img class="brand-logo" src="/bitebud-mark.png" alt="BiteBud" />
-          <span class="brand-text">BiteBud</span>
-        </RouterLink>
+        <div class="brand-row">
+          <RouterLink to="/" class="brand" aria-label="BiteBud home">BiteBud</RouterLink>
+        </div>
         <nav class="primary-nav" aria-label="Primary">
           <RouterLink to="/search">Find a recipe</RouterLink>
-          <RouterLink to="/sensory">Sensory profile</RouterLink>
+          <RouterLink v-if="isSignedIn" to="/sensory/setup">Sensory profile</RouterLink>
+          <RouterLink v-if="!isSignedIn" to="/auth">User sign in / Sign up</RouterLink>
+          <button v-else type="button" class="nav-signout" @click="onSignOut">Sign out</button>
           <RouterLink to="/settings">Settings</RouterLink>
+          <div
+            class="avatar"
+            :class="{ 'avatar--empty': !isSignedIn }"
+            :title="isSignedIn ? `Signed in as ${userId}` : 'Not signed in'"
+            aria-hidden="true"
+          >
+            <span v-if="isSignedIn" class="avatar-text">{{ userId }}</span>
+          </div>
         </nav>
       </div>
     </header>
@@ -60,9 +77,9 @@ watchEffect(() => {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: color-mix(in srgb, var(--bb-surface) 85%, transparent);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--bb-surface-highest);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 .top-inner {
   max-width: 72rem;
@@ -72,6 +89,33 @@ watchEffect(() => {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem 1rem;
+}
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+.avatar {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bb-primary);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  font-family: var(--bb-font-headline);
+}
+.avatar--empty {
+  background: #1a1a1a;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--bb-border) 80%, transparent);
+}
+.avatar-text {
+  line-height: 1;
 }
 .brand {
   display: inline-flex;
@@ -97,6 +141,7 @@ watchEffect(() => {
 .primary-nav {
   font-family: var(--bb-font-headline);
   display: flex;
+  align-items: center;
   gap: 1.15rem;
   flex-wrap: wrap;
 }
@@ -108,6 +153,18 @@ watchEffect(() => {
 .primary-nav a.router-link-active {
   color: var(--bb-accent);
   font-weight: 600;
+}
+.nav-signout {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--bb-text);
+  cursor: pointer;
+}
+.nav-signout:hover {
+  color: var(--bb-accent);
 }
 .main {
   flex: 1;

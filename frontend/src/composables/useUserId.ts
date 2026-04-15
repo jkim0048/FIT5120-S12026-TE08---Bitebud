@@ -23,6 +23,10 @@ export function setBiteBudUserId(id: string): void {
   localStorage.setItem(KEY, n)
 }
 
+export function clearBiteBudUserId(): void {
+  localStorage.removeItem(KEY)
+}
+
 export function useUserId(): { userId: string } {
   return { userId: getBiteBudUserId() ?? '' }
 }

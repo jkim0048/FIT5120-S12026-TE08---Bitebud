@@ -1,80 +1,373 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import {
+  CULTURAL_CHIPS,
+  DIETARY_CHIPS,
+  TEMPERATURE_PRESENTATION,
+  TEXTURE_OPTION_PRESENTATION,
+  TEXTURE_OPTIONS,
+  useSensorySetupForm,
+} from '../composables/useSensorySetupForm'
 import { getBiteBudUserId } from '../composables/useUserId'
-import { useSensorySetupForm } from '../composables/useSensorySetupForm'
 
 const router = useRouter()
-const { profileLoading, saveError, saveAndViewSummary, textureDone, temperatureDone, dietaryDone, foodSafetyDone } =
-  useSensorySetupForm()
+const expanded = ref<'texture' | 'temperature' | 'dietary' | 'food' | null>(null)
+
+const SECTION_ORDER = ['texture', 'temperature', 'dietary', 'food'] as const
+
+const {
+  profileLoading,
+  saveError,
+  selectedUnsafeTextures,
+  selectedTemperatures,
+  selectedDietary,
+  selectedCultural,
+  foodInputStatus,
+  foodQuery,
+  pickerLoading,
+  pickerError,
+  filteredPickerItems,
+  addFoodError,
+  addFoodBusy,
+  foodsForDisplay,
+  textureDone,
+  temperatureDone,
+  dietaryDone,
+  foodSafetyDone,
+  toggleUnsafeTexture,
+  toggleTemperature,
+  toggleDietary,
+  toggleCultural,
+  loadFoodPickerItems,
+  choosePickerItem,
+  resolveWickedImage,
+  addFood,
+  saveAndViewSummary,
+  saveTexturesSection,
+  saveTemperaturesSection,
+  saveDietaryCulturalSection,
+  saveFoodSafetySection,
+  editingFood,
+  editFoodError,
+  editFoodBusy,
+  onFoodRowClick,
+  saveEditingFood,
+  deleteEditingFood,
+  onCloseEdit,
+} = useSensorySetupForm()
+
+const sectionBusy = ref<'texture' | 'temperature' | 'dietary' | 'food' | null>(null)
+const sectionError = ref('')
 
 onMounted(() => {
-  if (!getBiteBudUserId()) router.replace({ name: 'sensory' })
+  if (!getBiteBudUserId()) router.replace({ name: 'auth' })
 })
+
+function toggleSection(name: 'texture' | 'temperature' | 'dietary' | 'food') {
+  expanded.value = expanded.value === name ? null : name
+  sectionError.value = ''
+  if (name === 'food') void loadFoodPickerItems()
+}
+
+async function saveSection(name: 'texture' | 'temperature' | 'dietary' | 'food') {
+  sectionError.value = ''
+  sectionBusy.value = name
+  try {
+    if (name === 'texture') await saveTexturesSection()
+    if (name === 'temperature') await saveTemperaturesSection()
+    if (name === 'dietary') await saveDietaryCulturalSection()
+    if (name === 'food') await saveFoodSafetySection()
+
+    if (name === 'food') {
+      expanded.value = null
+    } else {
+      const i = SECTION_ORDER.indexOf(name)
+      if (i >= 0 && i < SECTION_ORDER.length - 1) {
+        const next = SECTION_ORDER[i + 1]!
+        expanded.value = next
+        if (next === 'food') void loadFoodPickerItems()
+      }
+    }
+  } catch (e) {
+    sectionError.value = e instanceof Error ? e.message : 'Could not save section. Please try again.'
+  } finally {
+    sectionBusy.value = null
+  }
+}
+
+function onSuggestionImageError(e: Event, fallback: string | null) {
+  if (!fallback) return
+  const img = e.target as HTMLImageElement | null
+  if (!img || img.dataset.fallbackApplied === '1') return
+  img.dataset.fallbackApplied = '1'
+  img.src = fallback
+}
+
+function onFoodEditThumbError(e: Event) {
+  const img = e.target as HTMLImageElement | null
+  if (img) img.style.display = 'none'
+}
 </script>
 
 <template>
   <div class="page">
     <div class="top-nav">
-      <a class="link" href="#" @click.prevent="router.push({ name: 'sensory' })">← Back</a>
-      <button type="button" class="link link-btn" :disabled="profileLoading" @click="saveAndViewSummary">View Summary →</button>
+      <span class="top-placeholder" />
+      <button type="button" class="link link-btn" :disabled="profileLoading" @click="saveAndViewSummary">Save &amp; Continue to Summary →</button>
     </div>
 
     <h1 class="h1">Set up your Sensory Profile</h1>
-    <p class="sub">
-      Tell us about your food preferences so we can filter recipes for you. You can update this any time.
-    </p>
+    <p class="sub">Expand each section below, update preferences, then save each section.</p>
 
-    <section class="content">
-      <div class="cards">
-        <button type="button" class="card nav-card" @click="router.push({ name: 'sensorySetupTexture' })">
-          <div class="nav-icon" aria-hidden="true">🧤</div>
-          <div class="nav-copy">
-            <h2 class="card-h2">Unsafe Textures</h2>
-            <p class="card-sub">Choose textures that are not safe for you.</p>
+    <p v-if="saveError || sectionError" class="save-err" role="alert">{{ sectionError || saveError }}</p>
+
+    <section class="stack">
+      <article class="section-card">
+        <button type="button" class="section-head" @click="toggleSection('texture')">
+          <div>
+            <h2>Unsafe Textures</h2>
+            <p>Select textures that are not safe for you.</p>
           </div>
-          <div class="nav-status" :class="{ done: textureDone }">{{ textureDone ? '✓' : '○' }}</div>
-        </button>
-
-        <button type="button" class="card nav-card" @click="router.push({ name: 'sensorySetupTemperature' })">
-          <div class="nav-icon" aria-hidden="true">🌡️</div>
-          <div class="nav-copy">
-            <h2 class="card-h2">Unsafe Temperatures</h2>
-            <p class="card-sub">Select temperatures to avoid in recipes.</p>
+          <div class="right">
+            <span class="done">{{ textureDone ? '✓' : '○' }}</span>
+            <span>{{ expanded === 'texture' ? '−' : '+' }}</span>
           </div>
-          <div class="nav-status" :class="{ done: temperatureDone }">{{ temperatureDone ? '✓' : '○' }}</div>
         </button>
-
-        <button type="button" class="card nav-card" @click="router.push({ name: 'sensorySetupDietaryCultural' })">
-          <div class="nav-icon" aria-hidden="true">🧾</div>
-          <div class="nav-copy">
-            <h2 class="card-h2">Dietary &amp; Cultural Restrictions</h2>
-            <p class="card-sub">Mark restrictions that should be treated as unsafe.</p>
+        <div v-if="expanded === 'texture'" class="section-body">
+          <div class="option-grid">
+            <button
+              v-for="opt in TEXTURE_OPTIONS"
+              :key="opt"
+              type="button"
+              class="option-card"
+              :class="{ on: selectedUnsafeTextures.includes(opt) }"
+              :aria-pressed="selectedUnsafeTextures.includes(opt)"
+              @click="toggleUnsafeTexture(opt)"
+            >
+              <div class="opt-emoji">{{ TEXTURE_OPTION_PRESENTATION[opt].emoji }}</div>
+              <div class="opt-title">{{ opt }}</div>
+              <div class="opt-hint">{{ TEXTURE_OPTION_PRESENTATION[opt].hint }}</div>
+            </button>
           </div>
-          <div class="nav-status" :class="{ done: dietaryDone }">{{ dietaryDone ? '✓' : '○' }}</div>
-        </button>
+          <button type="button" class="bb-btn bb-btn--primary save-btn" :disabled="sectionBusy === 'texture'" @click="saveSection('texture')">
+            {{ sectionBusy === 'texture' ? 'Saving…' : 'Save and Next' }}
+          </button>
+        </div>
+      </article>
 
-        <button type="button" class="card nav-card" @click="router.push({ name: 'sensorySetupFoodSafety' })">
-          <div class="nav-icon" aria-hidden="true">⚠️</div>
-          <div class="nav-copy">
-            <h2 class="card-h2">Food Safety Tags</h2>
-            <p class="card-sub">Add foods and tag each one as safe, unsafe, or sometimes.</p>
+      <article class="section-card">
+        <button type="button" class="section-head" @click="toggleSection('temperature')">
+          <div>
+            <h2>Unsafe Temperatures</h2>
+            <p>Select temperatures you want us to avoid in suggestions.</p>
           </div>
-          <div class="nav-status" :class="{ done: foodSafetyDone }">{{ foodSafetyDone ? '✓' : '○' }}</div>
+          <div class="right">
+            <span class="done">{{ temperatureDone ? '✓' : '○' }}</span>
+            <span>{{ expanded === 'temperature' ? '−' : '+' }}</span>
+          </div>
         </button>
-      </div>
+        <div v-if="expanded === 'temperature'" class="section-body">
+          <div class="option-grid">
+            <button
+              v-for="opt in TEMPERATURE_PRESENTATION"
+              :key="opt.value"
+              type="button"
+              class="option-card"
+              :class="{ on: selectedTemperatures.includes(opt.value) }"
+              :aria-pressed="selectedTemperatures.includes(opt.value)"
+              @click="toggleTemperature(opt.value)"
+            >
+              <div class="opt-emoji">{{ opt.emoji }}</div>
+              <div class="opt-title">{{ opt.value }}</div>
+              <div class="opt-hint">{{ opt.hint }}</div>
+            </button>
+          </div>
+          <button type="button" class="bb-btn bb-btn--primary save-btn" :disabled="sectionBusy === 'temperature'" @click="saveSection('temperature')">
+            {{ sectionBusy === 'temperature' ? 'Saving…' : 'Save and Next' }}
+          </button>
+        </div>
+      </article>
 
-      <p v-if="saveError" class="save-err" role="alert">{{ saveError }}</p>
-
-      <!-- Footer buttons -->
-      <div class="footer">
-        <button type="button" class="bb-btn bb-btn--secondary" @click="router.push({ name: 'home' })">Skip for now</button>
-        <button type="button" class="btn-primary btn-primary--footer" :disabled="profileLoading" @click="saveAndViewSummary">
-          Save &amp; View Profile
+      <article class="section-card">
+        <button type="button" class="section-head" @click="toggleSection('dietary')">
+          <div>
+            <h2>Dietary &amp; Cultural Restrictions</h2>
+            <p>Select restrictions that should be treated as unsafe for suggestions.</p>
+          </div>
+          <div class="right">
+            <span class="done">{{ dietaryDone ? '✓' : '○' }}</span>
+            <span>{{ expanded === 'dietary' ? '−' : '+' }}</span>
+          </div>
         </button>
-      </div>
+        <div v-if="expanded === 'dietary'" class="section-body">
+          <div class="option-grid">
+            <button
+              v-for="chip in [...DIETARY_CHIPS, ...CULTURAL_CHIPS]"
+              :key="chip.label"
+              type="button"
+              class="option-card"
+              :class="{ on: selectedDietary.includes(chip.label) || selectedCultural.includes(chip.label) }"
+              :aria-pressed="selectedDietary.includes(chip.label) || selectedCultural.includes(chip.label)"
+              @click="chip.kind === 'dietary' ? toggleDietary(chip.label) : toggleCultural(chip.label)"
+            >
+              <div class="opt-emoji">{{ chip.emoji }}</div>
+              <div class="opt-title">{{ chip.label }}</div>
+              <div class="opt-hint">{{ chip.hint }}</div>
+            </button>
+          </div>
+          <button type="button" class="bb-btn bb-btn--primary save-btn" :disabled="sectionBusy === 'dietary'" @click="saveSection('dietary')">
+            {{ sectionBusy === 'dietary' ? 'Saving…' : 'Save and Next' }}
+          </button>
+        </div>
+      </article>
+
+      <article class="section-card">
+        <button type="button" class="section-head" @click="toggleSection('food')">
+          <div>
+            <h2>Any food Allergies or Intolerances</h2>
+            <p>Tag ingredients from the Wicked library so we can match icons in recipes.</p>
+          </div>
+          <div class="right">
+            <span class="done">{{ foodSafetyDone ? '✓' : '○' }}</span>
+            <span>{{ expanded === 'food' ? '−' : '+' }}</span>
+          </div>
+        </button>
+        <div v-if="expanded === 'food'" class="section-body">
+          <div class="food-controls-head">
+            <span class="food-controls-label">Add food Item from the list</span>
+          </div>
+          <p class="food-help">Icons are stored in wicked_icons and matched during recipe suggestions.</p>
+
+          <div class="food-add-row">
+            <div class="food-input-wrap">
+              <input
+                id="food-search"
+                v-model="foodQuery"
+                class="food-input"
+                placeholder="Search a food tag..."
+                @focus="loadFoodPickerItems"
+              />
+              <ul v-if="foodQuery && filteredPickerItems.length" class="picker-list">
+                <li v-for="item in filteredPickerItems" :key="item.wickedIconId">
+                  <button type="button" class="picker-item" @click="choosePickerItem(item)">
+                    <img
+                      class="picker-thumb"
+                      :src="resolveWickedImage(item.wickedIconId) || item.imageUrl || ''"
+                      :alt="`${item.label} icon`"
+                      @error="onSuggestionImageError($event, item.imageUrl)"
+                    />
+                    <span class="picker-copy">
+                      <span>{{ item.label }}</span>
+                      <small>{{ item.hint }}</small>
+                    </span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+            <select v-model="foodInputStatus" class="food-status-select" aria-label="Food safety status">
+              <option value="UNSURE">Sometimes</option>
+              <option value="SAFE">Safe</option>
+              <option value="UNSAFE">Unsafe</option>
+            </select>
+            <button type="button" class="food-add-btn" :disabled="addFoodBusy" @click="addFood">
+              {{ addFoodBusy ? 'Adding…' : 'Add' }}
+            </button>
+          </div>
+          <div v-if="pickerLoading" class="muted">Loading food tags…</div>
+          <div v-if="pickerError" class="save-err">{{ pickerError }}</div>
+          <p v-if="addFoodError" class="save-err">{{ addFoodError }}</p>
+
+          <ul class="food-list">
+            <li v-for="item in foodsForDisplay" :key="item.id" class="food-li">
+              <button type="button" class="food-item food-item--clickable" @click="void onFoodRowClick(item)">
+                <img
+                  class="food-thumb"
+                  :src="resolveWickedImage(item.notes?.wickedIconId) || ''"
+                  alt=""
+                />
+                <span class="food-name-wrap">
+                  <span class="food-name">{{ item.name }}</span>
+                  <small class="food-note">Tap to edit or remove</small>
+                </span>
+                <strong class="food-status" :class="`food-status--${item.status.toLowerCase()}`">
+                  {{ item.status === 'UNSURE' ? 'SOMETIMES' : item.status }}
+                </strong>
+              </button>
+            </li>
+          </ul>
+          <button type="button" class="bb-btn bb-btn--primary save-btn" :disabled="sectionBusy === 'food'" @click="saveSection('food')">
+            {{ sectionBusy === 'food' ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+      </article>
     </section>
 
+    <div class="footer">
+      <button type="button" class="bb-btn bb-btn--secondary" @click="router.push({ name: 'home' })">Skip for now</button>
+      <button type="button" class="bb-btn bb-btn--primary" :disabled="profileLoading" @click="saveAndViewSummary">Save &amp; Continue to Summary</button>
+    </div>
+
+    <Teleport to="body">
+      <div v-if="editingFood" class="food-edit-layer">
+        <div class="food-edit-backdrop" role="presentation" @click="onCloseEdit" />
+        <div class="food-edit-root" role="dialog" aria-modal="true" aria-labelledby="food-edit-title">
+        <div class="food-edit-modal">
+          <div class="food-edit-head">
+            <h2 id="food-edit-title" class="food-edit-title">Edit food</h2>
+            <button type="button" class="food-edit-close" aria-label="Close" @click="onCloseEdit">×</button>
+          </div>
+          <div class="food-edit-body">
+            <div class="food-edit-tag-preview" aria-hidden="true">
+              <img
+                v-if="resolveWickedImage(editingFood.notes?.wickedIconId)"
+                class="food-edit-preview-thumb"
+                alt=""
+                :src="resolveWickedImage(editingFood.notes?.wickedIconId)!"
+                @error="onFoodEditThumbError"
+              />
+              <span v-else class="food-edit-preview-ph">🍽</span>
+              <div class="food-edit-preview-text">
+                <span class="food-edit-preview-name">{{ editingFood.name }}</span>
+                <span
+                  class="food-edit-preview-pill"
+                  :class="`food-status--${editingFood.status.toLowerCase()}`"
+                >
+                  {{ editingFood.status === 'UNSURE' ? 'SOMETIMES' : editingFood.status }}
+                </span>
+              </div>
+            </div>
+
+            <label class="food-edit-label" for="food-edit-name">Food name</label>
+            <input
+              id="food-edit-name"
+              class="food-edit-input food-edit-input--readonly"
+              type="text"
+              :value="editingFood.name"
+              readonly
+              tabindex="-1"
+              aria-readonly="true"
+            />
+
+            <label class="food-edit-label" for="food-edit-status">Status</label>
+            <select id="food-edit-status" v-model="editingFood.status" class="food-edit-input">
+              <option value="SAFE">Safe</option>
+              <option value="UNSURE">Sometimes OK</option>
+              <option value="UNSAFE">Unsafe</option>
+            </select>
+
+            <p v-if="editFoodError" class="food-edit-err" role="alert">{{ editFoodError }}</p>
+          </div>
+          <div class="food-edit-footer">
+            <button type="button" class="bb-btn bb-btn--secondary" :disabled="editFoodBusy" @click="deleteEditingFood">Remove</button>
+            <button type="button" class="bb-btn bb-btn--primary" :disabled="editFoodBusy" @click="saveEditingFood">
+              {{ editFoodBusy ? 'Saving…' : 'Save' }}
+            </button>
+          </div>
+        </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -82,7 +375,7 @@ onMounted(() => {
 .page {
   max-width: 72rem;
   margin: 0 auto;
-  padding: 1.5rem 1.25rem 3.5rem;
+  padding: 1.25rem 1.25rem 3rem;
 }
 .top-nav {
   display: flex;
@@ -90,135 +383,438 @@ onMounted(() => {
   align-items: center;
   margin-bottom: 0.75rem;
 }
+.top-placeholder {
+  width: 1px;
+  height: 1px;
+}
 .link {
   color: var(--bb-primary);
   text-decoration: none;
   font-weight: 700;
-  font-size: 0.95rem;
 }
 .link-btn {
   border: none;
   background: transparent;
   cursor: pointer;
 }
-.link-placeholder {
-  width: 2rem;
+.muted {
+  color: var(--bb-muted);
 }
-
 .h1 {
+  margin: 0 0 0.2rem;
   font-family: var(--bb-font-headline);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  font-size: 2.15rem;
-  margin: 0 0 0.3rem;
+  font-size: 2.1rem;
   color: var(--bb-primary);
 }
 .sub {
-  margin: 0 0 1.2rem;
+  margin: 0 0 1rem;
   color: var(--bb-muted);
-  max-width: 50rem;
 }
-
-.content {
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
-}
-.cards {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-}
-
-.card {
-  background: var(--bb-surface-low);
-  border-radius: 16px;
-  padding: 1.15rem 1.25rem;
-  box-shadow: 0 12px 32px rgba(26, 28, 25, 0.04);
-}
-.card-h2 {
-  margin: 0;
-  font-family: var(--bb-font-headline);
-  font-size: 1.1rem;
-  letter-spacing: -0.01em;
-}
-.card-sub {
-  margin: 0.35rem 0 1rem;
-  color: var(--bb-muted);
-  font-size: 0.92rem;
-  line-height: 1.4;
-}
-.nav-card {
-  width: 100%;
-  border: 1px solid transparent;
-  text-align: left;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 0.9rem;
-  align-items: center;
-  cursor: pointer;
-}
-.nav-icon {
-  font-size: 1.5rem;
-  line-height: 1;
-}
-.nav-copy .card-sub {
-  margin: 0.15rem 0 0;
-}
-.nav-status {
-  font-size: 1.25rem;
-  color: var(--bb-muted);
-  font-weight: 900;
-}
-.nav-status.done {
-  color: #166534;
-}
-.card--texture,
-.card--temp,
-.card--diet,
-.card--safe {
-  background: var(--bb-surface-low);
-}
-
 .save-err {
-  margin: 0.5rem 0 0;
   color: #b91c1c;
   font-weight: 600;
-  font-size: 0.92rem;
 }
-
-.footer {
+.stack {
+  display: grid;
+  gap: 0.9rem;
+}
+.section-card {
+  background: var(--bb-surface-low);
+  border-radius: 16px;
+  padding: 0.8rem 0.9rem 0.95rem;
+}
+.section-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.35rem 0;
+}
+.section-head h2 {
+  margin: 0;
+  font-family: var(--bb-font-headline);
+  font-size: 1.95rem;
+  line-height: 1.05;
+}
+.section-head p {
+  margin: 0.3rem 0 0;
+  color: var(--bb-muted);
+}
+.right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 800;
+}
+.done {
+  color: #166534;
+}
+.section-body {
+  margin-top: 0.85rem;
+  border-top: 1px solid var(--bb-border);
+  padding-top: 0.85rem;
+}
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+.option-card {
+  border: 1px solid var(--bb-border);
+  background: #fff;
+  border-radius: 14px;
+  padding: 0.75rem 0.65rem;
+  text-align: center;
+  min-height: 110px;
+}
+.option-card.on {
+  border-color: var(--bb-primary);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--bb-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--bb-primary) 10%, #fff);
+}
+.opt-emoji {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.opt-title {
+  margin-top: 0.35rem;
+  font-weight: 800;
+  color: var(--bb-primary);
+}
+.opt-hint {
+  margin-top: 0.3rem;
+  color: var(--bb-muted);
+  font-size: 0.8rem;
+  line-height: 1.25;
+}
+.food-controls-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
 }
-.btn-primary {
+.food-controls-label {
+  font-weight: 700;
+}
+.food-summary-link {
   border: none;
-  background: var(--bb-cta-gradient);
-  color: #fff;
-  font-weight: 900;
-  border-radius: 10px;
-  padding: 0.7rem 1.1rem;
+  background: transparent;
+  color: var(--bb-primary);
+  font-weight: 700;
   cursor: pointer;
 }
-.btn-primary:disabled {
+.food-example-top {
+  margin: 0 0 0.5rem;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--bb-muted);
+  background: color-mix(in srgb, var(--bb-secondary-container) 55%, var(--bb-surface-lowest));
+  border: 1px solid var(--bb-border);
+  border-radius: 10px;
+}
+.food-help {
+  margin: 0.35rem 0 0.6rem;
+  color: var(--bb-muted);
+  font-size: 0.82rem;
+}
+.food-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px auto;
+  gap: 0.5rem;
+  align-items: start;
+}
+.food-input-wrap {
+  position: relative;
+}
+.food-input {
+  border: 1px solid var(--bb-border);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  background: #fff;
+  width: 100%;
+}
+.food-status-select {
+  border: 1px solid var(--bb-border);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  background: #fff;
+}
+.food-add-btn {
+  border: none;
+  background: transparent;
+  color: var(--bb-primary);
+  font-weight: 700;
+  padding: 0.55rem 0.45rem;
+  cursor: pointer;
+}
+.food-add-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
-.btn-primary--footer {
-  min-width: 260px;
+.picker-list {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--bb-border);
+  border-radius: 8px;
+  background: #fff;
+  position: absolute;
+  width: 100%;
+  z-index: 10;
+}
+.picker-item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0.45rem 0.65rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.picker-copy {
+  display: grid;
+}
+.picker-copy small {
+  color: var(--bb-muted);
+}
+.picker-thumb,
+.food-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--bb-surface-high);
+}
+.food-list {
+  margin: 0.9rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.4rem;
+}
+.food-item {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 0.55rem;
+  background: #fff;
+  border: 1px solid var(--bb-border);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+}
+.food-li {
+  list-style: none;
+}
+.food-item--example {
+  background: #f8fafc;
+}
+.food-item--clickable {
+  width: 100%;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  border: 1px solid var(--bb-border);
+}
+.food-item--clickable:focus-visible {
+  outline: 2px solid var(--bb-focus-ring);
+  outline-offset: 2px;
+}
+.food-name {
+  min-width: 0;
+}
+.food-name-wrap {
+  display: grid;
+}
+.food-note {
+  color: var(--bb-muted);
+  font-size: 0.75rem;
+}
+.food-status {
+  font-size: 0.75rem;
+  border-radius: 999px;
+  padding: 0.2rem 0.45rem;
+  line-height: 1;
+}
+.food-status--safe {
+  background: #dcfce7;
+  color: #166534;
+}
+.food-status--unsafe {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.food-status--unsure {
+  background: #fef3c7;
+  color: #92400e;
+}
+.save-btn {
+  margin-top: 0.85rem;
+}
+.footer {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+@media (max-width: 980px) {
+  .option-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .option-grid {
+    grid-template-columns: 1fr;
+  }
+  .food-add-row {
+    grid-template-columns: 1fr;
+  }
 }
 
-@media (max-width: 720px) {
-  .btn-primary--footer {
-    min-width: 0;
-    width: 100%;
-  }
-  .footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
+.food-edit-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.food-edit-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(26, 28, 25, 0.45);
+}
+.food-edit-root {
+  position: relative;
+  width: 100%;
+  max-width: 26rem;
+}
+.food-edit-modal {
+  background: var(--bb-surface-lowest);
+  border-radius: 16px;
+  box-shadow: 0 24px 48px rgba(26, 28, 25, 0.18);
+  border: 1px solid var(--bb-border);
+  overflow: hidden;
+}
+.food-edit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--bb-border);
+}
+.food-edit-title {
+  margin: 0;
+  font-family: var(--bb-font-headline);
+  font-size: 1.15rem;
+  color: var(--bb-primary);
+}
+.food-edit-close {
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--bb-muted);
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+}
+.food-edit-body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.food-edit-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bb-muted);
+}
+.food-edit-input {
+  border: 1px solid var(--bb-border);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  background: var(--bb-surface-low);
+  color: var(--bb-text);
+}
+.food-edit-input--readonly {
+  cursor: default;
+  color: var(--bb-muted);
+  background: color-mix(in srgb, var(--bb-surface-high) 65%, var(--bb-surface-lowest));
+}
+.food-edit-tag-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  margin-bottom: 0.35rem;
+  background: var(--bb-surface-low);
+  border: 1px solid var(--bb-border);
+  border-radius: 10px;
+}
+.food-edit-preview-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--bb-surface-high);
+  flex-shrink: 0;
+}
+.food-edit-preview-ph {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  font-size: 1.2rem;
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+.food-edit-preview-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.food-edit-preview-name {
+  font-weight: 700;
+  color: var(--bb-text);
+  font-size: 0.95rem;
+  line-height: 1.25;
+  word-break: break-word;
+}
+.food-edit-preview-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 0.22rem 0.45rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.food-edit-err {
+  margin: 0.25rem 0 0;
+  color: var(--bb-error);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.food-edit-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-top: 1px solid var(--bb-border);
+  background: color-mix(in srgb, var(--bb-surface-low) 55%, var(--bb-surface-lowest));
 }
 </style>
-

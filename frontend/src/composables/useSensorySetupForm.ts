@@ -1,7 +1,9 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiFetch } from '../lib/api'
+import { fetchWickedPickerItems, type WickedPickerItem } from '../lib/wickedIconPicker'
 import { parseSensoryFoodItemFromApi, persistSensoryCode, useSensoryProfile } from './useSensoryProfile'
+import { persistSensoryProfileSnapshot } from '../lib/sensorySnapshot'
 import { getBiteBudUserId } from './useUserId'
 import type { SensoryFoodItemDTO, SensoryFoodStatus } from '../types/sensory'
 
@@ -80,7 +82,7 @@ function currentUserId(): string {
   return id
 }
 
-function decodeUnsafeTexturePrefs(prefs: string[] | null | undefined): string[] {
+export function decodeUnsafeTexturePrefs(prefs: string[] | null | undefined): string[] {
   const unsafe: string[] = []
   for (const raw of prefs ?? []) {
     if (typeof raw !== 'string') continue
@@ -93,26 +95,19 @@ function encodeUnsafeTexturePrefs(unsafe: string[]): string[] {
   return uniq(unsafe).map((t) => `${TEXTURE_UNSAFE_PREFIX}${t}`)
 }
 
-type FoodWithExample = SensoryFoodItemDTO & { example?: boolean }
-
-/** Shown only when the profile has no real food items. No SAFE examples. */
-const EXAMPLE_FOODS: FoodWithExample[] = [
-  { id: 'ex-onion', name: 'Onion', status: 'UNSAFE', notes: {}, example: true },
-  { id: 'ex-egg', name: 'Scrambled Egg', status: 'UNSURE', notes: {}, example: true },
-]
-
 const selectedUnsafeTextures = ref<string[]>([])
 const selectedTemperatures = ref<string[]>([])
 const selectedDietary = ref<string[]>([])
 const selectedCultural = ref<string[]>([])
 const foodInputWickedIconId = ref('')
 const foodInputStatus = ref<SensoryFoodStatus>('UNSURE')
+const foodQuery = ref('')
+const pickerItems = ref<WickedPickerItem[]>([])
+const pickerLoading = ref(false)
+const pickerError = ref('')
 const addFoodError = ref('')
 const addFoodBusy = ref(false)
-const editingFood = ref<FoodWithExample | null>(null)
-const editingNotesTex = ref('')
-const editingNotesSmell = ref('')
-const editingNotesTemp = ref('')
+const editingFood = ref<SensoryFoodItemDTO | null>(null)
 const saveError = ref('')
 const lastUserId = ref<string | null>(null)
 
@@ -123,11 +118,9 @@ function resetLocalState() {
   selectedCultural.value = []
   foodInputWickedIconId.value = ''
   foodInputStatus.value = 'UNSURE'
+  foodQuery.value = ''
   addFoodError.value = ''
   editingFood.value = null
-  editingNotesTex.value = ''
-  editingNotesSmell.value = ''
-  editingNotesTemp.value = ''
   saveError.value = ''
 }
 
@@ -137,10 +130,14 @@ export function useSensorySetupForm() {
 
   const decodedUnsafeTextures = computed(() => decodeUnsafeTexturePrefs(profile.value?.texturePrefs ?? []))
   const realFoodItems = computed(() => profile.value?.foodItems ?? [])
-  const foodsForDisplay = computed<FoodWithExample[]>(() =>
-    realFoodItems.value.length ? realFoodItems.value.map((f) => ({ ...f, example: false })) : EXAMPLE_FOODS,
-  )
-  const showingExampleFoods = computed(() => realFoodItems.value.length === 0)
+  const foodsForDisplay = computed<SensoryFoodItemDTO[]>(() => realFoodItems.value)
+  const filteredPickerItems = computed(() => {
+    const q = foodQuery.value.trim().toLowerCase()
+    if (!q) return pickerItems.value.slice(0, 15)
+    return pickerItems.value
+      .filter((it) => it.label.toLowerCase().includes(q) || it.hint.toLowerCase().includes(q))
+      .slice(0, 15)
+  })
 
   watch(
     () => [profile.value, hasProfile.value, profileLoading.value, getBiteBudUserId() ?? ''] as const,
@@ -155,7 +152,6 @@ export function useSensorySetupForm() {
         resetLocalState()
         lastUserId.value = uid
       }
-      // Avoid wiping in-progress selections while profile is still loading on page transitions.
       if (loading) return
       if (!exists || !p) {
         if (userChanged) resetLocalState()
@@ -208,12 +204,58 @@ export function useSensorySetupForm() {
     return 'SOMETIMES'
   }
 
-  function onFoodRowClick(food: FoodWithExample) {
-    if (food.example) return
-    editingFood.value = food
-    editingNotesTex.value = food.notes?.texture ?? ''
-    editingNotesSmell.value = food.notes?.smell ?? ''
-    editingNotesTemp.value = food.notes?.temperature ?? ''
+  const editFoodError = ref('')
+  const editFoodBusy = ref(false)
+
+  /** Notes sent on save: keep icon/ingredient mapping only (no texture/smell/temperature UI). */
+  function notesForFoodEditPatch(notes: SensoryFoodItemDTO['notes'] | undefined): Record<string, unknown> {
+    const src = (notes ?? {}) as Record<string, unknown>
+    const out: Record<string, unknown> = {}
+    if (typeof src.wickedIconId === 'string' && src.wickedIconId.trim()) out.wickedIconId = src.wickedIconId.trim()
+    if (typeof src.ingredientKey === 'string' && src.ingredientKey.trim()) out.ingredientKey = src.ingredientKey.trim()
+    return out
+  }
+
+  async function loadFoodPickerItems() {
+    if (pickerItems.value.length || pickerLoading.value) return
+    pickerLoading.value = true
+    pickerError.value = ''
+    try {
+      pickerItems.value = await fetchWickedPickerItems()
+    } catch {
+      pickerError.value = 'Could not load food tags. You can still type a known icon id.'
+    } finally {
+      pickerLoading.value = false
+    }
+  }
+
+  async function onFoodRowClick(food: SensoryFoodItemDTO) {
+    editFoodError.value = ''
+    await loadFoodPickerItems()
+    let displayName = food.name
+    const wid = food.notes?.wickedIconId?.trim()
+    if (wid) {
+      const match = pickerItems.value.find((i) => i.wickedIconId === wid)
+      if (match?.label) displayName = match.label
+    }
+    editingFood.value = {
+      id: food.id,
+      name: displayName,
+      status: food.status,
+      notes: { ...(food.notes ?? {}) },
+    }
+  }
+
+  function choosePickerItem(item: WickedPickerItem) {
+    foodInputWickedIconId.value = item.wickedIconId
+    foodQuery.value = item.label
+    addFoodError.value = ''
+  }
+
+  function resolveWickedImage(iconId: string | undefined | null): string | null {
+    if (!iconId?.trim()) return null
+    // Prefer backend proxy endpoint; fallback handled in the UI on image error.
+    return `/api/icons/wicked/${iconId}`
   }
 
   async function ensureProfileCreated() {
@@ -221,16 +263,18 @@ export function useSensorySetupForm() {
     const uid = currentUserId()
     const texturePrefsEncoded = encodeUnsafeTexturePrefs(selectedUnsafeTextures.value)
     const tempPref = selectedTemperatures.value.length ? selectedTemperatures.value.join(',') : null
+    const profileBody = {
+      texturePrefs: texturePrefsEncoded,
+      temperaturePref: tempPref,
+      dietaryNeeds: selectedDietary.value,
+      culturalRequirements: selectedCultural.value,
+    }
     await apiFetch('/api/sensory/profile', {
       method: 'POST',
       headers: { 'X-User-Id': uid },
-      body: JSON.stringify({
-        texturePrefs: texturePrefsEncoded,
-        temperaturePref: tempPref,
-        dietaryNeeds: selectedDietary.value,
-        culturalRequirements: selectedCultural.value,
-      }),
+      body: JSON.stringify(profileBody),
     })
+    persistSensoryProfileSnapshot(profileBody)
     persistSensoryCode(uid)
     await refresh()
     if (!hasProfile.value) {
@@ -240,9 +284,14 @@ export function useSensorySetupForm() {
 
   async function addFood() {
     addFoodError.value = ''
+    if (!foodInputWickedIconId.value.trim() && foodQuery.value.trim()) {
+      const match = pickerItems.value.find((x) => x.label.toLowerCase() === foodQuery.value.trim().toLowerCase())
+      if (match) foodInputWickedIconId.value = match.wickedIconId
+    }
+
     const wickedIconId = foodInputWickedIconId.value.trim()
     if (!wickedIconId) {
-      addFoodError.value = 'Choose an ingredient from the list, then tap Add.'
+      addFoodError.value = 'Search and choose a food tag, then tap Add.'
       return
     }
     addFoodBusy.value = true
@@ -254,11 +303,12 @@ export function useSensorySetupForm() {
         body: JSON.stringify({ wickedIconId, status: foodInputStatus.value }),
       })
       foodInputWickedIconId.value = ''
+      foodQuery.value = ''
       foodInputStatus.value = 'UNSURE'
       try {
         await refresh()
       } catch {
-        /* refresh failed but item may exist — merge from POST body */
+        /* refresh failed but item may exist */
       }
       const merged = parseSensoryFoodItemFromApi(data.item)
       if (merged && profile.value && !profile.value.foodItems.some((f) => f.id === merged.id)) {
@@ -268,13 +318,7 @@ export function useSensorySetupForm() {
         }
       }
     } catch (e) {
-      const raw = e instanceof Error ? e.message : 'Could not add food.'
-      try {
-        const j = JSON.parse(raw) as { error?: string }
-        addFoodError.value = j.error ?? raw
-      } catch {
-        addFoodError.value = raw
-      }
+      addFoodError.value = e instanceof Error ? e.message : 'Could not add food.'
     } finally {
       addFoodBusy.value = false
     }
@@ -282,45 +326,61 @@ export function useSensorySetupForm() {
 
   async function saveEditingFood() {
     if (!editingFood.value) return
-    const prev = { ...(editingFood.value.notes as Record<string, string>) }
-    const tex = editingNotesTex.value.trim()
-    const sm = editingNotesSmell.value.trim()
-    const tp = editingNotesTemp.value.trim()
-    if (tex) prev.texture = tex
-    else delete prev.texture
-    if (sm) prev.smell = sm
-    else delete prev.smell
-    if (tp) prev.temperature = tp
-    else delete prev.temperature
-    await apiFetch(`/api/sensory/items/${editingFood.value.id}`, {
-      method: 'PATCH',
-      headers: { 'X-User-Id': currentUserId() },
-      body: JSON.stringify({
-        status: editingFood.value.status,
-        notes: prev,
-      }),
-    })
-    editingFood.value = null
-    await refresh()
+    editFoodError.value = ''
+    const name = editingFood.value.name.trim()
+    if (!name) {
+      editFoodError.value = 'Food name is required.'
+      return
+    }
+    if (name.length > 200) {
+      editFoodError.value = 'Food name is too long (max 200 characters).'
+      return
+    }
+    const notesPayload = notesForFoodEditPatch(editingFood.value.notes)
+    editFoodBusy.value = true
+    try {
+      await apiFetch(`/api/sensory/items/${editingFood.value.id}`, {
+        method: 'PATCH',
+        headers: { 'X-User-Id': currentUserId() },
+        body: JSON.stringify({
+          name,
+          status: editingFood.value.status,
+          notes: notesPayload,
+        }),
+      })
+      editingFood.value = null
+      await refresh()
+    } catch (e) {
+      editFoodError.value = e instanceof Error ? e.message : 'Could not save changes.'
+    } finally {
+      editFoodBusy.value = false
+    }
   }
 
   async function deleteEditingFood() {
     if (!editingFood.value) return
-    await apiFetch(`/api/sensory/items/${editingFood.value.id}`, {
-      method: 'DELETE',
-      headers: { 'X-User-Id': currentUserId() },
-    })
-    editingFood.value = null
-    await refresh()
+    editFoodError.value = ''
+    editFoodBusy.value = true
+    try {
+      await apiFetch(`/api/sensory/items/${editingFood.value.id}`, {
+        method: 'DELETE',
+        headers: { 'X-User-Id': currentUserId() },
+      })
+      editingFood.value = null
+      await refresh()
+    } catch (e) {
+      editFoodError.value = e instanceof Error ? e.message : 'Could not remove item.'
+    } finally {
+      editFoodBusy.value = false
+    }
   }
 
   function onCloseEdit() {
+    editFoodError.value = ''
     editingFood.value = null
   }
 
-  const textureDone = computed(
-    () => selectedUnsafeTextures.value.length > 0,
-  )
+  const textureDone = computed(() => selectedUnsafeTextures.value.length > 0)
   const temperatureDone = computed(() => selectedTemperatures.value.length > 0)
   const dietaryDone = computed(() => selectedDietary.value.length + selectedCultural.value.length > 0)
   const foodSafetyDone = computed(() => realFoodItems.value.length > 0)
@@ -330,16 +390,18 @@ export function useSensorySetupForm() {
     const uid = currentUserId()
     const texturePrefsEncoded = encodeUnsafeTexturePrefs(selectedUnsafeTextures.value)
     const tempPref = selectedTemperatures.value.length ? selectedTemperatures.value.join(',') : null
+    const profileBody = {
+      texturePrefs: texturePrefsEncoded,
+      temperaturePref: tempPref,
+      dietaryNeeds: selectedDietary.value,
+      culturalRequirements: selectedCultural.value,
+    }
     await apiFetch('/api/sensory/profile', {
       method: 'POST',
       headers: { 'X-User-Id': uid },
-      body: JSON.stringify({
-        texturePrefs: texturePrefsEncoded,
-        temperaturePref: tempPref,
-        dietaryNeeds: selectedDietary.value,
-        culturalRequirements: selectedCultural.value,
-      }),
+      body: JSON.stringify(profileBody),
     })
+    persistSensoryProfileSnapshot(profileBody)
     persistSensoryCode(uid)
     await refresh()
   }
@@ -354,6 +416,22 @@ export function useSensorySetupForm() {
     }
   }
 
+  async function saveTexturesSection() {
+    await saveProfileOnly()
+  }
+
+  async function saveTemperaturesSection() {
+    await saveProfileOnly()
+  }
+
+  async function saveDietaryCulturalSection() {
+    await saveProfileOnly()
+  }
+
+  async function saveFoodSafetySection() {
+    await ensureProfileCreated()
+  }
+
   return {
     profileLoading,
     saveError,
@@ -363,14 +441,17 @@ export function useSensorySetupForm() {
     selectedCultural,
     foodInputWickedIconId,
     foodInputStatus,
+    foodQuery,
+    pickerLoading,
+    pickerError,
+    filteredPickerItems,
+    resolveWickedImage,
     addFoodError,
     addFoodBusy,
     editingFood,
-    editingNotesTex,
-    editingNotesSmell,
-    editingNotesTemp,
+    editFoodError,
+    editFoodBusy,
     foodsForDisplay,
-    showingExampleFoods,
     textureDone,
     temperatureDone,
     dietaryDone,
@@ -382,11 +463,17 @@ export function useSensorySetupForm() {
     statusPillClasses,
     statusLabel,
     onFoodRowClick,
+    loadFoodPickerItems,
+    choosePickerItem,
     addFood,
     saveEditingFood,
     deleteEditingFood,
     onCloseEdit,
     saveProfileOnly,
     saveAndViewSummary,
+    saveTexturesSection,
+    saveTemperaturesSection,
+    saveDietaryCulturalSection,
+    saveFoodSafetySection,
   }
 }
