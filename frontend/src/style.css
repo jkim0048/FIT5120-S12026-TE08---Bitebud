@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Serif:wght@600;700&display=swap');
-
 :root {
   font-family: var(--bb-font-body, system-ui), system-ui, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
@@ -8,32 +6,32 @@
   font-size: var(--bb-font-size, 16px);
 
   /* Typography */
-  --bb-font-headline: 'Noto Serif';
-  --bb-font-body: 'Manrope';
-  --bb-font-label: 'Manrope';
+  --bb-font-headline: 'Manrope';
+  --bb-font-body: 'Public Sans';
+  --bb-font-label: 'Inter';
 
-  --bb-bg: #f6f7f5;
-  --bb-surface: #f4f5f3;
-  --bb-surface-low: #eceeeb;
+  /* DESIGN.md palette (restore previous look) */
+  --bb-bg: #fafaf5;
+  --bb-surface: #fafaf5;
+  --bb-surface-low: #f4f4ef;
   --bb-surface-lowest: #ffffff;
-  --bb-surface-high: #e7e9e6;
-  --bb-surface-highest: #e1e3e0;
-  --bb-surface-container: #eff1ee;
+  --bb-surface-high: #e8e8e3;
+  --bb-surface-highest: #e3e3de;
+  --bb-surface-container: #eeeee9;
 
-  --bb-text: #1a1d1b;
-  --bb-muted: #4f5653;
-  --bb-outline: rgba(72, 72, 72, 0.2);
+  --bb-text: #1a1c19;
+  /* Slightly darker for better light-mode readability */
+  --bb-muted: #2f3436;
+  /* Stronger borders so cards/sections don't wash out */
+  --bb-outline: rgba(26, 28, 25, 0.14);
 
-  --bb-primary: #2d4c46;
-  --bb-primary-dim: #9ec0b7;
-  --bb-primary-container: #accec5;
-  --bb-secondary-container: #d4dfdb;
-  --bb-on-secondary-container: #1c312d;
-  --bb-on-primary: #f8f9f8;
-  --bb-on-primary-container: #0f1f1c;
+  --bb-primary: #446271;
+  --bb-primary-container: #5d7b8a;
+  --bb-secondary-container: #d2e6c5;
+  /* Keep older palette, but ensure readable label contrast */
+  --bb-on-secondary-container: #1a1c19;
 
-  --bb-error: #ee7d77;
-  --bb-error-container: #7f2927;
+  --bb-error: #ba1a1a;
 
   --bb-border: var(--bb-outline);
   --bb-accent: var(--bb-primary);
@@ -41,7 +39,7 @@
   --bb-done: #a8a29e;
   --bb-focus-ring: var(--bb-primary);
 
-  --bb-cta-gradient: linear-gradient(135deg, var(--bb-primary-container), var(--bb-primary));
+  --bb-cta-gradient: linear-gradient(90deg, var(--bb-primary), var(--bb-primary-container));
 
   --bb-bg-tint: transparent;
 }
@@ -59,30 +57,30 @@ body {
 
 html.bb-dark {
   color-scheme: dark;
-  --bb-bg: #0e0e0e;
-  --bb-surface: #0e0e0e;
-  --bb-surface-low: #121313;
-  --bb-surface-lowest: #000000;
-  --bb-surface-high: #1f2020;
-  --bb-surface-highest: rgba(35, 36, 36, 0.7);
-  --bb-surface-container: #191a1a;
-  --bb-text: #e7e5e5;
-  --bb-muted: #b8bbb8;
-  --bb-outline: rgba(72, 72, 72, 0.2);
+  /* Keep typography consistent (inherits from :root). */
+  --bb-bg: #0c0a09;
+  --bb-surface: #111827;
+  --bb-surface-low: #0f172a;
+  --bb-surface-lowest: #0b1220;
+  --bb-surface-high: #1f2937;
+  --bb-surface-highest: rgba(31, 41, 55, 0.7);
+  --bb-surface-container: #111827;
+  --bb-text: #f9fafb;
+  --bb-muted: #cbd5e1;
+  --bb-outline: rgba(194, 199, 203, 0.2);
   --bb-border: var(--bb-outline);
-  --bb-primary: #accec5;
-  --bb-primary-dim: #9ec0b7;
-  --bb-primary-container: #2d4c46;
-  --bb-on-primary: #0f1f1c;
-  --bb-on-primary-container: #e5f2ef;
-  --bb-secondary-container: #232726;
-  --bb-on-secondary-container: #c1cec8;
-  --bb-error: #ee7d77;
-  --bb-error-container: #7f2927;
+
+  /* Dark-mode palette aligned with the restored primary hue. */
+  --bb-primary: #accbdc;
+  --bb-primary-container: #5d7b8a;
+  --bb-secondary-container: #2b3440;
+  --bb-on-secondary-container: #cbd5e1;
+  --bb-error: #ff6b6b;
+
   --bb-accent: var(--bb-primary);
-  --bb-accent-soft: #1b2321;
+  --bb-accent-soft: #1f2937;
   --bb-focus-ring: var(--bb-primary);
-  --bb-cta-gradient: linear-gradient(135deg, var(--bb-primary), var(--bb-primary-container));
+  --bb-cta-gradient: linear-gradient(90deg, var(--bb-primary), var(--bb-primary-container));
 }
 
 #app {
@@ -130,7 +128,7 @@ select:focus-visible {
   z-index: 200;
   padding: 0.45rem 0.9rem;
   background: var(--bb-surface);
-  border: 1px solid color-mix(in srgb, var(--bb-outline) 60%, transparent);
+  border: 1px solid var(--bb-border);
   border-radius: 8px;
   color: var(--bb-text);
   text-decoration: none;
@@ -152,8 +150,8 @@ select:focus-visible {
   border-radius: 8px;
   font-weight: 600;
   font: inherit;
-  border: 1px solid color-mix(in srgb, var(--bb-outline) 40%, transparent);
-  background: var(--bb-surface-high);
+  border: 1px solid var(--bb-border);
+  background: var(--bb-surface-lowest);
   color: var(--bb-text);
   text-decoration: none;
   cursor: pointer;
@@ -164,23 +162,18 @@ select:focus-visible {
 }
 .bb-btn--primary {
   background: var(--bb-cta-gradient);
-  color: var(--bb-on-primary);
-  border: none;
+  color: #fff;
+  border-color: transparent;
 }
 .bb-btn--secondary {
-  background: var(--bb-surface-highest);
-  color: var(--bb-primary);
+  background: var(--bb-secondary-container);
+  color: var(--bb-on-secondary-container);
   border-color: transparent;
 }
 .bb-btn--ghost {
   background: transparent;
   border-color: transparent;
   color: var(--bb-accent);
-  text-decoration: none;
-}
-.bb-btn--ghost:hover {
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 .skeleton {

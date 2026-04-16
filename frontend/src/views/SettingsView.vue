@@ -1,26 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSettings, type BackgroundTint, type TextSize } from '../composables/useSettings'
-import { useTtsVoices } from '../lib/ttsVoices'
 
 const router = useRouter()
 const { settings } = useSettings()
-const ttsVoices = useTtsVoices()
 
 const textSizes: Array<{ id: TextSize; label: string }> = [
   { id: 'small', label: 'A' },
   { id: 'medium', label: 'A' },
   { id: 'large', label: 'A' },
 ]
-
-const voices = computed(() => {
-  const uniq = Array.from(new Set(ttsVoices.value.map((v) => v.name))).filter(Boolean)
-  // keep saved voice at top even if not in list yet
-  const saved = settings.value.voice
-  const merged = saved && !uniq.includes(saved) ? [saved, ...uniq] : uniq
-  return merged.length ? merged : [saved || 'Default']
-})
 
 function setTextSize(v: TextSize) {
   settings.value.textSize = v
@@ -61,32 +50,11 @@ function setTint(v: BackgroundTint) {
 
       <div class="row">
         <div class="row-left">
-          <div class="row-title">Volume</div>
-        </div>
-        <div class="row-right wide">
-          <input v-model.number="settings.volume" type="range" min="0" max="1" step="0.01" class="range" />
-          <div class="range-val">{{ Math.round(settings.volume * 100) }}%</div>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-left">
-          <div class="row-title">Rate</div>
+          <div class="row-title">Voice Speed</div>
         </div>
         <div class="row-right wide">
           <input v-model.number="settings.rate" type="range" min="0.5" max="2" step="0.05" class="range" />
           <div class="range-val">{{ settings.rate.toFixed(2) }}×</div>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-left">
-          <div class="row-title">Voice</div>
-        </div>
-        <div class="row-right">
-          <select v-model="settings.voice" class="select">
-            <option v-for="v in voices" :key="v" :value="v">{{ v }}</option>
-          </select>
         </div>
       </div>
 

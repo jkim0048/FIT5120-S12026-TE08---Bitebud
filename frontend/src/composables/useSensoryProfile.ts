@@ -62,9 +62,6 @@ function parseFoodItems(raw: Record<string, unknown>): SensoryFoodItemDTO[] {
 
 function parseProfile(raw: Record<string, unknown> | null): SensoryProfileFields | null {
   if (!raw) return null
-  const tp = raw.temperaturePref
-  const temperaturePref =
-    typeof tp === 'string' && tp.trim() ? tp : tp == null ? null : String(tp)
 
   const foodItems = parseFoodItems(raw)
   const legacySafe = strings('safeFoods', raw)
@@ -86,7 +83,6 @@ function parseProfile(raw: Record<string, unknown> | null): SensoryProfileFields
 
   return {
     texturePrefs: strings('texturePrefs', raw),
-    temperaturePref,
     dietaryNeeds: strings('dietaryNeeds', raw),
     culturalRequirements: strings('culturalRequirements', raw),
     safeFoods,

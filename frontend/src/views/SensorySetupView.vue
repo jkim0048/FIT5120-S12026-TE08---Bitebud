@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router'
 import {
   CULTURAL_CHIPS,
   DIETARY_CHIPS,
-  TEMPERATURE_PRESENTATION,
   TEXTURE_OPTION_PRESENTATION,
   TEXTURE_OPTIONS,
   useSensorySetupForm,
@@ -12,15 +11,14 @@ import {
 import { getBiteBudUserId } from '../composables/useUserId'
 
 const router = useRouter()
-const expanded = ref<'texture' | 'temperature' | 'dietary' | 'food' | null>(null)
+const expanded = ref<'texture' | 'dietary' | 'food' | null>(null)
 
-const SECTION_ORDER = ['texture', 'temperature', 'dietary', 'food'] as const
+const SECTION_ORDER = ['texture', 'dietary', 'food'] as const
 
 const {
   profileLoading,
   saveError,
   selectedUnsafeTextures,
-  selectedTemperatures,
   selectedDietary,
   selectedCultural,
   foodInputStatus,
@@ -32,11 +30,9 @@ const {
   addFoodBusy,
   foodsForDisplay,
   textureDone,
-  temperatureDone,
   dietaryDone,
   foodSafetyDone,
   toggleUnsafeTexture,
-  toggleTemperature,
   toggleDietary,
   toggleCultural,
   loadFoodPickerItems,
@@ -45,7 +41,6 @@ const {
   addFood,
   saveAndViewSummary,
   saveTexturesSection,
-  saveTemperaturesSection,
   saveDietaryCulturalSection,
   saveFoodSafetySection,
   editingFood,
@@ -57,25 +52,24 @@ const {
   onCloseEdit,
 } = useSensorySetupForm()
 
-const sectionBusy = ref<'texture' | 'temperature' | 'dietary' | 'food' | null>(null)
+const sectionBusy = ref<'texture' | 'dietary' | 'food' | null>(null)
 const sectionError = ref('')
 
 onMounted(() => {
   if (!getBiteBudUserId()) router.replace({ name: 'auth' })
 })
 
-function toggleSection(name: 'texture' | 'temperature' | 'dietary' | 'food') {
+function toggleSection(name: 'texture' | 'dietary' | 'food') {
   expanded.value = expanded.value === name ? null : name
   sectionError.value = ''
   if (name === 'food') void loadFoodPickerItems()
 }
 
-async function saveSection(name: 'texture' | 'temperature' | 'dietary' | 'food') {
+async function saveSection(name: 'texture' | 'dietary' | 'food') {
   sectionError.value = ''
   sectionBusy.value = name
   try {
     if (name === 'texture') await saveTexturesSection()
-    if (name === 'temperature') await saveTemperaturesSection()
     if (name === 'dietary') await saveDietaryCulturalSection()
     if (name === 'food') await saveFoodSafetySection()
 
@@ -126,7 +120,7 @@ function onFoodEditThumbError(e: Event) {
       <article class="section-card">
         <button type="button" class="section-head" @click="toggleSection('texture')">
           <div>
-            <h2>Unsafe Textures</h2>
+            <h2>Sensory Challenging Textures</h2>
             <p>Select textures that are not safe for you.</p>
           </div>
           <div class="right">
@@ -152,39 +146,6 @@ function onFoodEditThumbError(e: Event) {
           </div>
           <button type="button" class="bb-btn bb-btn--primary save-btn" :disabled="sectionBusy === 'texture'" @click="saveSection('texture')">
             {{ sectionBusy === 'texture' ? 'Saving…' : 'Save and Next' }}
-          </button>
-        </div>
-      </article>
-
-      <article class="section-card">
-        <button type="button" class="section-head" @click="toggleSection('temperature')">
-          <div>
-            <h2>Unsafe Temperatures</h2>
-            <p>Select temperatures you want us to avoid in suggestions.</p>
-          </div>
-          <div class="right">
-            <span class="done">{{ temperatureDone ? '✓' : '○' }}</span>
-            <span>{{ expanded === 'temperature' ? '−' : '+' }}</span>
-          </div>
-        </button>
-        <div v-if="expanded === 'temperature'" class="section-body">
-          <div class="option-grid">
-            <button
-              v-for="opt in TEMPERATURE_PRESENTATION"
-              :key="opt.value"
-              type="button"
-              class="option-card"
-              :class="{ on: selectedTemperatures.includes(opt.value) }"
-              :aria-pressed="selectedTemperatures.includes(opt.value)"
-              @click="toggleTemperature(opt.value)"
-            >
-              <div class="opt-emoji">{{ opt.emoji }}</div>
-              <div class="opt-title">{{ opt.value }}</div>
-              <div class="opt-hint">{{ opt.hint }}</div>
-            </button>
-          </div>
-          <button type="button" class="bb-btn bb-btn--primary save-btn" :disabled="sectionBusy === 'temperature'" @click="saveSection('temperature')">
-            {{ sectionBusy === 'temperature' ? 'Saving…' : 'Save and Next' }}
           </button>
         </div>
       </article>
@@ -226,7 +187,7 @@ function onFoodEditThumbError(e: Event) {
         <button type="button" class="section-head" @click="toggleSection('food')">
           <div>
             <h2>Any food Allergies or Intolerances</h2>
-            <p>Tag ingredients from the Wicked library so we can match icons in recipes.</p>
+            <p>Tag ingredients from the ingredients library so know your preference.</p>
           </div>
           <div class="right">
             <span class="done">{{ foodSafetyDone ? '✓' : '○' }}</span>
@@ -237,7 +198,7 @@ function onFoodEditThumbError(e: Event) {
           <div class="food-controls-head">
             <span class="food-controls-label">Add food Item from the list</span>
           </div>
-          <p class="food-help">Icons are stored in wicked_icons and matched during recipe suggestions.</p>
+          <p class="food-help">Click or search for an ingredient.</p>
 
           <div class="food-add-row">
             <div class="food-input-wrap">
@@ -419,7 +380,8 @@ function onFoodEditThumbError(e: Event) {
   gap: 0.9rem;
 }
 .section-card {
-  background: var(--bb-surface-low);
+  background: var(--bb-surface-lowest);
+  border: 1px solid var(--bb-border);
   border-radius: 16px;
   padding: 0.8rem 0.9rem 0.95rem;
 }
@@ -432,16 +394,18 @@ function onFoodEditThumbError(e: Event) {
   background: transparent;
   text-align: left;
   padding: 0.35rem 0;
+  color: var(--bb-text);
 }
 .section-head h2 {
   margin: 0;
   font-family: var(--bb-font-headline);
   font-size: 1.95rem;
   line-height: 1.05;
+  color: var(--bb-text);
 }
 .section-head p {
   margin: 0.3rem 0 0;
-  color: var(--bb-muted);
+  color: color-mix(in srgb, var(--bb-text) 75%, var(--bb-bg));
 }
 .right {
   display: flex;

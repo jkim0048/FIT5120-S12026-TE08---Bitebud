@@ -72,15 +72,18 @@ export function recipeIngredientNodes(graph: RecipeGraph): RecipeNode[] {
 
 const TEXTURE_UNSAFE_PREFIX = "unsafe:";
 
-export function decodeUnsafeTexturePrefs(prefs: unknown): TextureValue[] {
-  const out: TextureValue[] = [];
-  const allowed = new Set<string>(TEXTURE_VALUES);
+const PROFILE_TEXTURE_EXTRAS = ["Powdery"] as const;
+export type ProfileTextureValue = TextureValue | (typeof PROFILE_TEXTURE_EXTRAS)[number];
+
+export function decodeUnsafeTexturePrefs(prefs: unknown): ProfileTextureValue[] {
+  const out: ProfileTextureValue[] = [];
+  const allowed = new Set<string>([...TEXTURE_VALUES, ...PROFILE_TEXTURE_EXTRAS]);
   if (!Array.isArray(prefs)) return out;
   for (const raw of prefs) {
     if (typeof raw !== "string") continue;
     if (!raw.startsWith(TEXTURE_UNSAFE_PREFIX)) continue;
     const v = raw.slice(TEXTURE_UNSAFE_PREFIX.length).trim();
-    if (allowed.has(v) && !out.includes(v as TextureValue)) out.push(v as TextureValue);
+    if (allowed.has(v) && !out.includes(v as ProfileTextureValue)) out.push(v as ProfileTextureValue);
   }
   return out;
 }
@@ -108,12 +111,12 @@ export type TextureConflict = {
 
 export function computeTextureConflictsFromIngredientLines(
   lines: string[],
-  unsafeTextures: TextureValue[],
+  unsafeTextures: readonly ProfileTextureValue[],
 ): TextureConflict[] {
   const out: TextureConflict[] = [];
   if (!unsafeTextures.length || !lines.length) return out;
 
-  const unsafeSet = new Set<TextureValue>(unsafeTextures);
+  const unsafeSet = new Set<string>(unsafeTextures);
   const ingredientNames = Object.keys(INGREDIENT_TEXTURES);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
