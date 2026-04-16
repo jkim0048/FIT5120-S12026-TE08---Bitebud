@@ -144,23 +144,23 @@ async function linkRecipeToUser(recipeId: string, userId: string | null): Promis
 async function parseRecipeTextToGraphResilient(
   text: string,
   sourceUrl?: string | null,
-): Promise<{ graph: RecipeGraph; refined: boolean }> {
+): Promise<{ graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "openrouter" | "basic" }> {
   try {
     const graph = await parseRecipeTextToGraph(text, sourceUrl);
-    return { graph, refined: true };
+    return { graph, refined: true, parserSource: "gemini" };
   } catch (e) {
     if (!isGeminiBusyError(e)) throw e;
     // If OpenRouter is configured, try it before falling back to basic parsing.
     if (process.env.OPENROUTER_API_KEY?.trim()) {
       try {
         const graph = await parseRecipeTextToGraphViaOpenRouter(text, sourceUrl);
-        return { graph, refined: true };
+        return { graph, refined: true, parserSource: "openrouter" };
       } catch {
         // fall through to local basic parsing
       }
     }
     const graph = basicRecipeTextToGraph({ text, sourceUrl: sourceUrl ?? null });
-    return { graph, refined: false };
+    return { graph, refined: false, parserSource: "basic" };
   }
 }
 
@@ -269,7 +269,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     }
     const textToParse = resolvedInput.text;
     const sourceUrl = body.sourceUrl?.trim() || resolvedInput.sourceUrl;
-    let parsed: { graph: RecipeGraph; refined: boolean };
+    let parsed: { graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "openrouter" | "basic" };
     try {
       parsed = await parseRecipeTextToGraphResilient(textToParse, sourceUrl);
     } catch (e) {
@@ -287,7 +287,10 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const resolved = await withIcons(graph, userId);
     const saved = await persistGraph(resolved, { rawText: textToParse, refined });
     await linkRecipeToUser(saved.recipeId, userId);
-    return reply.send(saved);
+    return reply.send({
+      ...saved,
+      parserSource: parsed.parserSource,
+    });
   });
 
   app.get("/api/recipes/search", async (request, reply) => {
@@ -391,7 +394,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const existing = await prisma.recipe.findUnique({
       where: { mealDbId: body.mealDbId },
     });
-    if (existing) {
+    if (existing && existing.refined) {
       if (existing.totalTimeMinutes == null && knownTime != null) {
         await prisma.recipe.update({
           where: { id: existing.id },
@@ -420,6 +423,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       return reply.send({
         recipeId: existing.id,
         graph: resolved,
+        parserSource: "cached",
       });
     }
     const meal = await lookupMealById(body.mealDbId);
@@ -432,6 +436,37 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       knownTime != null && (resolved.totalTimeMinutes == null || !Number.isFinite(resolved.totalTimeMinutes))
         ? { ...resolved, totalTimeMinutes: knownTime }
         : resolved;
+    if (existing && !existing.refined) {
+      const derived = deriveRecipeMetadata(resolvedWithTime);
+      const totalTimeMinutesOut =
+        knownTime != null && (resolvedWithTime.totalTimeMinutes == null || !Number.isFinite(resolvedWithTime.totalTimeMinutes))
+          ? knownTime
+          : (resolvedWithTime.totalTimeMinutes ?? null);
+      const fullGraph: RecipeGraph = { ...resolvedWithTime, id: existing.id, totalTimeMinutes: totalTimeMinutesOut };
+      await prisma.recipe.update({
+        where: { id: existing.id },
+        data: {
+          title: fullGraph.title,
+          imageUrl: imageUrl ?? null,
+          sourceUrl: fullGraph.sourceUrl ?? null,
+          totalTimeMinutes: totalTimeMinutesOut,
+          servings: fullGraph.servings ?? null,
+          graph: fullGraph as object,
+          rawText: text,
+          refined,
+          complexity: derived.complexity ?? null,
+          heatLevel: derived.heatLevel ?? null,
+          tags: (derived.tags ?? []) as unknown as object,
+        },
+      });
+      await linkRecipeToUser(existing.id, userId);
+      return reply.send({
+        recipeId: existing.id,
+        graph: fullGraph,
+        parserSource: parsed.parserSource,
+      });
+    }
+
     const saved = await persistGraph(resolvedWithTime, {
       mealDbId: body.mealDbId,
       rawText: text,
@@ -442,12 +477,15 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       // Keep persisted graph JSON in sync with the DB column where possible.
       await prisma.recipe.update({
         where: { id: saved.recipeId },
-        data: { totalTimeMinutes: knownTime, graph: { ...(saved.graph as unknown as object), totalTimeMinutes: knownTime } as object },
+        data: {
+          totalTimeMinutes: knownTime,
+          graph: { ...(saved.graph as unknown as object), totalTimeMinutes: knownTime } as object,
+        },
       });
       saved.graph.totalTimeMinutes = knownTime;
     }
     await linkRecipeToUser(saved.recipeId, userId);
-    return reply.send(saved);
+    return reply.send({ ...saved, parserSource: parsed.parserSource });
   });
 
   app.get("/api/recipes/:id/sensory-conflicts", async (request, reply) => {
@@ -504,6 +542,48 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
     let recipe = await prisma.recipe.findUnique({ where: { id } });
     if (!recipe) return reply.status(404).send({ error: "Not found" });
+
+    if (recipe.mealDbId && !recipe.refined) {
+      try {
+        const mealDbMinutes = await getMealDbMinutes();
+        const knownTime = mealDbMinutes.get(recipe.mealDbId) ?? null;
+        const meal = await lookupMealById(recipe.mealDbId);
+        const { text, sourceUrl, imageUrl } = mealToRecipeText(meal);
+        const parsed = await parseRecipeTextToGraphResilient(text, sourceUrl);
+        const graph = enrichGraphWithMealDbImages(meal, parsed.graph);
+        const refined = parsed.refined;
+        const derived = deriveRecipeMetadata(graph);
+
+        const totalTimeMinutesOut =
+          knownTime != null && (graph.totalTimeMinutes == null || !Number.isFinite(graph.totalTimeMinutes))
+            ? knownTime
+            : (graph.totalTimeMinutes ?? null);
+        const fullGraph: RecipeGraph = { ...graph, id: recipe.id, totalTimeMinutes: totalTimeMinutesOut };
+
+        await prisma.recipe.update({
+          where: { id: recipe.id },
+          data: {
+            title: fullGraph.title,
+            imageUrl: imageUrl ?? null,
+            sourceUrl: fullGraph.sourceUrl ?? null,
+            totalTimeMinutes: totalTimeMinutesOut,
+            servings: fullGraph.servings ?? null,
+            graph: fullGraph as object,
+            rawText: text,
+            refined,
+            complexity: derived.complexity ?? null,
+            heatLevel: derived.heatLevel ?? null,
+            tags: (derived.tags ?? []) as unknown as object,
+          },
+        });
+
+        const refreshed = await prisma.recipe.findUnique({ where: { id } });
+        if (!refreshed) return reply.status(404).send({ error: "Not found" });
+        recipe = refreshed;
+      } catch {
+        // If refresh fails, fall back to existing cached record.
+      }
+    }
 
     let imageUrlOut = recipe.imageUrl;
     if (!imageUrlOut && recipe.mealDbId) {
@@ -574,7 +654,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         ...(recipe.imageUrl == null && mealThumb ? { imageUrl: mealThumb } : {}),
       },
     });
-    return reply.send({ ok: true });
+    return reply.send({ ok: true, parserSource: parsed.parserSource });
   });
 
   app.post("/api/recipes/:id/progress", async (request, reply) => {

@@ -198,11 +198,15 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
                 role="listitem"
                 :class="{ done: completed.has(s.id) }"
                 :title="s.detail || s.label"
+                  :aria-label="`View details: ${s.label}`"
                 @click="onStepClick(s)"
               >
                 <div class="step-top">
                   <span class="step-emo" aria-hidden="true">{{ s.emoji ?? '•' }}</span>
-                  <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
+                    <div class="step-top-right">
+                      <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
+                  <span class="step-view-details" aria-hidden="true">View details</span>
+                    </div>
                 </div>
                 <div class="step-title step-title--clamp">{{ s.label }}</div>
               </button>
@@ -224,11 +228,15 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
               role="listitem"
               :class="{ done: completed.has(s.id) }"
               :title="s.detail || s.label"
+                :aria-label="`View details: ${s.label}`"
               @click="onStepClick(s)"
             >
               <div class="step-top">
                 <span class="step-emo" aria-hidden="true">{{ s.emoji ?? '•' }}</span>
-                <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
+                  <div class="step-top-right">
+                    <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
+                  <span class="step-view-details" aria-hidden="true">View details</span>
+                  </div>
               </div>
               <div class="step-title step-title--clamp">{{ s.label }}</div>
             </button>
@@ -274,11 +282,16 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
               type="button"
               class="step"
               :class="{ done: completed.has(s.id) }"
+              :title="s.detail || s.label"
+              :aria-label="`View details: ${s.label}`"
               @click="onStepClick(s)"
             >
               <div class="step-top">
                 <span class="step-emo" aria-hidden="true">{{ s.emoji ?? '•' }}</span>
-                <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
+                <div class="step-top-right">
+                  <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
+                  <span class="step-view-details" aria-hidden="true">View details</span>
+                </div>
               </div>
               <div class="step-title">{{ s.label }}</div>
             </button>
@@ -413,6 +426,10 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
 }
 .step--strip:active {
   transform: translateY(0);
+}
+.step--strip:focus-visible {
+  outline: 2px solid var(--bb-focus-ring);
+  outline-offset: 2px;
 }
 .step--strip.done {
   /* Keep done steps readable in light mode */
@@ -616,6 +633,10 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
 .step:active {
   transform: translateY(0);
 }
+.step:focus-visible {
+  outline: 2px solid var(--bb-focus-ring);
+  outline-offset: 2px;
+}
 .step.done {
   opacity: 0.68;
 }
@@ -624,6 +645,32 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 0.35rem;
+}
+.step-top-right {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.step-view-details {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  color: var(--bb-muted);
+  background: color-mix(in srgb, var(--bb-muted) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bb-muted) 18%, transparent);
+  opacity: 0.92;
+  white-space: nowrap;
+}
+.step:hover .step-view-details,
+.step--strip:hover .step-view-details {
+  color: var(--bb-accent);
+  background: color-mix(in srgb, var(--bb-accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--bb-accent) 26%, transparent);
 }
 .step-emo {
   font-size: 1.15rem;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PasteRecipeGuide from '../components/PasteRecipeGuide.vue'
 import { useSensoryProfile } from '../composables/useSensoryProfile'
@@ -58,7 +58,12 @@ const filterMode = ref<'safeDishes' | 'showAll'>('safeDishes')
 const pendingPrep = ref<PrepBucket[]>([])
 const appliedPrep = ref<PrepBucket[]>([])
 
-const showFiltersSidebar = computed(() => hasProfile.value && (activeTab.value === 'explore' || activeTab.value === 'forYou'))
+// Filter modal should be usable for time/prep filtering even without a sensory profile.
+// Profile-based filtering (strict safe-match) only becomes available once `hasProfile` is true.
+const canUseFilters = computed(
+  () => activeTab.value === 'explore' || activeTab.value === 'forYou',
+)
+const filtersOpen = ref(false)
 
 const hasDietaryOrCultural = computed(() => {
   const p = profile.value
@@ -138,6 +143,24 @@ function setFilterMode(v: 'safeDishes' | 'showAll') {
   if (hasProfile.value && hasSearched.value && (activeTab.value === 'forYou' || activeTab.value === 'explore')) void search()
 }
 
+function openFilters() {
+  if (!canUseFilters.value || busy.value) return
+  filtersOpen.value = true
+}
+
+function closeFilters() {
+  filtersOpen.value = false
+}
+
+function applyFiltersAndClose() {
+  applySidebarFilters()
+  closeFilters()
+}
+
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && filtersOpen.value) closeFilters()
+}
+
 function autosizePasteField() {
   const el = pasteTextareaRef.value
   if (!el) return
@@ -158,6 +181,28 @@ watch(
     if (activeTab.value === 'describe') nextTick(() => autosizePasteField())
   },
 )
+
+watch(
+  () => activeTab.value,
+  () => {
+    if (activeTab.value === 'describe') closeFilters()
+  },
+)
+
+watch(
+  () => hasProfile.value,
+  (ok) => {
+    if (!ok) closeFilters()
+  },
+)
+
+onMounted(() => {
+  window.addEventListener('keydown', onGlobalKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown)
+})
 
 
 async function search() {
@@ -388,88 +433,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
       <p class="page-lede">Search the library, paste a recipe, or revisit recipes you’ve opened before.</p>
     </header>
 
-    <div class="layout" :class="{ 'layout--no-filters': !showFiltersSidebar }">
-      <aside v-if="showFiltersSidebar" class="filters" aria-label="Filter recipes">
-        <div class="filters-head">
-          <div class="filters-title">Filters</div>
-        </div>
-
-        <fieldset v-if="hasProfile" class="filter-group filter-group--profile-list">
-          <legend class="k">Matches your profile</legend>
-          <p id="profile-list-help" class="filter-help">
-            We compare catalog ingredients to your saved foods, dietary choices, and cultural preferences (best
-            effort—not medical advice).
-          </p>
-          <button
-            type="button"
-            class="pill pill--stacked"
-            :class="{ on: filterMode === 'safeDishes' }"
-            :disabled="busy"
-            :aria-pressed="filterMode === 'safeDishes'"
-            aria-describedby="profile-list-help profile-strict-desc"
-            @click="setFilterMode('safeDishes')"
-          >
-            <span class="pill-ico" aria-hidden="true">✓</span>
-            <span class="pill-text">
-              <span class="pill-title">Only show dishes you can safely consume</span>
-              <span id="profile-strict-desc" class="pill-sub"
-                >Hides dishes that may include foods you avoid, your “unsafe” items, or ingredients that clash with your
-                dietary or cultural settings.</span
-              >
-            </span>
-          </button>
-          <button
-            type="button"
-            class="pill pill--stacked"
-            :class="{ on: filterMode === 'showAll' }"
-            :disabled="busy"
-            :aria-pressed="filterMode === 'showAll'"
-            aria-describedby="profile-list-help profile-full-desc"
-            @click="setFilterMode('showAll')"
-          >
-            <span class="pill-ico" aria-hidden="true">＋</span>
-            <span class="pill-text">
-              <span class="pill-title">Show all results</span>
-              <span id="profile-full-desc" class="pill-sub"
-                >Keeps every match visible and adds warnings when a recipe may not fit your profile.</span
-              >
-            </span>
-          </button>
-          <details v-if="hasDietaryOrCultural" class="filter-details">
-            <summary>What do we check?</summary>
-            <p class="filter-details-p">
-              Unsafe and “unsure” foods from your list, plus your dietary and cultural selections (for example No Pork
-              or Shellfish-Free), matched against ingredient names.
-            </p>
-          </details>
-        </fieldset>
-        <div v-else class="profile profile-note" role="note">
-          Set up your sensory profile to enable safety filters.
-        </div>
-
-        <div class="divider" aria-hidden="true" />
-
-        <div class="filter-group">
-          <div class="k">Preparation time</div>
-          <label v-for="opt in (['under30', '30to60', 'over60'] as const)" :key="opt" class="check-row">
-            <input
-              type="checkbox"
-              :checked="pendingPrep.includes(opt)"
-              @change="togglePendingPrep(opt)"
-            />
-            <span>{{
-              opt === 'under30' ? 'Under 30 minutes' : opt === '30to60' ? '30 to 60 minutes' : 'More than 1 hour'
-            }}</span>
-          </label>
-        </div>
-
-        <!-- Heat level + Complexity removed (keep filters minimal). -->
-
-        <button type="button" class="apply-btn" :disabled="busy" @click="applySidebarFilters">
-          {{ filterCount ? `Apply ${filterCount} filters` : 'Apply filters' }}
-        </button>
-      </aside>
-
+    <div class="layout">
       <section class="main">
         <div class="tabs" role="tablist" aria-label="Recipe options">
           <button type="button" class="tab" :class="{ on: activeTab === 'explore' }" @click="setRouteTab('explore')">
@@ -546,6 +510,17 @@ async function openRecipeWithConfirm(c: BrowseCard) {
                     ? 'Visualise'
                     : 'Search'
               }}
+            </button>
+            <button
+              v-if="activeTab !== 'describe'"
+              type="button"
+              class="filter-btn"
+              :disabled="busy || !canUseFilters"
+              aria-haspopup="dialog"
+              :aria-expanded="filtersOpen"
+              @click="openFilters"
+            >
+              {{ filterCount ? `Filter (${filterCount})` : 'Filter' }}
             </button>
           </div>
           <div class="toolbar-rest">
@@ -639,6 +614,81 @@ async function openRecipeWithConfirm(c: BrowseCard) {
         <p v-if="err" class="err" role="alert">{{ err }}</p>
       </section>
     </div>
+  </div>
+
+  <div v-if="filtersOpen" class="filter-modal-backdrop" role="presentation" @click.self="closeFilters">
+    <aside class="filter-modal" role="dialog" aria-modal="true" aria-label="Filters" @click.stop>
+      <div class="filters-head">
+        <div class="filters-title">Filters</div>
+        <button type="button" class="filter-close-btn" aria-label="Close filters" @click="closeFilters">✕</button>
+      </div>
+
+      <fieldset v-if="hasProfile" class="filter-group filter-group--profile-list">
+        <legend class="k">Profile match</legend>
+        <p id="profile-list-help" class="filter-help">
+          Checks your foods, dietary needs, and cultural settings (best effort).
+        </p>
+        <button
+          type="button"
+          class="pill pill--stacked"
+          :class="{ on: filterMode === 'safeDishes' }"
+          :disabled="busy"
+          :aria-pressed="filterMode === 'safeDishes'"
+          aria-describedby="profile-list-help profile-strict-desc"
+          @click="setFilterMode('safeDishes')"
+        >
+          <span class="pill-ico" aria-hidden="true">✓</span>
+          <span class="pill-text">
+            <span class="pill-title">Only safe matches</span>
+            <span id="profile-strict-desc" class="pill-sub">Hide recipes that conflict with your profile.</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          class="pill pill--stacked"
+          :class="{ on: filterMode === 'showAll' }"
+          :disabled="busy"
+          :aria-pressed="filterMode === 'showAll'"
+          aria-describedby="profile-list-help profile-full-desc"
+          @click="setFilterMode('showAll')"
+        >
+          <span class="pill-ico" aria-hidden="true">＋</span>
+          <span class="pill-text">
+            <span class="pill-title">Show all</span>
+            <span id="profile-full-desc" class="pill-sub">Keep all results and flag conflicts.</span>
+          </span>
+        </button>
+        <details v-if="hasDietaryOrCultural" class="filter-details">
+          <summary>What do we check?</summary>
+          <p class="filter-details-p">
+            Unsafe/unsure foods, plus dietary and cultural choices (for example No Pork or Shellfish-Free).
+          </p>
+        </details>
+      </fieldset>
+      <div v-else class="profile profile-note" role="note">
+        Set up your sensory profile to enable safety filters.
+      </div>
+
+      <div class="divider" aria-hidden="true" />
+
+      <div class="filter-group">
+        <div class="k">Prep time</div>
+        <label v-for="opt in (['under30', '30to60', 'over60'] as const)" :key="opt" class="check-row">
+          <input
+            type="checkbox"
+            :checked="pendingPrep.includes(opt)"
+            @change="togglePendingPrep(opt)"
+          />
+          <span>{{ opt === 'under30' ? '< 30 min' : opt === '30to60' ? '30–60 min' : '> 60 min' }}</span>
+        </label>
+      </div>
+
+      <!-- Heat level + Complexity removed (keep filters minimal). -->
+
+      <button type="button" class="apply-btn" :disabled="busy" @click="applyFiltersAndClose">
+        {{ filterCount ? `Apply ${filterCount} filters` : 'Apply filters' }}
+      </button>
+    </aside>
   </div>
 
   <div v-if="confirmOpen" class="confirm-host" role="presentation" @click.self="closeConfirm">
@@ -760,23 +810,27 @@ async function openRecipeWithConfirm(c: BrowseCard) {
 }
 
 .layout {
+  display: block;
+}
+.filter-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 230;
   display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: 1.5rem;
-  align-items: start;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--bb-bg) 82%, #000 18%);
+  backdrop-filter: blur(6px);
 }
-.layout--no-filters {
-  grid-template-columns: 1fr;
-}
-
-.filters {
-  position: sticky;
-  top: 5.2rem;
+.filter-modal {
+  width: min(36rem, 100%);
+  max-height: min(85vh, 52rem);
+  overflow: auto;
   background: var(--bb-surface-lowest);
   border-radius: 20px;
   padding: 1.15rem;
-  box-shadow: 0 14px 40px rgba(26, 28, 25, 0.06);
-  border: 1px solid color-mix(in srgb, var(--bb-primary) 8%, transparent);
+  box-shadow: 0 14px 40px rgba(26, 28, 25, 0.1);
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 12%, transparent);
 }
 .filters-head {
   display: flex;
@@ -790,6 +844,17 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   color: var(--bb-text);
   letter-spacing: -0.02em;
   font-size: 1.05rem;
+}
+.filter-close-btn {
+  border: none;
+  background: var(--bb-surface-low);
+  color: var(--bb-text);
+  border-radius: 10px;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1rem;
+  font-weight: 800;
+  cursor: pointer;
 }
 .filter-group {
   display: grid;
@@ -1144,6 +1209,21 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   opacity: 0.6;
   cursor: not-allowed;
 }
+.filter-btn {
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 20%, transparent);
+  border-radius: 999px;
+  padding: 0.55rem 1rem;
+  font-family: var(--bb-font-headline);
+  font-weight: 800;
+  color: var(--bb-text);
+  background: var(--bb-surface-low);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.filter-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
 .count {
   font-family: var(--bb-font-label);
@@ -1493,18 +1573,22 @@ async function openRecipeWithConfirm(c: BrowseCard) {
 }
 
 @media (max-width: 900px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-  .filters {
-    position: relative;
-    top: 0;
-  }
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 640px) {
+  .filter-modal-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+  .filter-modal {
+    width: 100%;
+    max-height: 88vh;
+    border-radius: 18px 18px 0 0;
+    border-bottom: none;
+    padding-bottom: max(1.15rem, env(safe-area-inset-bottom));
+  }
   .grid {
     grid-template-columns: 1fr;
   }
