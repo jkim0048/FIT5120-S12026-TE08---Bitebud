@@ -634,6 +634,7 @@ async function markStepDoneAndNext() {
 }
 .card {
   background: var(--bb-surface-low);
+  border: 1px solid var(--bb-border);
   border-radius: 16px;
   box-shadow: 0 12px 30px rgba(26, 28, 25, 0.04);
 }
@@ -652,7 +653,7 @@ async function markStepDoneAndNext() {
   flex: 1;
   height: 5px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--bb-muted) 22%, #e5e5e5);
+  background: color-mix(in srgb, var(--bb-muted) 18%, var(--bb-border));
 }
 .seg-progress__bar--done {
   background: #16a34a;
@@ -701,7 +702,8 @@ async function markStepDoneAndNext() {
 .step-hero {
   min-height: 176px;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--bb-muted) 14%, #e8e8ea);
+  background: color-mix(in srgb, var(--bb-muted) 10%, var(--bb-surface-high));
+  border: 1px solid var(--bb-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -719,7 +721,7 @@ async function markStepDoneAndNext() {
   height: 88px;
   border-radius: 12px;
   object-fit: cover;
-  background: #fff;
+  background: var(--bb-surface-lowest);
 }
 .step-title {
   margin: 0;
@@ -826,6 +828,7 @@ async function markStepDoneAndNext() {
 }
 .ready-rail {
   background: color-mix(in srgb, var(--bb-surface-low) 72%, #f4f4f5);
+  border: 1px solid var(--bb-border);
   border-radius: 14px;
   padding: 0.95rem 0.85rem;
 }
@@ -867,7 +870,7 @@ async function markStepDoneAndNext() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border: 1px solid color-mix(in srgb, var(--bb-muted) 18%, transparent);
+  border: 1px solid var(--bb-border);
   border-radius: 12px;
   padding: 0.72rem 0.78rem;
   background: var(--bb-surface-lowest);
@@ -884,7 +887,7 @@ async function markStepDoneAndNext() {
   border-radius: 999px;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--bb-muted) 16%, transparent);
+  background: color-mix(in srgb, var(--bb-muted) 14%, var(--bb-surface-high));
   font-size: 0.96rem;
 }
 .ready-check {

@@ -633,6 +633,7 @@ function timelineEffort(step: RecipeNode): string {
 .hero-media,
 .hero-copy {
   background: var(--bb-surface-low);
+  border: 1px solid var(--bb-border);
   border-radius: 18px;
   box-shadow: 0 14px 40px rgba(26, 28, 25, 0.05);
 }
@@ -858,6 +859,7 @@ function timelineEffort(step: RecipeNode): string {
 }
 .panel {
   background: var(--bb-surface-low);
+  border: 1px solid var(--bb-border);
   border-radius: 16px;
   padding: 1rem;
   box-shadow: 0 12px 30px rgba(26, 28, 25, 0.04);
@@ -882,6 +884,7 @@ function timelineEffort(step: RecipeNode): string {
   padding: 0.55rem;
   border-radius: 12px;
   background: var(--bb-surface-lowest);
+  border: 1px solid var(--bb-border);
 }
 .ing-main {
   display: flex;
@@ -1004,12 +1007,17 @@ function timelineEffort(step: RecipeNode): string {
   border-radius: 10px;
   padding: 0.35rem 0.55rem;
   background: var(--bb-surface-lowest);
+  color: var(--bb-text);
   cursor: pointer;
   font: inherit;
+}
+.mini:hover {
+  border-color: color-mix(in srgb, var(--bb-primary) 40%, transparent);
 }
 .mini.active {
   background: color-mix(in srgb, var(--bb-accent) 12%, transparent);
   border-color: var(--bb-accent);
+  color: var(--bb-text);
 }
 
 .panel-host {
@@ -1029,6 +1037,7 @@ function timelineEffort(step: RecipeNode): string {
   padding: 1rem;
   border-radius: 14px;
   background: var(--bb-surface);
+  border: 1px solid var(--bb-border);
 }
 .panel-step h3 {
   margin: 0 0 0.5rem;
@@ -1047,7 +1056,7 @@ function timelineEffort(step: RecipeNode): string {
   margin-top: 1rem;
   padding: 0.75rem 0.9rem;
   border-radius: 10px;
-  border: 1px solid #fecaca;
+  border: 1px solid color-mix(in srgb, var(--bb-error) 35%, var(--bb-border));
   background: #fef2f2;
   font-size: 0.9rem;
 }
@@ -1072,7 +1081,7 @@ function timelineEffort(step: RecipeNode): string {
   gap: 0.5rem 0.85rem;
   padding: 0.55rem 0.75rem;
   background: var(--bb-accent-soft);
-  border: 1px solid #fed7aa;
+  border: 1px solid var(--bb-border);
   border-radius: 10px;
   margin-top: 1rem;
   font-size: 0.9rem;

@@ -415,7 +415,8 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
   transform: translateY(0);
 }
 .step--strip.done {
-  opacity: 0.68;
+  /* Keep done steps readable in light mode */
+  opacity: 0.82;
 }
 
 .step-title--clamp {
