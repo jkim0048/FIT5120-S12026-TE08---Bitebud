@@ -1164,6 +1164,39 @@ async function markStepDoneAndNext() {
 @media (max-width: 840px) {
   .ready-shell {
     grid-template-columns: 1fr;
+    gap: 0.3rem;
+  }
+  .step-kicker {
+    justify-self: center;
+  }
+  .step-kicker-links {
+    justify-self: start;
+    gap: 0.4rem 0.75rem;
+  }
+  .step-secondary-actions {
+    flex-direction: column;
+  }
+  .step-prev-btn,
+  .step-done-bar {
+    width: 100%;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .journey--focus {
+    max-width: 34rem;
+  }
+  .timer-screen {
+    max-width: 34rem;
+  }
+  .ready-shell {
+    max-width: 62rem;
+    grid-template-columns: 240px 1fr;
+    gap: 1.1rem;
+  }
+}
+@media (min-width: 1024px) {
+  .journey--focus {
+    max-width: 40rem;
   }
   .step-top-bar {
     grid-template-columns: 1fr;
