@@ -8,10 +8,10 @@ import { RouterLink } from 'vue-router'
       <div class="hero-copy">
         <h1 class="h1">
           Cooking,<br />
-          <span class="h1-sub">Made Calmer.</span>
+          <span class="h1-sub">Made simple.</span>
         </h1>
         <p class="lead">
-          BiteBud reduces culinary friction for neurodiverse minds. No loud prompts, no complex grids—just a serene path
+          BiteBud reduces culinary friction for neurodiverse minds. No loud prompts, no complex grids just a serene path
           to a safe meal.
         </p>
         <div class="ctas">
@@ -36,7 +36,7 @@ import { RouterLink } from 'vue-router'
         <article class="tile tile-wide">
           <h3 class="h3">Visual Recipe Flow</h3>
           <p class="tile-copy">
-            One instruction at a time. Clear lanes and gentle pacing replace cluttered lists—so your attention stays on
+            One instruction at a time. Clear lanes and gentle pacing replace cluttered lists so your attention stays on
             the next step.
           </p>
           <div class="micro-flow" aria-hidden="true">
@@ -70,23 +70,19 @@ import { RouterLink } from 'vue-router'
         <article class="tile tile-green">
           <h3 class="h3">Sensory Profiling</h3>
           <p class="tile-copy">
-            Set up your sensory profile now. Filter by texture, temperature, and smell—so recipes feel safer and more
-            predictable.
+            Set up your sensory profile now. 
+            Filter by dietary and cultural requirements.
           </p>
-          <RouterLink to="/sensory" class="tile-link">Sensory profile →</RouterLink>
-          <div class="tile-demo" aria-hidden="true">
+          <div class="tile-demo tile-demo--compact" aria-hidden="true">
             <div class="demo-k">Example profile</div>
             <div class="pill-grid">
-              <span class="pill-chip on">Soft</span>
-              <span class="pill-chip">Crunchy</span>
-              <span class="pill-chip on">Warm</span>
-              <span class="pill-chip">Cold</span>
-              <span class="pill-chip on">Low smell</span>
-              <span class="pill-chip">Strong smell</span>
+              <span class="pill-chip on">Vegan</span>
+              <span class="pill-chip">Halal</span>
+              <span class="pill-chip">No dairy</span>
             </div>
             <div class="warn-card">
               <div class="warn-title">We’ll flag conflicts</div>
-              <div class="warn-body">“Onion” · “Chili” · “Fish sauce”</div>
+              <div class="warn-title">So you are aware exactly what you should watch out for</div>
             </div>
           </div>
         </article>
@@ -96,7 +92,7 @@ import { RouterLink } from 'vue-router'
           <p class="tile-copy">
             Cook with one clear step at a time. Track progress, stay oriented, and move at your pace.
           </p>
-          <div class="tile-demo tile-demo--dark" aria-hidden="true">
+          <div class="tile-demo tile-demo--dark tile-demo--compact" aria-hidden="true">
             <div class="step-demo">
               <div class="step-badge">Step 2 of 5</div>
               <div class="step-line">
@@ -233,13 +229,13 @@ import { RouterLink } from 'vue-router'
   margin: 0 auto;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.7rem;
-  padding: 0 0.5rem;
+  gap: 0.45rem;
+  padding: 0;
 }
 .tile {
   background: var(--bb-surface-lowest);
   border-radius: 16px;
-  padding: 1.2rem 1.2rem;
+  padding: 1.05rem 1.05rem;
   box-shadow: 0 12px 32px rgba(26, 28, 25, 0.04);
   min-height: 360px;
   display: flex;
@@ -284,6 +280,10 @@ import { RouterLink } from 'vue-router'
   padding-top: 1rem;
   display: grid;
   gap: 0.75rem;
+}
+.tile-demo--compact {
+  margin-top: 0.85rem;
+  padding-top: 0.65rem;
 }
 .demo-k {
   font-family: var(--bb-font-label);

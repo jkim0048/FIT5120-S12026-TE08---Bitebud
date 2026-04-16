@@ -387,7 +387,7 @@ function goPage(delta: number) {
     </div>
 
     <header class="page-hero">
-      <h1 class="page-title">Find or add a recipe</h1>
+      <h1 class="page-title">Find or add a rvcpe</h1>
       <p class="page-lede">
         A sensory-friendly way to cook—clear steps, gentle layout, and optional profile-aware picks.
       </p>

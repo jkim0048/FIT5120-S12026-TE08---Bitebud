@@ -21,6 +21,8 @@ import { parseRecipeTextToGraphViaOpenRouter } from "../services/openrouter.js";
 import {
   computeSensoryConflicts,
   computeSensoryConflictsFromIngredientLines,
+  computeTextureConflictsFromIngredientLines,
+  decodeUnsafeTexturePrefs,
   matchStatusFromConflicts,
   profileWarningsFromConflicts,
 } from "../services/sensoryMatch.js";
@@ -30,6 +32,13 @@ import { parseBiteBudUserId } from "../biteBudUserId.js";
 
 function jsonStringArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+function graphIngredientLines(graph: RecipeGraph): string[] {
+  return (graph.nodes ?? [])
+    .filter((n) => n.type === "ingredient")
+    .map((n) => `${n.label ?? ""} ${n.detail ?? ""}`.trim())
+    .filter(Boolean);
 }
 
 const visualiseBody = z.object({
@@ -274,6 +283,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     let profileFoods: Array<{ name: string; status: "SAFE" | "UNSURE" | "UNSAFE" }> = [];
     let dietaryNeeds: string[] = [];
     let culturalRequirements: string[] = [];
+    let unsafeTextures: ReturnType<typeof decodeUnsafeTexturePrefs> = [];
     let hasSensoryProfile = false;
     if (userId) {
       const profile = await prisma.sensoryProfile.findUnique({
@@ -288,6 +298,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         }));
         dietaryNeeds = jsonStringArray(profile.dietaryNeeds);
         culturalRequirements = jsonStringArray(profile.culturalRequirements);
+        unsafeTextures = decodeUnsafeTexturePrefs(profile.texturePrefs);
       }
     }
 
@@ -303,8 +314,9 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
           dietaryNeeds,
           culturalRequirements,
         );
-        matchStatus = matchStatusFromConflicts(sensory, dietary);
-        profileWarnings = profileWarningsFromConflicts(sensory, dietary);
+        const textures = computeTextureConflictsFromIngredientLines(lines, unsafeTextures);
+        matchStatus = matchStatusFromConflicts(sensory, dietary, textures);
+        profileWarnings = profileWarningsFromConflicts(sensory, dietary, textures);
       }
       return {
         id: String(m.idMeal),
@@ -405,10 +417,16 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       dietaryNeeds,
       culturalRequirements,
     );
+    const lines = graphIngredientLines(graph);
+    const textures = computeTextureConflictsFromIngredientLines(
+      lines,
+      decodeUnsafeTexturePrefs(profile.texturePrefs),
+    );
     return reply.send({
       hasProfile: true,
       sensory,
       dietary,
+      textures,
       disclaimer:
         "Suggestions only—verify ingredients yourself, especially for allergies.",
     });
