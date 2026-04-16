@@ -10,7 +10,6 @@ import {
   CULTURAL_CHIPS,
   decodeUnsafeTexturePrefs,
   DIETARY_CHIPS,
-  TEMPERATURE_PRESENTATION,
   TEXTURE_OPTION_PRESENTATION,
 } from '../composables/useSensorySetupForm'
 
@@ -23,21 +22,6 @@ const submitError = ref('')
 onMounted(() => {
   void refreshSensoryProfile()
 })
-
-const temperatures = computed(() => {
-  const tp = profile.value?.temperaturePref
-  if (!tp?.trim()) return []
-  return tp
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-})
-
-const temperatureCards = computed(() =>
-  temperatures.value
-    .map((v) => TEMPERATURE_PRESENTATION.find((x) => x.value === v))
-    .filter((x): x is NonNullable<typeof x> => Boolean(x)),
-)
 
 const unsafeTextures = computed(() => decodeUnsafeTexturePrefs(profile.value?.texturePrefs))
 
@@ -105,7 +89,6 @@ async function submitProfile(): Promise<void> {
   try {
     const body = {
       texturePrefs: p.texturePrefs,
-      temperaturePref: p.temperaturePref ?? null,
       dietaryNeeds: p.dietaryNeeds,
       culturalRequirements: p.culturalRequirements,
     }
@@ -140,32 +123,10 @@ async function submitProfile(): Promise<void> {
     <div v-else-if="!hasProfile || !profile" class="muted">No profile yet. Please complete setup first.</div>
 
     <div v-else class="stack">
-      <!-- Temperatures -->
-      <section class="section-card">
-        <div class="section-head">
-          <h2 class="h2">Unsafe Temperatures</h2>
-          <RouterLink to="/sensory/setup" class="section-edit">Edit</RouterLink>
-        </div>
-        <p class="summary-line">
-          You have chosen {{ temperatures.length }} temperature type{{
-            temperatures.length === 1 ? '' : 's'
-          }}
-          to avoid in recipes.
-        </p>
-        <div v-if="temperatureCards.length" class="grid grid--blue">
-          <div v-for="t in temperatureCards" :key="t.value" class="mini-card mini-card--blue">
-            <span class="mini-emoji">{{ t.emoji }}</span>
-            <span class="mini-title">{{ t.value }}</span>
-            <span class="mini-hint">{{ t.hint }}</span>
-          </div>
-        </div>
-        <p v-else class="empty-note">None selected.</p>
-      </section>
-
       <!-- Textures -->
       <section class="section-card">
         <div class="section-head">
-          <h2 class="h2">Unsafe Textures</h2>
+          <h2 class="h2">Sensory Challening Textures</h2>
           <RouterLink to="/sensory/setup" class="section-edit">Edit</RouterLink>
         </div>
         <p class="summary-line">

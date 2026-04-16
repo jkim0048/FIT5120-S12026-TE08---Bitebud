@@ -19,7 +19,6 @@ export type SensoryFoodItemDTO = {
 
 export type SensoryProfileFields = {
   texturePrefs: string[]
-  temperaturePref: string | null
   dietaryNeeds: string[]
   culturalRequirements: string[]
   /** Derived from foodItems when present, else legacy JSON arrays. */

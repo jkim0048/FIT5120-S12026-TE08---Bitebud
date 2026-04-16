@@ -94,6 +94,7 @@ h1 {
 }
 .stat {
   background: var(--bb-surface-low);
+  border: 1px solid var(--bb-border);
   border-radius: 14px;
   padding: 1rem;
   text-align: center;
@@ -113,6 +114,7 @@ h1 {
   padding: 1rem;
   border-radius: 14px;
   background: var(--bb-surface-low);
+  border: 1px solid var(--bb-border);
 }
 .rating h2 {
   margin: 0;
@@ -127,7 +129,7 @@ h1 {
   border: none;
   background: transparent;
   font-size: 1.8rem;
-  color: #cbd5e1;
+  color: color-mix(in srgb, var(--bb-muted) 45%, var(--bb-border));
   cursor: pointer;
   line-height: 1;
 }

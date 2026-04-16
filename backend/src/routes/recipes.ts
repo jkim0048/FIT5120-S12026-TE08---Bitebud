@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { readFile } from "node:fs/promises";
 import { prisma } from "../prisma.js";
 import {
   parseRecipeGraph,
@@ -21,6 +22,8 @@ import { parseRecipeTextToGraphViaOpenRouter } from "../services/openrouter.js";
 import {
   computeSensoryConflicts,
   computeSensoryConflictsFromIngredientLines,
+  computeTextureConflictsFromIngredientLines,
+  decodeUnsafeTexturePrefs,
   matchStatusFromConflicts,
   profileWarningsFromConflicts,
 } from "../services/sensoryMatch.js";
@@ -30,6 +33,36 @@ import { parseBiteBudUserId } from "../biteBudUserId.js";
 
 function jsonStringArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+let _mealDbMinutes: Map<string, number> | null = null;
+async function getMealDbMinutes(): Promise<Map<string, number>> {
+  if (_mealDbMinutes) return _mealDbMinutes;
+  const jsonUrl = new URL("../data/mealdb.json", import.meta.url);
+  const raw = await readFile(jsonUrl, "utf8");
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed)) throw new Error("mealdb.json must be an array");
+  const map = new Map<string, number>();
+  for (const row of parsed) {
+    if (row == null || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const id = typeof r.mealdb_id === "string" ? r.mealdb_id.trim() : "";
+    const n = typeof r.total_time_minutes === "number" ? r.total_time_minutes : Number(r.total_time_minutes);
+    if (!id) continue;
+    if (!Number.isFinite(n)) continue;
+    const mins = Math.round(n);
+    if (mins <= 0) continue;
+    map.set(id, mins);
+  }
+  _mealDbMinutes = map;
+  return map;
+}
+
+function graphIngredientLines(graph: RecipeGraph): string[] {
+  return (graph.nodes ?? [])
+    .filter((n) => n.type === "ingredient")
+    .map((n) => `${n.label ?? ""} ${n.detail ?? ""}`.trim())
+    .filter(Boolean);
 }
 
 const visualiseBody = z.object({
@@ -43,7 +76,7 @@ const importBody = z.object({
 
 const browseQuery = z.object({
   q: z.string().optional(),
-  includeSometimes: z.coerce.boolean().optional().default(false),
+  filter: z.enum(["safeDishes", "showAll"]).optional().default("safeDishes"),
   maxMinutes: z.coerce.number().int().positive().optional(),
   complexity: z.string().optional(),
   heatLevel: z.string().optional(),
@@ -111,23 +144,23 @@ async function linkRecipeToUser(recipeId: string, userId: string | null): Promis
 async function parseRecipeTextToGraphResilient(
   text: string,
   sourceUrl?: string | null,
-): Promise<{ graph: RecipeGraph; refined: boolean }> {
+): Promise<{ graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "openrouter" | "basic" }> {
   try {
     const graph = await parseRecipeTextToGraph(text, sourceUrl);
-    return { graph, refined: true };
+    return { graph, refined: true, parserSource: "gemini" };
   } catch (e) {
     if (!isGeminiBusyError(e)) throw e;
     // If OpenRouter is configured, try it before falling back to basic parsing.
     if (process.env.OPENROUTER_API_KEY?.trim()) {
       try {
         const graph = await parseRecipeTextToGraphViaOpenRouter(text, sourceUrl);
-        return { graph, refined: true };
+        return { graph, refined: true, parserSource: "openrouter" };
       } catch {
         // fall through to local basic parsing
       }
     }
     const graph = basicRecipeTextToGraph({ text, sourceUrl: sourceUrl ?? null });
-    return { graph, refined: false };
+    return { graph, refined: false, parserSource: "basic" };
   }
 }
 
@@ -191,10 +224,14 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       const effectiveTags = (Array.isArray(r.tags) ? r.tags : md.tags ?? []).filter((x): x is string => typeof x === "string");
       let matchStatus: "safe" | "sometimes" | "unsafe" = "safe";
       let profileWarnings: string[] = [];
+      let hasDietaryConflict = false;
+      let hasSensoryConflict = false;
       if (hasSensoryProfile) {
         const { sensory, dietary } = computeSensoryConflicts(graph, profileFoods, dietaryNeeds, culturalRequirements);
         matchStatus = matchStatusFromConflicts(sensory, dietary);
         profileWarnings = profileWarningsFromConflicts(sensory, dietary);
+        hasDietaryConflict = dietary.length > 0;
+        hasSensoryConflict = sensory.length > 0;
       }
 
       return {
@@ -208,8 +245,13 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         tags: effectiveTags,
         matchStatus,
         profileWarnings,
+        hasDietaryConflict,
+        hasSensoryConflict,
       };
-    }).filter((c) => q.includeSometimes || c.matchStatus === "safe");
+    })
+    // When “Only show dishes you can safely consume” is selected (includeSometimes=false),
+    // exclude recipes that match dietary/cultural constraints. (Texture warnings are informational elsewhere.)
+    .filter((c) => q.filter === "showAll" || (!c.hasDietaryConflict && !c.hasSensoryConflict));
 
     return reply.send({ results: cards });
   });
@@ -227,7 +269,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     }
     const textToParse = resolvedInput.text;
     const sourceUrl = body.sourceUrl?.trim() || resolvedInput.sourceUrl;
-    let parsed: { graph: RecipeGraph; refined: boolean };
+    let parsed: { graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "openrouter" | "basic" };
     try {
       parsed = await parseRecipeTextToGraphResilient(textToParse, sourceUrl);
     } catch (e) {
@@ -245,7 +287,10 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const resolved = await withIcons(graph, userId);
     const saved = await persistGraph(resolved, { rawText: textToParse, refined });
     await linkRecipeToUser(saved.recipeId, userId);
-    return reply.send(saved);
+    return reply.send({
+      ...saved,
+      parserSource: parsed.parserSource,
+    });
   });
 
   app.get("/api/recipes/search", async (request, reply) => {
@@ -257,7 +302,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         maxMinutes: z.coerce.number().int().positive().optional(),
         complexity: z.string().optional(),
         heatLevel: z.string().optional(),
-        includeSometimes: z.coerce.boolean().optional().default(true),
+        filter: z.enum(["safeDishes", "showAll"]).optional().default("safeDishes"),
       })
       .parse((request.query as Record<string, string>) ?? {});
     const filters = {
@@ -274,6 +319,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     let profileFoods: Array<{ name: string; status: "SAFE" | "UNSURE" | "UNSAFE" }> = [];
     let dietaryNeeds: string[] = [];
     let culturalRequirements: string[] = [];
+    let unsafeTextures: ReturnType<typeof decodeUnsafeTexturePrefs> = [];
     let hasSensoryProfile = false;
     if (userId) {
       const profile = await prisma.sensoryProfile.findUnique({
@@ -288,13 +334,17 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         }));
         dietaryNeeds = jsonStringArray(profile.dietaryNeeds);
         culturalRequirements = jsonStringArray(profile.culturalRequirements);
+        unsafeTextures = decodeUnsafeTexturePrefs(profile.texturePrefs);
       }
     }
 
     const rows = meals.map((m) => {
       const meta = mealSearchHitFields(m);
+      const mealDbId = String(m.idMeal);
       let matchStatus: "safe" | "sometimes" | "unsafe" = "safe";
       let profileWarnings: string[] = [];
+      let hasDietaryConflict = false;
+      let hasSensoryConflict = false;
       if (hasSensoryProfile) {
         const lines = mealIngredientLines(m);
         const { sensory, dietary } = computeSensoryConflictsFromIngredientLines(
@@ -303,11 +353,14 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
           dietaryNeeds,
           culturalRequirements,
         );
-        matchStatus = matchStatusFromConflicts(sensory, dietary);
-        profileWarnings = profileWarningsFromConflicts(sensory, dietary);
+        const textures = computeTextureConflictsFromIngredientLines(lines, unsafeTextures);
+        matchStatus = matchStatusFromConflicts(sensory, dietary, textures);
+        profileWarnings = profileWarningsFromConflicts(sensory, dietary, textures);
+        hasDietaryConflict = dietary.length > 0;
+        hasSensoryConflict = sensory.length > 0;
       }
       return {
-        id: String(m.idMeal),
+        id: mealDbId,
         title: m.strMeal,
         image: m.strMealThumb ?? undefined,
         minutes: meta.minutes,
@@ -315,11 +368,19 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         complexity: meta.complexity,
         matchStatus,
         profileWarnings,
+        hasDietaryConflict,
+        hasSensoryConflict,
       };
     });
 
+    const mealDbMinutes = await getMealDbMinutes();
+    for (const r of rows) {
+      const mins = mealDbMinutes.get(r.id);
+      if (mins != null) r.minutes = mins;
+    }
+
     const results = hasSensoryProfile
-      ? rows.filter((r) => q.includeSometimes || r.matchStatus === "safe")
+      ? rows.filter((r) => q.filter === "showAll" || (!r.hasDietaryConflict && !r.hasSensoryConflict))
       : rows;
 
     return reply.send({ results });
@@ -328,10 +389,19 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
   app.post("/api/recipes/import/themealdb", async (request, reply) => {
     const body = importBody.parse(request.body);
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
+    const mealDbMinutes = await getMealDbMinutes();
+    const knownTime = mealDbMinutes.get(body.mealDbId) ?? null;
     const existing = await prisma.recipe.findUnique({
       where: { mealDbId: body.mealDbId },
     });
-    if (existing) {
+    if (existing && existing.refined) {
+      if (existing.totalTimeMinutes == null && knownTime != null) {
+        await prisma.recipe.update({
+          where: { id: existing.id },
+          data: { totalTimeMinutes: knownTime },
+        });
+        existing.totalTimeMinutes = knownTime;
+      }
       if (!existing.imageUrl) {
         try {
           const meal = await lookupMealById(body.mealDbId);
@@ -353,6 +423,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       return reply.send({
         recipeId: existing.id,
         graph: resolved,
+        parserSource: "cached",
       });
     }
     const meal = await lookupMealById(body.mealDbId);
@@ -361,14 +432,60 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const graph = enrichGraphWithMealDbImages(meal, parsed.graph);
     const refined = parsed.refined;
     const resolved = await withIcons(graph, userId);
-    const saved = await persistGraph(resolved, {
+    const resolvedWithTime: RecipeGraph =
+      knownTime != null && (resolved.totalTimeMinutes == null || !Number.isFinite(resolved.totalTimeMinutes))
+        ? { ...resolved, totalTimeMinutes: knownTime }
+        : resolved;
+    if (existing && !existing.refined) {
+      const derived = deriveRecipeMetadata(resolvedWithTime);
+      const totalTimeMinutesOut =
+        knownTime != null && (resolvedWithTime.totalTimeMinutes == null || !Number.isFinite(resolvedWithTime.totalTimeMinutes))
+          ? knownTime
+          : (resolvedWithTime.totalTimeMinutes ?? null);
+      const fullGraph: RecipeGraph = { ...resolvedWithTime, id: existing.id, totalTimeMinutes: totalTimeMinutesOut };
+      await prisma.recipe.update({
+        where: { id: existing.id },
+        data: {
+          title: fullGraph.title,
+          imageUrl: imageUrl ?? null,
+          sourceUrl: fullGraph.sourceUrl ?? null,
+          totalTimeMinutes: totalTimeMinutesOut,
+          servings: fullGraph.servings ?? null,
+          graph: fullGraph as object,
+          rawText: text,
+          refined,
+          complexity: derived.complexity ?? null,
+          heatLevel: derived.heatLevel ?? null,
+          tags: (derived.tags ?? []) as unknown as object,
+        },
+      });
+      await linkRecipeToUser(existing.id, userId);
+      return reply.send({
+        recipeId: existing.id,
+        graph: fullGraph,
+        parserSource: parsed.parserSource,
+      });
+    }
+
+    const saved = await persistGraph(resolvedWithTime, {
       mealDbId: body.mealDbId,
       rawText: text,
       refined,
       metadata: { imageUrl },
     });
+    if (saved.graph.totalTimeMinutes == null && knownTime != null) {
+      // Keep persisted graph JSON in sync with the DB column where possible.
+      await prisma.recipe.update({
+        where: { id: saved.recipeId },
+        data: {
+          totalTimeMinutes: knownTime,
+          graph: { ...(saved.graph as unknown as object), totalTimeMinutes: knownTime } as object,
+        },
+      });
+      saved.graph.totalTimeMinutes = knownTime;
+    }
     await linkRecipeToUser(saved.recipeId, userId);
-    return reply.send(saved);
+    return reply.send({ ...saved, parserSource: parsed.parserSource });
   });
 
   app.get("/api/recipes/:id/sensory-conflicts", async (request, reply) => {
@@ -405,10 +522,16 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       dietaryNeeds,
       culturalRequirements,
     );
+    const lines = graphIngredientLines(graph);
+    const textures = computeTextureConflictsFromIngredientLines(
+      lines,
+      decodeUnsafeTexturePrefs(profile.texturePrefs),
+    );
     return reply.send({
       hasProfile: true,
       sensory,
       dietary,
+      textures,
       disclaimer:
         "Suggestions only—verify ingredients yourself, especially for allergies.",
     });
@@ -419,6 +542,48 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
     let recipe = await prisma.recipe.findUnique({ where: { id } });
     if (!recipe) return reply.status(404).send({ error: "Not found" });
+
+    if (recipe.mealDbId && !recipe.refined) {
+      try {
+        const mealDbMinutes = await getMealDbMinutes();
+        const knownTime = mealDbMinutes.get(recipe.mealDbId) ?? null;
+        const meal = await lookupMealById(recipe.mealDbId);
+        const { text, sourceUrl, imageUrl } = mealToRecipeText(meal);
+        const parsed = await parseRecipeTextToGraphResilient(text, sourceUrl);
+        const graph = enrichGraphWithMealDbImages(meal, parsed.graph);
+        const refined = parsed.refined;
+        const derived = deriveRecipeMetadata(graph);
+
+        const totalTimeMinutesOut =
+          knownTime != null && (graph.totalTimeMinutes == null || !Number.isFinite(graph.totalTimeMinutes))
+            ? knownTime
+            : (graph.totalTimeMinutes ?? null);
+        const fullGraph: RecipeGraph = { ...graph, id: recipe.id, totalTimeMinutes: totalTimeMinutesOut };
+
+        await prisma.recipe.update({
+          where: { id: recipe.id },
+          data: {
+            title: fullGraph.title,
+            imageUrl: imageUrl ?? null,
+            sourceUrl: fullGraph.sourceUrl ?? null,
+            totalTimeMinutes: totalTimeMinutesOut,
+            servings: fullGraph.servings ?? null,
+            graph: fullGraph as object,
+            rawText: text,
+            refined,
+            complexity: derived.complexity ?? null,
+            heatLevel: derived.heatLevel ?? null,
+            tags: (derived.tags ?? []) as unknown as object,
+          },
+        });
+
+        const refreshed = await prisma.recipe.findUnique({ where: { id } });
+        if (!refreshed) return reply.status(404).send({ error: "Not found" });
+        recipe = refreshed;
+      } catch {
+        // If refresh fails, fall back to existing cached record.
+      }
+    }
 
     let imageUrlOut = recipe.imageUrl;
     if (!imageUrlOut && recipe.mealDbId) {
@@ -489,7 +654,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         ...(recipe.imageUrl == null && mealThumb ? { imageUrl: mealThumb } : {}),
       },
     });
-    return reply.send({ ok: true });
+    return reply.send({ ok: true, parserSource: parsed.parserSource });
   });
 
   app.post("/api/recipes/:id/progress", async (request, reply) => {

@@ -4,7 +4,6 @@ import { persistSensoryProfileSnapshot } from './sensorySnapshot'
 
 const MINIMAL_BODY = {
   texturePrefs: [] as string[],
-  temperaturePref: null as string | null,
   dietaryNeeds: [] as string[],
   culturalRequirements: [] as string[],
 }

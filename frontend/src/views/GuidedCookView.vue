@@ -9,7 +9,7 @@ import { findTtsVoiceByName } from '../lib/ttsVoices'
 import type { RecipeGraph } from '../types/recipe'
 import type { SensoryConflictResponse } from '../types/sensory'
 
-type JourneyPhase = 'getReady' | 'roadmap' | 'step' | 'timer'
+type JourneyPhase = 'getReady' | 'ingredients' | 'roadmap' | 'step' | 'timer'
 type TimerState = 'idle' | 'running' | 'paused'
 
 const EQUIPMENT_CATALOG = [
@@ -54,6 +54,7 @@ const sessionStartMs = ref<number>(Date.now())
 
 const journeyPhase = ref<JourneyPhase>('getReady')
 const getReadyChecks = ref<Record<string, boolean>>({})
+const ingredientChecks = ref<Record<string, boolean>>({})
 
 const timerState = ref<TimerState>('idle')
 const remaining = ref<number | null>(null)
@@ -120,6 +121,19 @@ const allIngredientLabels = computed(() => {
     .filter((n) => n.type === 'ingredient')
     .map((n) => n.label.trim())
     .filter(Boolean)
+})
+
+const ingredientChecklistItems = computed(() => {
+  if (!graph.value) return []
+  return graph.value.nodes
+    .filter((n) => n.type === 'ingredient')
+    .map((n) => ({
+      label: String(n.label ?? '').trim(),
+      icon: typeof n.icon === 'string' ? n.icon : null,
+      emoji: typeof n.emoji === 'string' ? n.emoji : null,
+      imageUrl: typeof n.imageUrl === 'string' ? n.imageUrl : null,
+    }))
+    .filter((x) => Boolean(x.label))
 })
 
 const equipmentItems = computed(() => {
@@ -249,6 +263,10 @@ function enterGetReadyPhase() {
   journeyPhase.value = 'getReady'
 }
 
+function enterIngredientsPhase() {
+  journeyPhase.value = 'ingredients'
+}
+
 function backFromGetReady() {
   void router.push({ name: 'recipe', params: { id: recipeId.value } })
 }
@@ -334,6 +352,7 @@ watch(
     conflicts.value = null
     completed.value = []
     getReadyChecks.value = {}
+    ingredientChecks.value = {}
     sessionStartMs.value = Date.now()
     stopTimer()
     await loadRecipe()
@@ -345,6 +364,14 @@ watch(
   equipmentItems,
   (items) => {
     getReadyChecks.value = Object.fromEntries(items.map((item) => [item, false]))
+  },
+  { immediate: true },
+)
+
+watch(
+  ingredientChecklistItems,
+  (items) => {
+    ingredientChecks.value = Object.fromEntries(items.map((item) => [item.label, false]))
   },
   { immediate: true },
 )
@@ -448,7 +475,47 @@ async function markStepDoneAndNext() {
           </ul>
           <div class="ready-actions">
             <button type="button" class="bb-btn bb-btn--primary guided-btn ready-back-btn" @click="backFromGetReady">Back</button>
-            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-main-btn" @click="enterRoadmapPhase">Cooking Steps</button>
+            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-main-btn" @click="enterIngredientsPhase">
+              Next: Ingredients
+            </button>
+          </div>
+        </article>
+      </section>
+
+      <section v-else-if="journeyPhase === 'ingredients'" class="ready-shell">
+        <aside class="ready-rail">
+          <h2>{{ graph.title }}</h2>
+          <p class="ready-rail-meta">{{ recipeMetaLabel }}</p>
+          <p class="ready-rail-copy">Quick ingredient check before you start cooking.</p>
+        </aside>
+
+        <article class="card ready">
+          <h1 class="ready-title">Ingredients Checklist</h1>
+          <p class="ready-sub">Check off what you have on hand. This is session-only and won’t be saved.</p>
+          <ul class="ready-list">
+            <li v-for="item in ingredientChecklistItems" :key="item.label">
+              <label class="ready-item">
+                <span class="ready-item-left">
+                  <span class="ready-item-icon ready-item-icon--img" aria-hidden="true">
+                    <img v-if="item.imageUrl" class="ready-item-img" :src="item.imageUrl" :alt="item.label" />
+                    <span v-else>{{ ingredientVisualToken({ label: item.label, emoji: item.emoji ?? undefined, icon: item.icon ?? undefined }) }}</span>
+                  </span>
+                  <span>{{ item.label }}</span>
+                </span>
+                <input
+                  v-model="ingredientChecks[item.label]"
+                  class="ready-check"
+                  type="checkbox"
+                  :aria-label="`Have ingredient: ${item.label}`"
+                />
+              </label>
+            </li>
+          </ul>
+          <div class="ready-actions">
+            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-back-btn" @click="enterGetReadyPhase">Back</button>
+            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-main-btn" @click="enterRoadmapPhase">
+              Cooking Steps
+            </button>
           </div>
         </article>
       </section>
@@ -634,6 +701,7 @@ async function markStepDoneAndNext() {
 }
 .card {
   background: var(--bb-surface-low);
+  border: 1px solid var(--bb-border);
   border-radius: 16px;
   box-shadow: 0 12px 30px rgba(26, 28, 25, 0.04);
 }
@@ -652,7 +720,7 @@ async function markStepDoneAndNext() {
   flex: 1;
   height: 5px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--bb-muted) 22%, #e5e5e5);
+  background: color-mix(in srgb, var(--bb-muted) 18%, var(--bb-border));
 }
 .seg-progress__bar--done {
   background: #16a34a;
@@ -701,7 +769,8 @@ async function markStepDoneAndNext() {
 .step-hero {
   min-height: 176px;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--bb-muted) 14%, #e8e8ea);
+  background: color-mix(in srgb, var(--bb-muted) 10%, var(--bb-surface-high));
+  border: 1px solid var(--bb-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -719,7 +788,7 @@ async function markStepDoneAndNext() {
   height: 88px;
   border-radius: 12px;
   object-fit: cover;
-  background: #fff;
+  background: var(--bb-surface-lowest);
 }
 .step-title {
   margin: 0;
@@ -826,6 +895,7 @@ async function markStepDoneAndNext() {
 }
 .ready-rail {
   background: color-mix(in srgb, var(--bb-surface-low) 72%, #f4f4f5);
+  border: 1px solid var(--bb-border);
   border-radius: 14px;
   padding: 0.95rem 0.85rem;
 }
@@ -867,7 +937,7 @@ async function markStepDoneAndNext() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border: 1px solid color-mix(in srgb, var(--bb-muted) 18%, transparent);
+  border: 1px solid var(--bb-border);
   border-radius: 12px;
   padding: 0.72rem 0.78rem;
   background: var(--bb-surface-lowest);
@@ -884,8 +954,17 @@ async function markStepDoneAndNext() {
   border-radius: 999px;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--bb-muted) 16%, transparent);
+  background: color-mix(in srgb, var(--bb-muted) 14%, var(--bb-surface-high));
   font-size: 0.96rem;
+}
+.ready-item-icon--img {
+  overflow: hidden;
+}
+.ready-item-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .ready-check {
   width: 22px;
@@ -939,9 +1018,17 @@ async function markStepDoneAndNext() {
   gap: 0.8rem;
   cursor: pointer;
   border-radius: 10px;
+  color: var(--bb-text);
+}
+.roadmap-row:hover {
+  background: color-mix(in srgb, var(--bb-primary) 10%, transparent);
+}
+.roadmap-row:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bb-surface), 0 0 0 4px var(--bb-focus-ring);
 }
 .roadmap-list li.active .roadmap-row {
-  background: color-mix(in srgb, #16a34a 12%, transparent);
+  background: color-mix(in srgb, var(--bb-primary) 12%, transparent);
 }
 .roadmap-index {
   width: 34px;
@@ -954,8 +1041,8 @@ async function markStepDoneAndNext() {
   color: var(--bb-muted);
 }
 .roadmap-list li.active .roadmap-index {
-  border-color: #16a34a;
-  background: #16a34a;
+  border-color: var(--bb-primary);
+  background: var(--bb-primary);
   color: #fff;
 }
 .roadmap-label {
@@ -1077,6 +1164,39 @@ async function markStepDoneAndNext() {
 @media (max-width: 840px) {
   .ready-shell {
     grid-template-columns: 1fr;
+    gap: 0.3rem;
+  }
+  .step-kicker {
+    justify-self: center;
+  }
+  .step-kicker-links {
+    justify-self: start;
+    gap: 0.4rem 0.75rem;
+  }
+  .step-secondary-actions {
+    flex-direction: column;
+  }
+  .step-prev-btn,
+  .step-done-bar {
+    width: 100%;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .journey--focus {
+    max-width: 34rem;
+  }
+  .timer-screen {
+    max-width: 34rem;
+  }
+  .ready-shell {
+    max-width: 62rem;
+    grid-template-columns: 240px 1fr;
+    gap: 1.1rem;
+  }
+}
+@media (min-width: 1024px) {
+  .journey--focus {
+    max-width: 40rem;
   }
   .step-top-bar {
     grid-template-columns: 1fr;

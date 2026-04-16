@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import { useSession } from '../composables/useSession'
+import { useSensoryProfile } from '../composables/useSensoryProfile'
 
 const { isSignedIn } = useSession()
+const { hasProfile } = useSensoryProfile()
 </script>
 
 <template>
@@ -11,33 +13,25 @@ const { isSignedIn } = useSession()
       <div class="hero-copy">
         <h1 class="h1">
           Cooking,<br />
-          <span class="h1-sub">Made Calmer.</span>
+          <span class="h1-sub">Made simple.</span>
         </h1>
         <p class="lead">
-          BiteBud reduces culinary friction for neurodiverse minds. No loud prompts, no complex grids—just a serene path
+          BiteBud reduces culinary friction for neurodiverse minds. No loud prompts, no complex grids just a serene path
           to a safe meal.
         </p>
         <div class="ctas">
-          <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Find a Recipe</RouterLink>
+          <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Find a recipe</RouterLink>
+          <RouterLink v-if="!isSignedIn" to="/auth" class="bb-btn bb-btn--secondary cta">
+            Sign in to access your sensory profile
+          </RouterLink>
           <RouterLink
-            v-if="!isSignedIn"
-            to="/auth"
+            v-else-if="!hasProfile"
+            to="/sensory/setup"
             class="bb-btn bb-btn--secondary cta"
           >
-            Sign in / Sign-up
+            Set up sensory profile
           </RouterLink>
-          <span v-else class="bb-btn bb-btn--secondary cta cta--disabled" aria-disabled="true">Sign in / Sign-up</span>
-        </div>
-      </div>
-
-      <div class="hero-media">
-        <div class="media-card" aria-hidden="true">
-          <img
-            class="media-img"
-            alt="BiteBud logo"
-            src="/bitesbud-logo.png"
-          />
-          <div class="media-overlay" />
+          <RouterLink v-else to="/sensory/setup" class="bb-btn bb-btn--secondary cta">Update sensory profile</RouterLink>
         </div>
       </div>
     </section>
@@ -57,7 +51,7 @@ const { isSignedIn } = useSession()
         <article class="tile tile-wide">
           <h3 class="h3">Visual Recipe Flow</h3>
           <p class="tile-copy">
-            One instruction at a time. Clear lanes and gentle pacing replace cluttered lists—so your attention stays on
+            One instruction at a time. Clear lanes and gentle pacing replace cluttered lists so your attention stays on
             the next step.
           </p>
           <div class="micro-flow" aria-hidden="true">
@@ -91,21 +85,20 @@ const { isSignedIn } = useSession()
         <article class="tile tile-green">
           <h3 class="h3">Sensory Profiling</h3>
           <p class="tile-copy">
-            Set up your sensory profile now. Filter by texture, temperature, and smell—so recipes feel safer and more
-            predictable.
+            Set up your sensory profile now. 
+            Filter by dietary and cultural requirements.
           </p>
-          <RouterLink v-if="!isSignedIn" to="/auth" class="tile-link">Sign in / Sign-up →</RouterLink>
-          <span v-else class="tile-link tile-link--disabled">Signed in</span>
-        </article>
-
-        <article class="tile">
-          <div class="tile-icon" aria-hidden="true">⌁</div>
-          <h3 class="h3">Safe Food Library</h3>
-          <p class="tile-copy">Save what works, hide what doesn’t, and return to calm defaults.</p>
-          <div class="thumb-grid" aria-hidden="true">
-            <div class="thumb" />
-            <div class="thumb" />
-            <div class="thumb" />
+          <div class="tile-demo tile-demo--compact" aria-hidden="true">
+            <div class="demo-k">Example profile</div>
+            <div class="pill-grid">
+              <span class="pill-chip on">Vegan</span>
+              <span class="pill-chip">Halal</span>
+              <span class="pill-chip">No dairy</span>
+            </div>
+            <div class="warn-card">
+              <div class="warn-title">We’ll flag conflicts</div>
+              <div class="warn-title">So you are aware exactly what you should watch out for</div>
+            </div>
           </div>
         </article>
 
@@ -114,7 +107,7 @@ const { isSignedIn } = useSession()
           <p class="tile-copy">
             Cook with one clear step at a time. Track progress, stay oriented, and move at your pace.
           </p>
-          <div class="tile-demo tile-demo--dark" aria-hidden="true">
+          <div class="tile-demo tile-demo--dark tile-demo--compact" aria-hidden="true">
             <div class="step-demo">
               <div class="step-badge">Step 2 of 5</div>
               <div class="step-line">
@@ -139,8 +132,17 @@ const { isSignedIn } = useSession()
         </div>
         <div class="cta-actions">
           <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Find a recipe</RouterLink>
-          <RouterLink v-if="!isSignedIn" to="/auth" class="bb-btn bb-btn--secondary cta">Sign in / Sign-up</RouterLink>
-          <span v-else class="bb-btn bb-btn--secondary cta cta--disabled" aria-disabled="true">Sign in / Sign-up</span>
+          <RouterLink v-if="!isSignedIn" to="/auth" class="bb-btn bb-btn--secondary cta">
+            Sign in to access your sensory profile
+          </RouterLink>
+          <RouterLink
+            v-else-if="!hasProfile"
+            to="/sensory/setup"
+            class="bb-btn bb-btn--secondary cta"
+          >
+            Set up sensory profile
+          </RouterLink>
+          <RouterLink v-else to="/sensory/setup" class="bb-btn bb-btn--secondary cta">Update sensory profile</RouterLink>
         </div>
       </div>
     </section>
@@ -207,15 +209,6 @@ const { isSignedIn } = useSession()
   font-family: var(--bb-font-headline);
   font-weight: 700;
 }
-.cta--disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-.tile-link--disabled {
-  opacity: 0.55;
-  cursor: default;
-}
 
 .section {
   margin-top: 2.25rem;
@@ -261,13 +254,13 @@ const { isSignedIn } = useSession()
   margin: 0 auto;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.7rem;
-  padding: 0 0.5rem;
+  gap: 0.45rem;
+  padding: 0;
 }
 .tile {
   background: var(--bb-surface-lowest);
   border-radius: 16px;
-  padding: 1.2rem 1.2rem;
+  padding: 1.05rem 1.05rem;
   box-shadow: 0 12px 32px rgba(26, 28, 25, 0.04);
   min-height: 360px;
   display: flex;
@@ -312,6 +305,10 @@ const { isSignedIn } = useSession()
   padding-top: 1rem;
   display: grid;
   gap: 0.75rem;
+}
+.tile-demo--compact {
+  margin-top: 0.85rem;
+  padding-top: 0.65rem;
 }
 .demo-k {
   font-family: var(--bb-font-label);

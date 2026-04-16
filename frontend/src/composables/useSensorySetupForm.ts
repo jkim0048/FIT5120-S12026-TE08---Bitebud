@@ -18,11 +18,10 @@ export const TEXTURE_OPTIONS = [
   'Lumpy',
   'Sticky',
   'Grainy',
+  'Powdery',
   'Rubbery',
   'Flaky',
 ] as const
-
-export const TEMPERATURE_OPTIONS = ['Cold', 'Room Temp', 'Warm', 'Hot'] as const
 
 export type TextureOption = (typeof TEXTURE_OPTIONS)[number]
 
@@ -37,20 +36,10 @@ export const TEXTURE_OPTION_PRESENTATION: Record<TextureOption, { emoji: string;
   Lumpy: { emoji: '🫘', hint: 'Uneven bits mixed in' },
   Sticky: { emoji: '🍯', hint: 'Clings to fingers or teeth' },
   Grainy: { emoji: '🌾', hint: 'Sandy or gritty between teeth' },
+  Powdery: { emoji: '🍚', hint: 'Dry and dusty, like flour or icing sugar' },
   Rubbery: { emoji: '🦑', hint: 'Bouncy or tough to tear' },
   Flaky: { emoji: '🥐', hint: 'Layers that fall apart' },
 }
-
-export const TEMPERATURE_PRESENTATION: Array<{
-  value: (typeof TEMPERATURE_OPTIONS)[number]
-  emoji: string
-  hint: string
-}> = [
-  { value: 'Cold', emoji: '🧊', hint: 'Straight from the fridge' },
-  { value: 'Room Temp', emoji: '🏠', hint: 'Not heated or chilled' },
-  { value: 'Warm', emoji: '☀️', hint: 'Gently heated, not steaming' },
-  { value: 'Hot', emoji: '🔥', hint: 'Steaming or very warm' },
-]
 
 export type SensoryChip = { label: string; kind: 'dietary' | 'cultural'; emoji: string; hint: string }
 
@@ -96,7 +85,6 @@ function encodeUnsafeTexturePrefs(unsafe: string[]): string[] {
 }
 
 const selectedUnsafeTextures = ref<string[]>([])
-const selectedTemperatures = ref<string[]>([])
 const selectedDietary = ref<string[]>([])
 const selectedCultural = ref<string[]>([])
 const foodInputWickedIconId = ref('')
@@ -113,7 +101,6 @@ const lastUserId = ref<string | null>(null)
 
 function resetLocalState() {
   selectedUnsafeTextures.value = []
-  selectedTemperatures.value = []
   selectedDietary.value = []
   selectedCultural.value = []
   foodInputWickedIconId.value = ''
@@ -158,10 +145,6 @@ export function useSensorySetupForm() {
         return
       }
       selectedUnsafeTextures.value = decodedUnsafeTextures.value
-      selectedTemperatures.value = (p.temperaturePref ?? '')
-        .split(',')
-        .map((x) => x.trim())
-        .filter(Boolean)
       selectedDietary.value = p.dietaryNeeds ?? []
       selectedCultural.value = p.culturalRequirements ?? []
     },
@@ -172,12 +155,6 @@ export function useSensorySetupForm() {
     selectedUnsafeTextures.value = selectedUnsafeTextures.value.includes(label)
       ? selectedUnsafeTextures.value.filter((x) => x !== label)
       : uniq([...selectedUnsafeTextures.value, label])
-  }
-
-  function toggleTemperature(label: string) {
-    selectedTemperatures.value = selectedTemperatures.value.includes(label)
-      ? selectedTemperatures.value.filter((x) => x !== label)
-      : uniq([...selectedTemperatures.value, label])
   }
 
   function toggleDietary(label: string) {
@@ -262,10 +239,8 @@ export function useSensorySetupForm() {
     if (hasProfile.value) return
     const uid = currentUserId()
     const texturePrefsEncoded = encodeUnsafeTexturePrefs(selectedUnsafeTextures.value)
-    const tempPref = selectedTemperatures.value.length ? selectedTemperatures.value.join(',') : null
     const profileBody = {
       texturePrefs: texturePrefsEncoded,
-      temperaturePref: tempPref,
       dietaryNeeds: selectedDietary.value,
       culturalRequirements: selectedCultural.value,
     }
@@ -381,7 +356,6 @@ export function useSensorySetupForm() {
   }
 
   const textureDone = computed(() => selectedUnsafeTextures.value.length > 0)
-  const temperatureDone = computed(() => selectedTemperatures.value.length > 0)
   const dietaryDone = computed(() => selectedDietary.value.length + selectedCultural.value.length > 0)
   const foodSafetyDone = computed(() => realFoodItems.value.length > 0)
 
@@ -389,10 +363,8 @@ export function useSensorySetupForm() {
     saveError.value = ''
     const uid = currentUserId()
     const texturePrefsEncoded = encodeUnsafeTexturePrefs(selectedUnsafeTextures.value)
-    const tempPref = selectedTemperatures.value.length ? selectedTemperatures.value.join(',') : null
     const profileBody = {
       texturePrefs: texturePrefsEncoded,
-      temperaturePref: tempPref,
       dietaryNeeds: selectedDietary.value,
       culturalRequirements: selectedCultural.value,
     }
@@ -420,10 +392,6 @@ export function useSensorySetupForm() {
     await saveProfileOnly()
   }
 
-  async function saveTemperaturesSection() {
-    await saveProfileOnly()
-  }
-
   async function saveDietaryCulturalSection() {
     await saveProfileOnly()
   }
@@ -436,7 +404,6 @@ export function useSensorySetupForm() {
     profileLoading,
     saveError,
     selectedUnsafeTextures,
-    selectedTemperatures,
     selectedDietary,
     selectedCultural,
     foodInputWickedIconId,
@@ -453,11 +420,9 @@ export function useSensorySetupForm() {
     editFoodBusy,
     foodsForDisplay,
     textureDone,
-    temperatureDone,
     dietaryDone,
     foodSafetyDone,
     toggleUnsafeTexture,
-    toggleTemperature,
     toggleDietary,
     toggleCultural,
     statusPillClasses,
@@ -472,7 +437,6 @@ export function useSensorySetupForm() {
     saveProfileOnly,
     saveAndViewSummary,
     saveTexturesSection,
-    saveTemperaturesSection,
     saveDietaryCulturalSection,
     saveFoodSafetySection,
   }

@@ -9,7 +9,6 @@ import { formatIngredientDisplayLabel } from "../services/icons.js";
 const saveBody = z
   .object({
     texturePrefs: z.array(z.string()).default([]),
-    temperaturePref: z.string().optional().nullable(),
     dietaryNeeds: z.array(z.string()).default([]),
     culturalRequirements: z.array(z.string()).default([]),
   })
@@ -84,14 +83,12 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
         userId,
         codeHash,
         texturePrefs: body.texturePrefs,
-        temperaturePref: body.temperaturePref ?? null,
         dietaryNeeds: body.dietaryNeeds,
         culturalRequirements: body.culturalRequirements,
       },
       update: {
         codeHash,
         texturePrefs: body.texturePrefs,
-        temperaturePref: body.temperaturePref ?? null,
         dietaryNeeds: body.dietaryNeeds,
         culturalRequirements: body.culturalRequirements,
       },

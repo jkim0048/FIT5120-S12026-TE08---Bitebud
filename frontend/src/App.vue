@@ -3,10 +3,12 @@ import { watchEffect } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useSettings } from './composables/useSettings'
 import { useSession } from './composables/useSession'
+import { useSensoryProfile } from './composables/useSensoryProfile'
 
 const { settings } = useSettings()
 const router = useRouter()
 const { userId, isSignedIn, logout } = useSession()
+const { hasProfile } = useSensoryProfile()
 
 function onSignOut() {
   logout()
@@ -41,13 +43,16 @@ watchEffect(() => {
     <header class="top-bar">
       <div class="top-inner">
         <div class="brand-row">
-          <RouterLink to="/" class="brand" aria-label="BiteBud home">BiteBud</RouterLink>
+          <RouterLink to="/" class="brand" aria-label="BiteBud home">
+            <span class="brand-text">BiteBud</span>
+          </RouterLink>
         </div>
         <nav class="primary-nav" aria-label="Primary">
           <RouterLink to="/search">Find a recipe</RouterLink>
-          <RouterLink v-if="isSignedIn" to="/sensory/setup">Sensory profile</RouterLink>
-          <RouterLink v-if="!isSignedIn" to="/auth">User sign in / Sign up</RouterLink>
-          <button v-else type="button" class="nav-signout" @click="onSignOut">Sign out</button>
+          <RouterLink v-if="isSignedIn && !hasProfile" to="/sensory/setup">Set up sensory profile</RouterLink>
+          <RouterLink v-if="isSignedIn && hasProfile" to="/sensory/setup">Update sensory profile</RouterLink>
+          <RouterLink v-if="!isSignedIn" to="/auth">Sign in to access your sensory profile</RouterLink>
+          <button v-if="isSignedIn && hasProfile" type="button" class="nav-signout" @click="onSignOut">Sign out</button>
           <RouterLink to="/settings">Settings</RouterLink>
           <div
             class="avatar"
@@ -56,6 +61,13 @@ watchEffect(() => {
             aria-hidden="true"
           >
             <span v-if="isSignedIn" class="avatar-text">{{ userId }}</span>
+            <img
+              v-else
+              class="avatar-mark"
+              src="/bitebud-mark.png"
+              alt=""
+              aria-hidden="true"
+            />
           </div>
         </nav>
       </div>
@@ -111,11 +123,18 @@ watchEffect(() => {
   font-family: var(--bb-font-headline);
 }
 .avatar--empty {
-  background: #1a1a1a;
+  background: transparent;
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--bb-border) 80%, transparent);
 }
 .avatar-text {
   line-height: 1;
+}
+.avatar-mark {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  padding: 0.15rem;
 }
 .brand {
   display: inline-flex;
@@ -123,6 +142,10 @@ watchEffect(() => {
   gap: 0.6rem;
   text-decoration: none;
   min-width: 44px;
+  color: var(--bb-primary);
+}
+.brand:visited {
+  color: var(--bb-primary);
 }
 .brand-logo {
   height: 34px;
