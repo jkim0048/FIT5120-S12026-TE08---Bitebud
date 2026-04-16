@@ -68,17 +68,15 @@ const instructionTitle = computed(() => {
   const c = current.value
   if (!c) return ''
   const label = (c.label ?? '').trim()
-  if (label) return label
-  return (c.detail ?? '').trim()
+  const fallback = (c.detail ?? '').trim()
+  const stepLabel = label || fallback
+  if (!stepLabel) return ''
+  return `Step ${index.value + 1} — ${stepLabel}`
 })
 const instructionSubtitle = computed(() => {
   const c = current.value
   if (!c) return ''
-  const label = (c.label ?? '').trim()
-  const detail = (c.detail ?? '').trim()
-  if (!detail) return ''
-  if (looksDuplicateInstruction(label, detail)) return ''
-  return detail
+  return (c.detail ?? '').trim()
 })
 const instructionText = computed(() => instructionSubtitle.value || instructionTitle.value)
 
@@ -176,26 +174,6 @@ function toTitleCase(v: string): string {
 function toolIconFor(label: string): string {
   const hit = TOOL_ICON_HINTS.find((r) => r.match.test(label))
   return hit?.icon ?? '🍽️'
-}
-function looksDuplicateInstruction(label: string, detail: string): boolean {
-  const normalize = (value: string) =>
-    value
-      .toLowerCase()
-      .replace(/&/g, ' and ')
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .replace(/\b(the|a|an|to|of|for|in|on|under|with|and|or|then|cooked)\b/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  const labelNorm = normalize(label)
-  const detailNorm = normalize(detail)
-  if (!labelNorm || !detailNorm) return false
-  if (labelNorm === detailNorm) return true
-  const labelTokens = new Set(labelNorm.split(' ').filter(Boolean))
-  const detailTokens = new Set(detailNorm.split(' ').filter(Boolean))
-  if (labelTokens.size === 0 || detailTokens.size === 0) return false
-  const overlap = [...labelTokens].filter((token) => detailTokens.has(token)).length
-  const coverage = overlap / Math.max(1, labelTokens.size)
-  return coverage >= 0.65
 }
 function ingredientVisualToken(item: { label: string; emoji?: string; icon?: string }): string {
   if (item.icon && item.icon.trim()) return item.icon.trim().slice(0, 2)
