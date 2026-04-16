@@ -1,6 +1,7 @@
 import type { RecipeEdge, RecipeGraph, RecipeNode } from "../graph/recipeGraph.js";
 import { repairIngredientNodesFromRecipeText } from "./graphRepair.js";
 
+/** Choose a simple ingredient emoji based on keyword matches (fallback is a generic bowl). */
 function pickEmojiForIngredient(label: string): string {
   const t = label.toLowerCase();
   if (/(beef|steak|meat|pork|bacon|ham)/.test(t)) return "🥩";
@@ -16,6 +17,7 @@ function pickEmojiForIngredient(label: string): string {
   return "🥣";
 }
 
+/** Choose a single action emoji for a step based on coarse verb/method keywords (fallback arrow). */
 function pickEmojiForStep(text: string): string {
   const t = text.toLowerCase();
   if (/(chop|slice|dice|mince)/.test(t)) return "🔪";
@@ -28,6 +30,7 @@ function pickEmojiForStep(text: string): string {
   return "➡️";
 }
 
+/** Infer a step node “type” from step text using a small keyword heuristic. */
 function pickStepType(text: string): RecipeNode["type"] {
   const t = text.toLowerCase();
   if (/(wait|rest|cool|set aside)/.test(t)) return "wait";
@@ -37,6 +40,7 @@ function pickStepType(text: string): RecipeNode["type"] {
   return "prep";
 }
 
+/** Extract a single “NN minutes” value from step text if present (best-effort). */
 function extractMinutes(text: string): number | null {
   const m = text.toLowerCase().match(/(\d+)\s*(min|mins|minutes)\b/);
   if (!m) return null;
@@ -44,6 +48,7 @@ function extractMinutes(text: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Split raw text into non-empty trimmed lines (used for crude section/step parsing). */
 function splitLines(raw: string): string[] {
   return raw
     .split(/\r?\n/)
@@ -51,6 +56,12 @@ function splitLines(raw: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Parse a plain recipe text blob into a minimal `RecipeGraph` using simple heuristics.
+ *
+ * Intended as a fallback when LLM parsing is unavailable; produces a usable linear step chain and “uses” edges,
+ * then applies `repairIngredientNodesFromRecipeText` to improve ingredient labeling.
+ */
 export function basicRecipeTextToGraph(input: {
   text: string;
   sourceUrl?: string | null;

@@ -19,12 +19,14 @@ const FALLBACK_MODELS = [
   "gemini-2.0-flash",
 ] as const;
 
+/** Build an ordered list of model names to try (env override first, then known fallbacks; de-duplicated). */
 function modelCandidates(): string[] {
   const preferred = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
   const out = [preferred, ...FALLBACK_MODELS.filter((m) => m !== preferred)];
   return [...new Set(out)];
 }
 
+/** Treat common quota/model-retired failures as retryable by switching to a fallback model. */
 function isRetryableModelSwitch(err: unknown): boolean {
   const s = String(err);
   if (
@@ -39,6 +41,11 @@ function isRetryableModelSwitch(err: unknown): boolean {
   return false;
 }
 
+/**
+ * Generate JSON (as a text string) from Gemini using `responseMimeType: application/json`.
+ *
+ * Retries across model candidates on quota/404-retired errors; rethrows non-retryable errors.
+ */
 async function generateJsonText(
   genAI: GoogleGenerativeAI,
   prompt: string,
@@ -99,6 +106,7 @@ Schema (JSON object shape):
   ]
 }`;
 
+/** Parse a Gemini response into JSON, tolerating optional ```json fences. */
 function extractJson(text: string): unknown {
   const trimmed = text.trim();
   const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```$/m);
@@ -106,6 +114,12 @@ function extractJson(text: string): unknown {
   return JSON.parse(raw) as unknown;
 }
 
+/**
+ * Parse recipe text into a validated `RecipeGraph` using Gemini.
+ *
+ * Uses a strict JSON schema prompt, attempts one “fix invalid JSON” repair pass if needed, then runs
+ * post-processing (`repairIngredientNodesFromRecipeText`) and DAG validation.
+ */
 export async function parseRecipeTextToGraph(
   text: string,
   sourceUrl?: string | null,
@@ -132,6 +146,7 @@ ${sourceUrl ? `\nSource URL hint: ${sourceUrl}` : ""}`;
   return graph;
 }
 
+/** Best-effort classification of “Gemini is busy / retry later” errors for graceful fallback paths. */
 export function isGeminiBusyError(e: unknown): boolean {
   const s = String(e);
   return (

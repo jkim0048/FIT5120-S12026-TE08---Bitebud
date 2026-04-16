@@ -12,18 +12,25 @@ const FALLBACK_GEMINI_MODELS = [
   "gemini-2.0-flash",
 ] as const;
 
+/** Build an ordered list of Gemini models to try for lede generation (env override first, then fallbacks). */
 function geminiModelCandidates(): string[] {
   const preferred = process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
   const out = [preferred, ...FALLBACK_GEMINI_MODELS.filter((m) => m !== preferred)];
   return [...new Set(out)];
 }
 
+/** Normalize the model output to a single clean sentence (trim, collapse whitespace, strip surrounding quotes). */
 function normalizeOneSentence(raw: string): string {
   const line = raw.replace(/\s+/g, " ").trim();
   const stripped = line.replace(/^["'“”]+|["'“”]+$/g, "").trim();
   return stripped;
 }
 
+/**
+ * Generate a one-sentence dish “lede” using Gemini, retrying across model fallbacks on busy/quota errors.
+ *
+ * The prompt is constrained (≤25 words, no emojis/quotes) and only the returned sentence is emitted.
+ */
 async function generateLedeViaGemini(opts: { title: string; rawText: string }): Promise<string> {
   const apiKey = requireEnv("GEMINI_API_KEY");
   const genAI = new GoogleGenerativeAI(apiKey);
@@ -59,6 +66,7 @@ ${opts.rawText.slice(0, 10_000)}`;
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
+/** Classify transient OpenRouter failures worth treating as “try a different provider / return null”. */
 function isRetryableOpenRouterError(e: unknown): boolean {
   const s = String(e);
   return (
@@ -70,6 +78,11 @@ function isRetryableOpenRouterError(e: unknown): boolean {
   );
 }
 
+/**
+ * Generate a one-sentence dish “lede” via OpenRouter chat completions.
+ *
+ * Uses a strict plain-text system prompt; throws on non-2xx and validates that `choices[0].message.content` exists.
+ */
 async function generateLedeViaOpenRouter(opts: { title: string; rawText: string }): Promise<string> {
   const apiKey = requireEnv("OPENROUTER_API_KEY");
   const model = process.env.OPENROUTER_MODEL?.trim() || "google/gemma-4-26b-a4b-it:free";
@@ -112,6 +125,12 @@ async function generateLedeViaOpenRouter(opts: { title: string; rawText: string 
   return normalizeOneSentence(content);
 }
 
+/**
+ * Generate a recipe lede with graceful fallbacks: Gemini first, then OpenRouter if configured.
+ *
+ * Returns `null` when input text is empty or both providers fail in a retryable/transient way; rethrows
+ * non-busy Gemini errors to surface genuine configuration issues.
+ */
 export async function generateRecipeLedeResilient(opts: {
   title: string;
   rawText: string | null | undefined;

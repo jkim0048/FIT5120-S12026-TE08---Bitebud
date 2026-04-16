@@ -1,5 +1,6 @@
 const URL_ONLY_LINE = /^https?:\/\/\S+$/i;
 
+/** Detect whether the given text is exactly one `http(s)` URL line (after trimming/blank-line removal). */
 export function isUrlOnlyRecipeInput(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
@@ -10,6 +11,7 @@ export function isUrlOnlyRecipeInput(text: string): boolean {
   return lines.length === 1 && URL_ONLY_LINE.test(lines[0]!);
 }
 
+/** Convert a best-effort HTML string into readable plain text by dropping tags and normalizing whitespace. */
 function stripTagsToText(html: string): string {
   let s = html.replace(/<script[\s\S]*?<\/script>/gi, " ");
   s = s.replace(/<style[\s\S]*?<\/style>/gi, " ");
@@ -28,12 +30,16 @@ function stripTagsToText(html: string): string {
 const MAX_BYTES = 1_500_000;
 const FETCH_TIMEOUT_MS = 15_000;
 
+/** Enforce protocol allowlist (http/https only) before attempting a network fetch. */
 function allowedUrl(u: URL): boolean {
   return u.protocol === "http:" || u.protocol === "https:";
 }
 
 /**
- * Best-effort fetch of a recipe page as plain text for parsing.
+ * Best-effort fetch + HTML→text extraction for recipe parsing.
+ *
+ * Enforces protocol allowlist, timeout, and a max-bytes cap; returns either `{ ok: true, text, finalUrl }`
+ * (with redirects resolved) or `{ ok: false }` without throwing for common failures.
  */
 export async function fetchUrlAsRecipePlainText(
   rawUrl: string,
@@ -108,6 +114,10 @@ export type ResolvedRecipeInput =
   | { kind: "text"; text: string; sourceUrl: string | null }
   | { kind: "url_blocked" };
 
+/**
+ * Normalize user-provided “visualise” input to either plain text (optionally fetched from a single URL line)
+ * or a blocked result when the URL fetch fails / is disallowed.
+ */
 export async function resolveVisualiseInput(text: string): Promise<ResolvedRecipeInput> {
   const trimmed = text.trim();
   if (!isUrlOnlyRecipeInput(trimmed)) {

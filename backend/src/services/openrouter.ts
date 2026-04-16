@@ -10,6 +10,7 @@ const DEFAULT_OPENROUTER_MODELS = [
   "google/gemma-4-26b-a4b-it:free",
 ] as const;
 
+/** Build an ordered list of OpenRouter models to try (env override first, then fallbacks; de-duplicated). */
 function openRouterModelCandidates(): string[] {
   const preferred = process.env.OPENROUTER_MODEL?.trim();
   const out = preferred
@@ -18,6 +19,7 @@ function openRouterModelCandidates(): string[] {
   return [...new Set(out)];
 }
 
+/** Parse a model response into JSON, tolerating optional ```json fences. */
 function extractJson(text: string): unknown {
   const trimmed = text.trim();
   const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```$/m);
@@ -25,6 +27,7 @@ function extractJson(text: string): unknown {
   return JSON.parse(raw) as unknown;
 }
 
+/** Classify transient OpenRouter failures that are worth retrying with backoff and/or model fallback. */
 function isRetryableOpenRouterError(e: unknown): boolean {
   const s = String(e);
   return (
@@ -36,15 +39,22 @@ function isRetryableOpenRouterError(e: unknown): boolean {
   );
 }
 
+/** Sleep helper for backoff between retry attempts. */
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Add bounded jitter to a base delay to avoid retry thundering-herd behavior. */
 function jitter(ms: number): number {
   const spread = Math.max(50, Math.floor(ms * 0.25));
   return ms + Math.floor((Math.random() * 2 - 1) * spread);
 }
 
+/**
+ * Call OpenRouter chat completions and return the model’s message content as a string.
+ *
+ * Enforces a timeout, throws on non-2xx responses, and validates that `choices[0].message.content` exists.
+ */
 async function postOpenRouterJson(opts: {
   model: string;
   prompt: string;
@@ -132,6 +142,12 @@ Schema (JSON object shape):
   ]
 }`;
 
+/**
+ * Parse recipe text into a validated `RecipeGraph` using OpenRouter-hosted models.
+ *
+ * Tries model candidates with up to 3 attempts each (retryable errors only), performs one “repair invalid JSON”
+ * pass if initial parsing fails, then applies ingredient-node repair and DAG validation.
+ */
 export async function parseRecipeTextToGraphViaOpenRouter(
   text: string,
   sourceUrl?: string | null,

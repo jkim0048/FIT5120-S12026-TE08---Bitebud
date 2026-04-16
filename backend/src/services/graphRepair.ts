@@ -2,6 +2,7 @@ import type { RecipeEdge, RecipeGraph, RecipeNode } from "../graph/recipeGraph.j
 
 const STEP_HEADING_RX = /^step\s*\d+$/i;
 
+/** Detect “Step N”-only nodes (no meaningful instruction) so they can be collapsed without losing structure. */
 function isTrivialStepHeading(n: RecipeNode): boolean {
   if (n.type === "ingredient") return false;
   const lab = String(n.label ?? "").trim();
@@ -52,10 +53,12 @@ export function collapseTrivialStepHeadingNodes(graph: RecipeGraph): RecipeGraph
   };
 }
 
+/** Split text into trimmed lines (keeps empty lines as empty strings). */
 function lines(text: string): string[] {
   return text.split(/\r?\n/).map((s) => s.trim());
 }
 
+/** Extract the “Ingredients” section as cleaned lines (best-effort; stops at “Instructions”). */
 function extractIngredientLines(text: string): string[] {
   const ls = lines(text);
   const start = ls.findIndex((l) => /^ingredients\s*:?\s*$/i.test(l));
@@ -72,6 +75,7 @@ function extractIngredientLines(text: string): string[] {
   return out;
 }
 
+/** Count ASCII letters (used as a proxy for “does this label contain a real ingredient name”). */
 function alphaCount(s: string): number {
   const m = s.match(/[a-zA-Z]/g);
   return m ? m.length : 0;
@@ -83,6 +87,7 @@ const MEASURE_ONLY_RX =
 const NUMBER_SIZE_ONLY_RX =
   /^\s*[\d./]+\s*(small|sm|medium|med|large|lg|xl|extra\s+large)\s*$/i;
 
+/** Detect “measure-only” labels like `1 tbsp` or `2 large` that should be replaced with a real ingredient name. */
 function looksLikeJustMeasure(label: string): boolean {
   const t = label.trim();
   if (!t) return true;
@@ -92,6 +97,7 @@ function looksLikeJustMeasure(label: string): boolean {
   return false;
 }
 
+/** Derive a shorter ingredient name and preserve the full original ingredient line for detail. */
 function deriveNameFromLine(line: string): { name: string; full: string } {
   const full = line.trim();
   // remove leading quantities and common units
@@ -111,6 +117,7 @@ function deriveNameFromLine(line: string): { name: string; full: string } {
   return { name, full };
 }
 
+/** Sort ingredient nodes in numeric id order (e.g. `i1`, `i2`, …) to align with parsed ingredient lines. */
 function sortIngredientNodes(nodes: RecipeNode[]): RecipeNode[] {
   const parseNum = (id: string): number => {
     const m = id.match(/\d+/);
@@ -119,6 +126,12 @@ function sortIngredientNodes(nodes: RecipeNode[]): RecipeNode[] {
   return [...nodes].sort((a, b) => parseNum(a.id) - parseNum(b.id));
 }
 
+/**
+ * Patch ingredient nodes when an LLM produced “measure-only” labels by aligning them to parsed ingredient lines.
+ *
+ * Preserves graph shape, updates only low-signal ingredient labels/details, and finally collapses trivial “Step N”
+ * headings so the result is easier to render.
+ */
 export function repairIngredientNodesFromRecipeText(
   graph: RecipeGraph,
   recipeText: string,

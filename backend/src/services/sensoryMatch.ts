@@ -2,6 +2,7 @@ import type { RecipeGraph, RecipeNode } from "../graph/recipeGraph.js";
 import { DIETARY_CULTURAL_CONSTRAINT_KEYWORDS } from "./dietaryConstraintKeywords.js";
 import { INGREDIENT_TEXTURES, TEXTURE_VALUES, type TextureValue } from "./ingredientTextures.js";
 
+/** Normalize free-form food text for matching (lowercase, strip punctuation, collapse whitespace). */
 export function normalizeFoodText(s: string): string {
   return s
     .toLowerCase()
@@ -10,6 +11,7 @@ export function normalizeFoodText(s: string): string {
     .trim();
 }
 
+/** Tokenize normalized food text into a de-duplicated set (drops 1-char tokens to reduce noise). */
 export function tokenSet(s: string): Set<string> {
   const t = new Set<string>();
   for (const w of normalizeFoodText(s).split(" ")) {
@@ -60,6 +62,7 @@ export function constraintMatchNeedles(constraint: string): string[] {
   return fallback.length >= 2 ? [fallback] : [];
 }
 
+/** Check whether an ingredient’s label/detail contains any of the normalized “needle” patterns for a constraint. */
 export function ingredientMatchesConstraint(
   ingredientLabel: string,
   ingredientDetail: string,
@@ -73,6 +76,7 @@ export function ingredientMatchesConstraint(
   return false;
 }
 
+/** Return only the ingredient nodes from a parsed recipe graph. */
 export function recipeIngredientNodes(graph: RecipeGraph): RecipeNode[] {
   return graph.nodes.filter((n) => n.type === "ingredient");
 }
@@ -82,6 +86,7 @@ const TEXTURE_UNSAFE_PREFIX = "unsafe:";
 const PROFILE_TEXTURE_EXTRAS = ["Powdery"] as const;
 export type ProfileTextureValue = TextureValue | (typeof PROFILE_TEXTURE_EXTRAS)[number];
 
+/** Decode stored texture prefs in the form `unsafe:<Texture>` into a de-duplicated list of allowed values. */
 export function decodeUnsafeTexturePrefs(prefs: unknown): ProfileTextureValue[] {
   const out: ProfileTextureValue[] = [];
   const allowed = new Set<string>([...TEXTURE_VALUES, ...PROFILE_TEXTURE_EXTRAS]);
@@ -116,6 +121,11 @@ export type TextureConflict = {
   matchedTexture: TextureValue;
 };
 
+/**
+ * Detect texture conflicts from plain ingredient lines by matching against the ingredient→texture library.
+ *
+ * Uses the same “ingredientMatchesFood” heuristic and returns synthetic node ids (`ing-line-N`) for UI attribution.
+ */
 export function computeTextureConflictsFromIngredientLines(
   lines: string[],
   unsafeTextures: readonly ProfileTextureValue[],
@@ -146,6 +156,11 @@ export function computeTextureConflictsFromIngredientLines(
   return out;
 }
 
+/**
+ * Compute profile conflicts (sensory unsafe/unsure, and dietary/cultural constraints) from a parsed recipe graph.
+ *
+ * Outputs two arrays of conflicts keyed by ingredient node id for UI highlighting and safety scoring.
+ */
 export function computeSensoryConflicts(
   graph: RecipeGraph,
   foods: Array<{ name: string; status: "SAFE" | "UNSURE" | "UNSAFE" }>,
@@ -197,6 +212,7 @@ export function computeSensoryConflicts(
   return { sensory, dietary };
 }
 
+/** Collapse conflict lists into a coarse overall match status used by the UI (“safe”/“sometimes”/“unsafe”). */
 export function matchStatusFromConflicts(
   sensory: SensoryFoodConflict[],
   dietary: DietaryConflict[],
@@ -211,6 +227,7 @@ export function matchStatusFromConflicts(
   return "safe";
 }
 
+/** Turn conflicts into de-duplicated, human-readable warning tags suitable for a small UI chip list. */
 export function profileWarningsFromConflicts(
   sensory: SensoryFoodConflict[],
   dietary: DietaryConflict[],
