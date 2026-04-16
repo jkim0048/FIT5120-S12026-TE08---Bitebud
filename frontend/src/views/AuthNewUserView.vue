@@ -83,16 +83,16 @@ async function onModalYes(): Promise<void> {
       <p v-if="error" class="err" role="alert">{{ error }}</p>
       <div class="actions">
         <button type="button" class="bb-btn bb-btn--secondary btn-skip" :disabled="busy || !userCode" @click="onSkip">
-          Skip for now
+          Go back
         </button>
         <button type="button" class="bb-btn bb-btn--primary btn-continue" :disabled="busy || !userCode" @click="onContinue">
-          Continue
+          Create Sensory Profile
         </button>
       </div>
     </div>
 
     <p class="footer-hint">
-      Already have an ID?
+      Already have a Sensory Profile?
       <RouterLink to="/auth" class="inline-link">Sign in</RouterLink>
     </p>
 
