@@ -9,7 +9,7 @@ import { findTtsVoiceByName } from '../lib/ttsVoices'
 import type { RecipeGraph } from '../types/recipe'
 import type { SensoryConflictResponse } from '../types/sensory'
 
-type JourneyPhase = 'getReady' | 'roadmap' | 'step' | 'timer'
+type JourneyPhase = 'getReady' | 'ingredients' | 'roadmap' | 'step' | 'timer'
 type TimerState = 'idle' | 'running' | 'paused'
 
 const EQUIPMENT_CATALOG = [
@@ -54,6 +54,7 @@ const sessionStartMs = ref<number>(Date.now())
 
 const journeyPhase = ref<JourneyPhase>('getReady')
 const getReadyChecks = ref<Record<string, boolean>>({})
+const ingredientChecks = ref<Record<string, boolean>>({})
 
 const timerState = ref<TimerState>('idle')
 const remaining = ref<number | null>(null)
@@ -120,6 +121,19 @@ const allIngredientLabels = computed(() => {
     .filter((n) => n.type === 'ingredient')
     .map((n) => n.label.trim())
     .filter(Boolean)
+})
+
+const ingredientChecklistItems = computed(() => {
+  if (!graph.value) return []
+  return graph.value.nodes
+    .filter((n) => n.type === 'ingredient')
+    .map((n) => ({
+      label: String(n.label ?? '').trim(),
+      icon: typeof n.icon === 'string' ? n.icon : null,
+      emoji: typeof n.emoji === 'string' ? n.emoji : null,
+      imageUrl: typeof n.imageUrl === 'string' ? n.imageUrl : null,
+    }))
+    .filter((x) => Boolean(x.label))
 })
 
 const equipmentItems = computed(() => {
@@ -249,6 +263,10 @@ function enterGetReadyPhase() {
   journeyPhase.value = 'getReady'
 }
 
+function enterIngredientsPhase() {
+  journeyPhase.value = 'ingredients'
+}
+
 function backFromGetReady() {
   void router.push({ name: 'recipe', params: { id: recipeId.value } })
 }
@@ -334,6 +352,7 @@ watch(
     conflicts.value = null
     completed.value = []
     getReadyChecks.value = {}
+    ingredientChecks.value = {}
     sessionStartMs.value = Date.now()
     stopTimer()
     await loadRecipe()
@@ -345,6 +364,14 @@ watch(
   equipmentItems,
   (items) => {
     getReadyChecks.value = Object.fromEntries(items.map((item) => [item, false]))
+  },
+  { immediate: true },
+)
+
+watch(
+  ingredientChecklistItems,
+  (items) => {
+    ingredientChecks.value = Object.fromEntries(items.map((item) => [item.label, false]))
   },
   { immediate: true },
 )
@@ -448,7 +475,47 @@ async function markStepDoneAndNext() {
           </ul>
           <div class="ready-actions">
             <button type="button" class="bb-btn bb-btn--primary guided-btn ready-back-btn" @click="backFromGetReady">Back</button>
-            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-main-btn" @click="enterRoadmapPhase">Cooking Steps</button>
+            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-main-btn" @click="enterIngredientsPhase">
+              Next: Ingredients
+            </button>
+          </div>
+        </article>
+      </section>
+
+      <section v-else-if="journeyPhase === 'ingredients'" class="ready-shell">
+        <aside class="ready-rail">
+          <h2>{{ graph.title }}</h2>
+          <p class="ready-rail-meta">{{ recipeMetaLabel }}</p>
+          <p class="ready-rail-copy">Quick ingredient check before you start cooking.</p>
+        </aside>
+
+        <article class="card ready">
+          <h1 class="ready-title">Ingredients Checklist</h1>
+          <p class="ready-sub">Check off what you have on hand. This is session-only and won’t be saved.</p>
+          <ul class="ready-list">
+            <li v-for="item in ingredientChecklistItems" :key="item.label">
+              <label class="ready-item">
+                <span class="ready-item-left">
+                  <span class="ready-item-icon ready-item-icon--img" aria-hidden="true">
+                    <img v-if="item.imageUrl" class="ready-item-img" :src="item.imageUrl" :alt="item.label" />
+                    <span v-else>{{ ingredientVisualToken({ label: item.label, emoji: item.emoji ?? undefined, icon: item.icon ?? undefined }) }}</span>
+                  </span>
+                  <span>{{ item.label }}</span>
+                </span>
+                <input
+                  v-model="ingredientChecks[item.label]"
+                  class="ready-check"
+                  type="checkbox"
+                  :aria-label="`Have ingredient: ${item.label}`"
+                />
+              </label>
+            </li>
+          </ul>
+          <div class="ready-actions">
+            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-back-btn" @click="enterGetReadyPhase">Back</button>
+            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-main-btn" @click="enterRoadmapPhase">
+              Cooking Steps
+            </button>
           </div>
         </article>
       </section>
@@ -890,6 +957,15 @@ async function markStepDoneAndNext() {
   background: color-mix(in srgb, var(--bb-muted) 14%, var(--bb-surface-high));
   font-size: 0.96rem;
 }
+.ready-item-icon--img {
+  overflow: hidden;
+}
+.ready-item-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .ready-check {
   width: 22px;
   height: 22px;
@@ -942,9 +1018,17 @@ async function markStepDoneAndNext() {
   gap: 0.8rem;
   cursor: pointer;
   border-radius: 10px;
+  color: var(--bb-text);
+}
+.roadmap-row:hover {
+  background: color-mix(in srgb, var(--bb-primary) 10%, transparent);
+}
+.roadmap-row:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bb-surface), 0 0 0 4px var(--bb-focus-ring);
 }
 .roadmap-list li.active .roadmap-row {
-  background: color-mix(in srgb, #16a34a 12%, transparent);
+  background: color-mix(in srgb, var(--bb-primary) 12%, transparent);
 }
 .roadmap-index {
   width: 34px;
@@ -957,8 +1041,8 @@ async function markStepDoneAndNext() {
   color: var(--bb-muted);
 }
 .roadmap-list li.active .roadmap-index {
-  border-color: #16a34a;
-  background: #16a34a;
+  border-color: var(--bb-primary);
+  background: var(--bb-primary);
   color: #fff;
 }
 .roadmap-label {

@@ -57,7 +57,7 @@ function save() {
         <option value="UNSURE">Unsure</option>
         <option value="UNSAFE">Unsafe</option>
       </select>
-      <input v-model="nTex" class="input" placeholder="Texture note" />
+      <input v-model="nTex" class="input" placeholder="Contains ingredients that are" />
       <input v-model="nSmell" class="input" placeholder="Smell note" />
       <input v-model="nTemp" class="input" placeholder="Temperature note" />
       <button type="button" class="bb-btn bb-btn--primary" @click="save">Save changes</button>

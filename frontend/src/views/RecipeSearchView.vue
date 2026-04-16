@@ -15,14 +15,13 @@ const loadingSearch = ref(false)
 const loadingImport = ref(false)
 const err = ref<string | null>(null)
 const activeTab = ref<'forYou' | 'explore' | 'describe'>('explore')
+const hasSearched = ref(false)
 
 const catalogPage = ref(0)
 const browseSkip = ref(0)
 const pageSize = 12
 
 type SensoryMatch = 'safe' | 'sometimes'
-type HeatLevel = 'none' | 'low' | 'medium'
-type Complexity = 'low' | 'medium' | 'any'
 type PrepBucket = 'under30' | '30to60' | 'over60' | 'any'
 
 type BrowseCard = {
@@ -31,8 +30,6 @@ type BrowseCard = {
   title: string
   image?: string
   minutes?: number
-  heatLevel?: HeatLevel
-  complexity?: Exclude<Complexity, 'any'>
   tags?: string[]
   matchStatus: SensoryMatch | 'unsafe'
   profileWarnings?: string[]
@@ -56,18 +53,12 @@ const results = ref<BrowseCard[]>([])
 
 const pasteTextareaRef = ref<HTMLTextAreaElement | null>(null)
 
-const includeSometimes = ref(false)
+const filterMode = ref<'safeDishes' | 'showAll'>('safeDishes')
 
 const pendingPrep = ref<PrepBucket[]>([])
-const pendingComplexity = ref<('beginner' | 'intermediate')[]>([])
 const appliedPrep = ref<PrepBucket[]>([])
-const appliedComplexity = ref<('beginner' | 'intermediate')[]>([])
 
-const cookTime = ref<'under_15' | 'under_30' | 'any'>('any')
-const complexity = ref<Complexity>('any')
-const heatLevel = ref<HeatLevel | 'any'>('any')
-
-const showFiltersSidebar = computed(() => activeTab.value === 'explore' || activeTab.value === 'forYou')
+const showFiltersSidebar = computed(() => hasProfile.value && (activeTab.value === 'explore' || activeTab.value === 'forYou'))
 
 const hasDietaryOrCultural = computed(() => {
   const p = profile.value
@@ -93,51 +84,43 @@ watch(
     activeTab.value = tabFromRoute()
     catalogPage.value = 0
     browseSkip.value = 0
-    void search()
+    results.value = []
+    err.value = null
+    hasSearched.value = false
   },
   { immediate: true },
 )
 
 watch(
-  () => hasProfile.value,
-  (ok) => {
+  () => [hasProfile.value, profileLoading.value] as const,
+  ([ok, loading]) => {
+    if (loading) return // wait until profile fetch completes
     if (!ok) {
-      includeSometimes.value = true
+      filterMode.value = 'showAll'
       if (route.query.tab === 'history') {
         router.replace({ path: '/search', query: { ...route.query, tab: 'library' } })
       }
+    } else {
+      // profile just loaded — default to strict mode
+      filterMode.value = 'safeDishes'
     }
   },
   { immediate: true },
 )
 
 function syncLegacyFiltersFromBuckets() {
-  const prep = appliedPrep.value
-  if (prep.length === 0) {
-    cookTime.value = 'any'
-  } else if (prep.includes('under30') && prep.length === 1) {
-    cookTime.value = 'under_30'
-  } else if (prep.includes('under30') && !prep.includes('30to60') && !prep.includes('over60')) {
-    cookTime.value = 'under_30'
-  } else {
-    cookTime.value = 'any'
-  }
-  const cx = appliedComplexity.value
-  if (cx.length === 1 && cx[0] === 'beginner') complexity.value = 'low'
-  else if (cx.length === 1 && cx[0] === 'intermediate') complexity.value = 'medium'
-  else complexity.value = 'any'
+  // legacy mapping removed (filters simplified)
 }
 
 function applySidebarFilters() {
   appliedPrep.value = [...pendingPrep.value]
-  appliedComplexity.value = [...pendingComplexity.value]
   syncLegacyFiltersFromBuckets()
   catalogPage.value = 0
   browseSkip.value = 0
-  void search()
+  if (hasSearched.value) void search()
 }
 
-const filterCount = computed(() => pendingPrep.value.length + pendingComplexity.value.length)
+const filterCount = computed(() => pendingPrep.value.length)
 
 function togglePendingPrep(p: PrepBucket) {
   if (p === 'any') {
@@ -150,16 +133,9 @@ function togglePendingPrep(p: PrepBucket) {
   pendingPrep.value = [...set]
 }
 
-function togglePendingCx(c: 'beginner' | 'intermediate') {
-  const set = new Set(pendingComplexity.value)
-  if (set.has(c)) set.delete(c)
-  else set.add(c)
-  pendingComplexity.value = [...set]
-}
-
-function setIncludeSometimes(v: boolean) {
-  includeSometimes.value = v
-  if (hasProfile.value && (activeTab.value === 'forYou' || activeTab.value === 'explore')) void search()
+function setFilterMode(v: 'safeDishes' | 'showAll') {
+  filterMode.value = v
+  if (hasProfile.value && hasSearched.value && (activeTab.value === 'forYou' || activeTab.value === 'explore')) void search()
 }
 
 function autosizePasteField() {
@@ -186,7 +162,12 @@ watch(
 
 async function search() {
   err.value = null
+  hasSearched.value = true
   if (activeTab.value === 'describe' && !query.value.trim()) {
+    results.value = []
+    return
+  }
+  if ((activeTab.value === 'explore' || activeTab.value === 'forYou') && !query.value.trim()) {
     results.value = []
     return
   }
@@ -195,11 +176,7 @@ async function search() {
     if (activeTab.value === 'forYou') {
       const params = new URLSearchParams()
       if (query.value.trim()) params.set('q', query.value.trim())
-      if (cookTime.value === 'under_15') params.set('maxMinutes', '15')
-      else if (cookTime.value === 'under_30') params.set('maxMinutes', '30')
-      if (complexity.value !== 'any') params.set('complexity', complexity.value)
-      if (heatLevel.value !== 'any') params.set('heatLevel', heatLevel.value)
-      params.set('includeSometimes', String(hasProfile.value ? includeSometimes.value : true))
+      params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
       params.set('limit', String(pageSize))
       params.set('skip', String(browseSkip.value))
       params.set('sort', 'newest')
@@ -218,19 +195,13 @@ async function search() {
       if (q) params.set('q', q)
       params.set('page', String(catalogPage.value))
       params.set('limit', String(pageSize))
-      if (cookTime.value === 'under_15') params.set('maxMinutes', '15')
-      else if (cookTime.value === 'under_30') params.set('maxMinutes', '30')
-      if (complexity.value !== 'any') params.set('complexity', complexity.value)
-      if (heatLevel.value !== 'any') params.set('heatLevel', heatLevel.value)
-      params.set('includeSometimes', String(hasProfile.value ? includeSometimes.value : true))
+      params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
       const data = await apiFetch<{
         results: {
           id: string
           title: string
           image?: string
           minutes?: number | null
-          complexity?: Exclude<Complexity, 'any'>
-          heatLevel?: HeatLevel
           matchStatus?: SensoryMatch | 'unsafe'
           profileWarnings?: string[]
         }[]
@@ -241,8 +212,6 @@ async function search() {
         title: r.title,
         image: r.image,
         minutes: r.minutes ?? undefined,
-        complexity: r.complexity,
-        heatLevel: r.heatLevel,
         matchStatus: r.matchStatus ?? 'safe',
         profileWarnings: r.profileWarnings ?? [],
         source: 'themealdb' as const,
@@ -308,22 +277,6 @@ function timeLabel(mins?: number): string {
   return `${mins}m`
 }
 
-function difficultyLabel(c?: Exclude<Complexity, 'any'>): string {
-  if (c === 'low') return 'Easy'
-  if (c === 'medium') return 'Medium'
-  return '—'
-}
-
-function cornerBadges(c: BrowseCard): string[] {
-  const out: string[] = []
-  if (c.heatLevel === 'none') out.push('QUIET')
-  else if (c.heatLevel === 'low') out.push('MILD')
-  if (out.length < 2 && (c.tags?.length ?? 0) > 0) {
-    out.push(String(c.tags![0]).toUpperCase().slice(0, 12))
-  }
-  return out.slice(0, 2)
-}
-
 function passesPrep(mins?: number): boolean {
   const prep = appliedPrep.value
   if (!prep.length) return true
@@ -335,18 +288,9 @@ function passesPrep(mins?: number): boolean {
   return ok
 }
 
-function passesCx(c?: Exclude<Complexity, 'any'>): boolean {
-  const cx = appliedComplexity.value
-  if (!cx.length) return true
-  if (cx.includes('beginner') && c === 'low') return true
-  if (cx.includes('intermediate') && c === 'medium') return true
-  return false
-}
-
 const filteredCards = computed(() => {
   return results.value.filter((c) => {
     if (!passesPrep(c.minutes)) return false
-    if (!passesCx(c.complexity)) return false
     return true
   })
 })
@@ -368,6 +312,59 @@ function goPage(delta: number) {
   }
 }
 
+function splitWarnings(warnings: readonly string[] | undefined) {
+  const w = warnings ?? []
+  const dietary: string[] = []
+  const sensory: string[] = []
+  const textures: string[] = []
+  for (const raw of w) {
+    if (typeof raw !== 'string') continue
+    if (raw.startsWith('Texture:')) textures.push(raw.replace(/^Texture:\s*/, '').trim())
+    else if (raw.startsWith('Food:')) sensory.push(raw.replace(/^Food:\s*/, '').trim())
+    else dietary.push(raw.trim())
+  }
+  return { dietary, sensory, textures }
+}
+
+const confirmOpen = ref(false)
+const confirmCard = ref<BrowseCard | null>(null)
+const confirmDietary = ref<string[]>([])
+const confirmSensory = ref<string[]>([])
+const confirmTextures = ref<string[]>([])
+
+function closeConfirm() {
+  confirmOpen.value = false
+  confirmCard.value = null
+  confirmDietary.value = []
+  confirmSensory.value = []
+  confirmTextures.value = []
+}
+
+async function proceedOpenConfirmed() {
+  const c = confirmCard.value
+  if (!c) return
+  closeConfirm()
+  await importMealDb(c.id)
+}
+
+async function openRecipeWithConfirm(c: BrowseCard) {
+  if (!hasProfile.value) {
+    await importMealDb(c.id)
+    return
+  }
+  const { dietary, sensory, textures } = splitWarnings(c.profileWarnings)
+  // Only confirm for dietary + sensory conflicts. Texture warnings are informational.
+  if (dietary.length || sensory.length) {
+    confirmCard.value = c
+    confirmDietary.value = dietary
+    confirmSensory.value = sensory
+    confirmTextures.value = textures
+    confirmOpen.value = true
+    return
+  }
+  await importMealDb(c.id)
+}
+
 </script>
 
 <template>
@@ -387,24 +384,8 @@ function goPage(delta: number) {
     </div>
 
     <header class="page-hero">
-      <h1 class="page-title">Find or add a rvcpe</h1>
-      <p class="page-lede">
-        A sensory-friendly way to cook—clear steps, gentle layout, and optional profile-aware picks.
-      </p>
-      <ul class="page-hero-tabs" aria-label="What each tab is for">
-        <li>
-          <strong>Browse library</strong>
-          — Search the public catalog by dish, ingredient, or texture. Open any card to cook.
-        </li>
-        <li>
-          <strong>Paste a recipe</strong>
-          — Paste full text from a site or note. We turn it into ingredients, a roadmap, and a visual flow.
-        </li>
-        <li>
-          <strong>Your recipes</strong>
-          — Dishes you have already opened in BiteBud. Search here to find them again. Available when you link a sensory profile.
-        </li>
-      </ul>
+      <h1 class="page-title">Recipes</h1>
+      <p class="page-lede">Search the library, paste a recipe, or revisit recipes you’ve opened before.</p>
     </header>
 
     <div class="layout" :class="{ 'layout--no-filters': !showFiltersSidebar }">
@@ -422,15 +403,15 @@ function goPage(delta: number) {
           <button
             type="button"
             class="pill pill--stacked"
-            :class="{ on: !includeSometimes }"
+            :class="{ on: filterMode === 'safeDishes' }"
             :disabled="busy"
-            :aria-pressed="!includeSometimes"
+            :aria-pressed="filterMode === 'safeDishes'"
             aria-describedby="profile-list-help profile-strict-desc"
-            @click="setIncludeSometimes(false)"
+            @click="setFilterMode('safeDishes')"
           >
             <span class="pill-ico" aria-hidden="true">✓</span>
             <span class="pill-text">
-              <span class="pill-title">Only show likely OK recipes</span>
+              <span class="pill-title">Only show dishes you can safely consume</span>
               <span id="profile-strict-desc" class="pill-sub"
                 >Hides dishes that may include foods you avoid, your “unsafe” items, or ingredients that clash with your
                 dietary or cultural settings.</span
@@ -440,15 +421,15 @@ function goPage(delta: number) {
           <button
             type="button"
             class="pill pill--stacked"
-            :class="{ on: includeSometimes }"
+            :class="{ on: filterMode === 'showAll' }"
             :disabled="busy"
-            :aria-pressed="includeSometimes"
+            :aria-pressed="filterMode === 'showAll'"
             aria-describedby="profile-list-help profile-full-desc"
-            @click="setIncludeSometimes(true)"
+            @click="setFilterMode('showAll')"
           >
             <span class="pill-ico" aria-hidden="true">＋</span>
             <span class="pill-text">
-              <span class="pill-title">Show all results; flag conflicts</span>
+              <span class="pill-title">Show all results</span>
               <span id="profile-full-desc" class="pill-sub"
                 >Keeps every match visible and adds warnings when a recipe may not fit your profile.</span
               >
@@ -482,61 +463,15 @@ function goPage(delta: number) {
           </label>
         </div>
 
-        <div class="divider" aria-hidden="true" />
-
-        <div class="filter-group">
-          <div class="k">Complexity</div>
-          <label class="check-row">
-            <input
-              type="checkbox"
-              :checked="pendingComplexity.includes('beginner')"
-              @change="togglePendingCx('beginner')"
-            />
-            <span>Beginner (1–2 steps)</span>
-          </label>
-          <label class="check-row">
-            <input
-              type="checkbox"
-              :checked="pendingComplexity.includes('intermediate')"
-              @change="togglePendingCx('intermediate')"
-            />
-            <span>Intermediate (3–5 steps)</span>
-          </label>
-        </div>
-
-        <div class="divider" aria-hidden="true" />
-
-        <div class="filter-group">
-          <div class="k">Heat level</div>
-          <div class="row">
-            <button type="button" class="chip" :class="{ on: heatLevel === 'none' }" :disabled="busy" @click="heatLevel = 'none'">
-              No heat
-            </button>
-            <button type="button" class="chip" :class="{ on: heatLevel === 'low' }" :disabled="busy" @click="heatLevel = 'low'">
-              Low heat
-            </button>
-            <button type="button" class="chip" :class="{ on: heatLevel === 'medium' }" :disabled="busy" @click="heatLevel = 'medium'">
-              Medium
-            </button>
-          </div>
-          <button type="button" class="chip chip-any" :class="{ on: heatLevel === 'any' }" :disabled="busy" @click="heatLevel = 'any'">
-            Any
-          </button>
-        </div>
+        <!-- Heat level + Complexity removed (keep filters minimal). -->
 
         <button type="button" class="apply-btn" :disabled="busy" @click="applySidebarFilters">
           {{ filterCount ? `Apply ${filterCount} filters` : 'Apply filters' }}
         </button>
-
-        <div v-if="!profileLoading && hasProfile && profile" class="profile" role="status">
-          <div class="profile-k">Sensory profile</div>
-          <div v-if="profile.safeFoods.length" class="profile-v">Safe: {{ profile.safeFoods.slice(0, 4).join(', ') }}</div>
-          <div v-else class="profile-v">Set preferences to refine safety.</div>
-        </div>
       </aside>
 
       <section class="main">
-        <div class="tabs" role="tablist" aria-label="Browse mode">
+        <div class="tabs" role="tablist" aria-label="Recipe options">
           <button type="button" class="tab" :class="{ on: activeTab === 'explore' }" @click="setRouteTab('explore')">
             Browse library
           </button>
@@ -621,6 +556,9 @@ function goPage(delta: number) {
         <PasteRecipeGuide v-if="activeTab === 'describe'" />
 
         <template v-else>
+          <div v-if="!hasSearched && !loadingSearch" class="empty">
+            Type a dish or ingredient, then press Search.
+          </div>
           <div v-if="loadingSearch" class="grid" aria-busy="true">
             <div v-for="n in 6" :key="n" class="card sk">
               <div class="img img-sk" />
@@ -635,9 +573,6 @@ function goPage(delta: number) {
           <div v-else class="grid">
             <article v-for="c in filteredCards" :key="c.id" class="card">
               <div class="img">
-                <div class="img-badges">
-                  <span v-for="b in cornerBadges(c)" :key="b" class="img-badge">{{ b }}</span>
-                </div>
                 <img v-if="c.image" :src="c.image" alt="" />
                 <div v-else class="img-ph" aria-hidden="true">Recipe</div>
               </div>
@@ -648,34 +583,30 @@ function goPage(delta: number) {
                     <span class="dot" aria-hidden="true">⏱</span>
                     {{ timeLabel(c.minutes) }}
                   </span>
-                  <span class="meta-item">
-                    <span class="dot" aria-hidden="true">✦</span>
-                    {{ difficultyLabel(c.complexity) }}
-                  </span>
                 </div>
                 <div class="badges">
                   <span v-for="t in (c.tags ?? []).slice(0, 4)" :key="t" class="badge">{{ t }}</span>
                 </div>
-                <div
-                  v-if="hasProfile && (activeTab === 'explore' || activeTab === 'forYou') && c.matchStatus !== 'safe'"
-                  class="profile-warn"
-                  :class="{ 'profile-warn--unsafe': c.matchStatus === 'unsafe' }"
-                  role="status"
-                >
-                  <span class="profile-warn-title">Profile check</span>
-                  <p v-if="c.matchStatus === 'unsafe'" class="profile-warn-text">
-                    May not fit your profile
-                    <template v-if="(c.profileWarnings?.length ?? 0) > 0"
-                      >— {{ (c.profileWarnings ?? []).slice(0, 4).join(' · ') }}</template
-                    >
-                  </p>
-                  <p v-else class="profile-warn-text profile-warn-text--amber">
-                    Contains foods marked “sometimes” for you—review before cooking.
-                    <template v-if="(c.profileWarnings?.length ?? 0) > 0"
-                      >— {{ (c.profileWarnings ?? []).slice(0, 4).join(' · ') }}</template
-                    >
-                  </p>
-                </div>
+                <template v-if="hasProfile && (activeTab === 'explore' || activeTab === 'forYou') && (c.profileWarnings?.length ?? 0) > 0">
+                  <div class="profile-warn" role="status">
+                    <span class="profile-warn-title">Profile check</span>
+                    <template v-if="splitWarnings(c.profileWarnings).dietary.length || splitWarnings(c.profileWarnings).sensory.length">
+                      <p class="profile-warn-text profile-warn-text--danger">
+                        Dietary / sensory conflicts:
+                        {{
+                          [...splitWarnings(c.profileWarnings).dietary, ...splitWarnings(c.profileWarnings).sensory]
+                            .slice(0, 5)
+                            .join(' · ')
+                        }}
+                      </p>
+                    </template>
+                    <template v-if="splitWarnings(c.profileWarnings).textures.length">
+                      <p class="profile-warn-text">
+                        Texture note: {{ splitWarnings(c.profileWarnings).textures.slice(0, 5).join(' · ') }}
+                      </p>
+                    </template>
+                  </div>
+                </template>
                 <div
                   v-else-if="hasProfile && activeTab === 'forYou' && c.matchStatus === 'safe'"
                   class="match match--ok"
@@ -684,18 +615,18 @@ function goPage(delta: number) {
                   <span>No profile conflicts detected in this recipe (still verify ingredients yourself).</span>
                 </div>
                 <div class="card-actions">
-                  <button type="button" class="btn-view" :disabled="busy" @click="importMealDb(c.id)">View recipe</button>
+                  <button type="button" class="btn-view" :disabled="busy" @click="openRecipeWithConfirm(c)">View recipe</button>
                 </div>
               </div>
             </article>
 
-            <div v-if="!filteredCards.length" class="empty">
+            <div v-if="hasSearched && !filteredCards.length" class="empty">
               No recipes match your current filters.
             </div>
           </div>
         </template>
 
-        <nav v-if="activeTab !== 'describe' && filteredCards.length" class="pager" aria-label="Pagination">
+        <nav v-if="activeTab !== 'describe' && hasSearched && filteredCards.length" class="pager" aria-label="Pagination">
           <button type="button" class="pager-btn" :disabled="busy || (catalogPage === 0 && browseSkip === 0)" @click="goPage(-1)">
             ←
           </button>
@@ -708,6 +639,31 @@ function goPage(delta: number) {
         <p v-if="err" class="err" role="alert">{{ err }}</p>
       </section>
     </div>
+  </div>
+
+  <div v-if="confirmOpen" class="confirm-host" role="presentation" @click.self="closeConfirm">
+    <aside class="confirm" role="dialog" aria-modal="true" aria-label="Confirm opening recipe" @click.stop>
+      <h3 class="confirm-title">Before you cook</h3>
+      <p class="confirm-sub">
+        This recipe may conflict with your profile. Do you still want to open it?
+      </p>
+      <div class="confirm-body">
+        <div v-if="confirmDietary.length || confirmSensory.length" class="confirm-block confirm-block--danger">
+          <div class="confirm-k">Dietary / sensory conflicts ({{ confirmDietary.length + confirmSensory.length }})</div>
+          <div class="confirm-v">
+            {{ [...confirmDietary, ...confirmSensory].slice(0, 10).join(' · ') }}
+          </div>
+        </div>
+        <div v-if="confirmTextures.length" class="confirm-block">
+          <div class="confirm-k">Texture note ({{ confirmTextures.length }})</div>
+          <div class="confirm-v">May be sensory challenging: {{ confirmTextures.slice(0, 10).join(' · ') }}</div>
+        </div>
+      </div>
+      <div class="confirm-actions">
+        <button type="button" class="bb-btn bb-btn--secondary" @click="closeConfirm">Next time</button>
+        <button type="button" class="bb-btn bb-btn--primary" @click="proceedOpenConfirmed">Let’s cook 👩‍🍳</button>
+      </div>
+    </aside>
   </div>
 </template>
 
@@ -1431,6 +1387,76 @@ function goPage(delta: number) {
   background: var(--bb-surface-low);
   color: var(--bb-muted);
   font-weight: 800;
+}
+
+.profile-warn-text--danger {
+  color: #991b1b;
+}
+
+.confirm-host {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(28, 25, 23, 0.38);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.confirm {
+  width: min(640px, 100%);
+  border-radius: 16px;
+  background: var(--bb-surface-lowest);
+  border: 1px solid var(--bb-border);
+  padding: 1rem 1rem 0.95rem;
+  box-shadow: 0 18px 60px rgba(26, 28, 25, 0.18);
+}
+.confirm-title {
+  margin: 0;
+  font-family: var(--bb-font-headline);
+  font-weight: 900;
+  color: var(--bb-text);
+}
+.confirm-sub {
+  margin: 0.4rem 0 0;
+  color: var(--bb-muted);
+  line-height: 1.55;
+}
+.confirm-body {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.6rem;
+}
+.confirm-block {
+  border-radius: 12px;
+  background: var(--bb-surface-low);
+  border: 1px solid var(--bb-border);
+  padding: 0.65rem 0.75rem;
+}
+.confirm-block--danger {
+  background: #fef2f2;
+  border-color: color-mix(in srgb, var(--bb-error) 35%, var(--bb-border));
+}
+.confirm-k {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bb-muted);
+}
+.confirm-v {
+  margin-top: 0.25rem;
+  color: var(--bb-text);
+  line-height: 1.45;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+.confirm-actions {
+  margin-top: 0.9rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .sk {

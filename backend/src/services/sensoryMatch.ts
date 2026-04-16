@@ -39,8 +39,15 @@ export function ingredientMatchesFood(
 /** Normalized substrings to match in ingredient text for a given profile chip label. */
 export function constraintMatchNeedles(constraint: string): string[] {
   const key = constraint.trim();
-  const mapped = DIETARY_CULTURAL_CONSTRAINT_KEYWORDS[key];
   const fallback = normalizeFoodText(constraint);
+
+  // Accept different casing/punctuation in saved labels (e.g. "No beef" vs "No Beef").
+  const mapped =
+    DIETARY_CULTURAL_CONSTRAINT_KEYWORDS[key] ??
+    DIETARY_CULTURAL_CONSTRAINT_KEYWORDS[
+      Object.keys(DIETARY_CULTURAL_CONSTRAINT_KEYWORDS).find((k) => normalizeFoodText(k) === fallback) ?? ""
+    ];
+
   if (mapped?.length) {
     const set = new Set<string>();
     for (const m of mapped) {
