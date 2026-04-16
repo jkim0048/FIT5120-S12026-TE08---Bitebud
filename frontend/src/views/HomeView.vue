@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import { useSession } from '../composables/useSession'
+
+const { isSignedIn } = useSession()
 </script>
 
 <template>
@@ -15,8 +18,26 @@ import { RouterLink } from 'vue-router'
           to a safe meal.
         </p>
         <div class="ctas">
-          <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Find a recipe</RouterLink>
-          <RouterLink to="/sensory" class="bb-btn bb-btn--secondary cta">Sensory profile</RouterLink>
+          <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Find a Recipe</RouterLink>
+          <RouterLink
+            v-if="!isSignedIn"
+            to="/auth"
+            class="bb-btn bb-btn--secondary cta"
+          >
+            Sign in / Sign-up
+          </RouterLink>
+          <span v-else class="bb-btn bb-btn--secondary cta cta--disabled" aria-disabled="true">Sign in / Sign-up</span>
+        </div>
+      </div>
+
+      <div class="hero-media">
+        <div class="media-card" aria-hidden="true">
+          <img
+            class="media-img"
+            alt="BiteBud logo"
+            src="/bitesbud-logo.png"
+          />
+          <div class="media-overlay" />
         </div>
       </div>
     </section>
@@ -85,6 +106,19 @@ import { RouterLink } from 'vue-router'
               <div class="warn-title">So you are aware exactly what you should watch out for</div>
             </div>
           </div>
+          <RouterLink v-if="!isSignedIn" to="/auth" class="tile-link">Sign in / Sign-up →</RouterLink>
+          <RouterLink v-else to="/sensory/setup" class="tile-link">Update profile →</RouterLink>
+        </article>
+
+        <article class="tile">
+          <div class="tile-icon" aria-hidden="true">⌁</div>
+          <h3 class="h3">Safe Food Library</h3>
+          <p class="tile-copy">Save what works, hide what doesn’t, and return to calm defaults.</p>
+          <div class="thumb-grid" aria-hidden="true">
+            <div class="thumb" />
+            <div class="thumb" />
+            <div class="thumb" />
+          </div>
         </article>
 
         <article class="tile tile-dark">
@@ -117,7 +151,8 @@ import { RouterLink } from 'vue-router'
         </div>
         <div class="cta-actions">
           <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Find a recipe</RouterLink>
-          <RouterLink to="/sensory" class="bb-btn bb-btn--secondary cta">Sensory profile</RouterLink>
+          <RouterLink v-if="!isSignedIn" to="/auth" class="bb-btn bb-btn--secondary cta">Sign in / Sign-up</RouterLink>
+          <span v-else class="bb-btn bb-btn--secondary cta cta--disabled" aria-disabled="true">Sign in / Sign-up</span>
         </div>
       </div>
     </section>
@@ -183,6 +218,15 @@ import { RouterLink } from 'vue-router'
   padding: 0.85rem 1.15rem;
   font-family: var(--bb-font-headline);
   font-weight: 700;
+}
+.cta--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.tile-link--disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .section {

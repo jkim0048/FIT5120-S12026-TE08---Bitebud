@@ -5,6 +5,7 @@ import { biteBudUserIdHeader, getBiteBudUserId } from '../composables/useUserId'
 import { useSettings } from '../composables/useSettings'
 import { apiFetch } from '../lib/api'
 import { getOrderedRecipeSteps } from '../lib/recipeSteps'
+import { findTtsVoiceByName } from '../lib/ttsVoices'
 import type { RecipeGraph } from '../types/recipe'
 import type { SensoryConflictResponse } from '../types/sensory'
 
@@ -68,8 +69,7 @@ function speak(text: string) {
   const u = new SpeechSynthesisUtterance(text)
   u.volume = settings.value.volume
   u.rate = settings.value.rate
-  const voices = speechSynthesis.getVoices()
-  const match = voices.find((v) => v.name === settings.value.voice)
+  const match = findTtsVoiceByName(settings.value.voice)
   if (match) u.voice = match
   speechSynthesis.speak(u)
 }
@@ -104,7 +104,6 @@ async function loadRecipe() {
   pageLoading.value = true
   err.value = null
   try {
-    if (typeof speechSynthesis !== 'undefined') void speechSynthesis.getVoices()
     const data = await apiFetch<{ graph: RecipeGraph }>(`/api/recipes/${recipeId.value}`, {
       headers: biteBudUserIdHeader(),
     })

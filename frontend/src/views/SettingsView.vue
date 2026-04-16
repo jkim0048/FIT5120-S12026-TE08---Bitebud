@@ -2,9 +2,11 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSettings, type BackgroundTint, type TextSize } from '../composables/useSettings'
+import { useTtsVoices } from '../lib/ttsVoices'
 
 const router = useRouter()
 const { settings } = useSettings()
+const ttsVoices = useTtsVoices()
 
 const textSizes: Array<{ id: TextSize; label: string }> = [
   { id: 'small', label: 'A' },
@@ -13,8 +15,7 @@ const textSizes: Array<{ id: TextSize; label: string }> = [
 ]
 
 const voices = computed(() => {
-  const list = typeof speechSynthesis !== 'undefined' ? speechSynthesis.getVoices() : []
-  const uniq = Array.from(new Set(list.map((v) => v.name))).filter(Boolean)
+  const uniq = Array.from(new Set(ttsVoices.value.map((v) => v.name))).filter(Boolean)
   // keep saved voice at top even if not in list yet
   const saved = settings.value.voice
   const merged = saved && !uniq.includes(saved) ? [saved, ...uniq] : uniq
@@ -57,32 +58,6 @@ function setTint(v: BackgroundTint) {
       </div>
 
       <div class="section-label">VOICE &amp; SOUND</div>
-
-      <div class="row">
-        <div class="row-left">
-          <div class="row-title">Read aloud (TTS)</div>
-          <div class="row-sub">Speak each word</div>
-        </div>
-        <div class="row-right">
-          <label class="switch">
-            <input type="checkbox" v-model="settings.readAloud" />
-            <span class="slider" />
-          </label>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-left">
-          <div class="row-title">Step chime</div>
-          <div class="row-sub">Bell on step complete</div>
-        </div>
-        <div class="row-right">
-          <label class="switch">
-            <input type="checkbox" v-model="settings.stepChime" />
-            <span class="slider" />
-          </label>
-        </div>
-      </div>
 
       <div class="row">
         <div class="row-left">
@@ -172,21 +147,24 @@ function setTint(v: BackgroundTint) {
   padding: 1.25rem 1.25rem 3rem;
 }
 .title {
-  font-size: 1.65rem;
-  font-weight: 900;
+  font-family: var(--bb-font-headline);
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   margin: 0.4rem 0 1rem;
 }
 .card {
-  background: var(--bb-surface);
-  border: 1px solid var(--bb-border);
+  background: var(--bb-surface-container);
   border-radius: 18px;
-  padding: 1.1rem 1.1rem;
+  padding: 1.1rem;
 }
 .section-label {
   font-size: 0.78rem;
   letter-spacing: 0.08em;
   color: var(--bb-muted);
-  font-weight: 900;
+  font-family: var(--bb-font-label);
+  font-weight: 700;
+  text-transform: uppercase;
   margin: 1.05rem 0 0.6rem;
 }
 .section-label:first-of-type {
@@ -197,17 +175,16 @@ function setTint(v: BackgroundTint) {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  padding: 0.85rem 0;
-  border-top: 1px solid var(--bb-border);
-}
-.row:first-of-type {
-  border-top: none;
+  padding: 0.9rem 0.8rem;
+  margin: 0.4rem 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bb-surface-high) 75%, transparent);
 }
 .row-left {
   min-width: 12rem;
 }
 .row-title {
-  font-weight: 900;
+  font-weight: 700;
 }
 .row-sub {
   color: var(--bb-muted);
@@ -219,6 +196,7 @@ function setTint(v: BackgroundTint) {
   align-items: center;
   justify-content: flex-end;
   gap: 0.75rem;
+  min-width: 0;
 }
 .row-right.wide {
   flex: 1;
@@ -233,10 +211,10 @@ function setTint(v: BackgroundTint) {
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  border: 1px solid var(--bb-border);
-  background: var(--bb-surface);
+  border: none;
+  background: var(--bb-surface-high);
   color: var(--bb-text);
-  font-weight: 900;
+  font-weight: 700;
   cursor: pointer;
 }
 .size-pill.small {
@@ -249,8 +227,8 @@ function setTint(v: BackgroundTint) {
   font-size: 1.3rem;
 }
 .size-pill.active {
-  border-color: #ea580c;
-  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.15);
+  background: var(--bb-primary-container);
+  color: var(--bb-on-primary-container);
 }
 
 .switch {
@@ -266,9 +244,9 @@ function setTint(v: BackgroundTint) {
 .slider {
   position: absolute;
   inset: 0;
-  background: #e7e5e4;
+  background: var(--bb-surface-highest);
   border-radius: 999px;
-  transition: 0.18s ease;
+  transition: 400ms ease-in-out;
 }
 .slider:before {
   content: '';
@@ -277,13 +255,13 @@ function setTint(v: BackgroundTint) {
   height: 24px;
   left: 3px;
   top: 3px;
-  background: #fff;
+  background: var(--bb-surface-lowest);
   border-radius: 999px;
-  transition: 0.18s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: 400ms ease-in-out;
+  box-shadow: 0 0 40px color-mix(in srgb, var(--bb-primary) 4%, transparent);
 }
 .switch input:checked + .slider {
-  background: #22c55e;
+  background: color-mix(in srgb, var(--bb-primary) 48%, var(--bb-surface-highest));
 }
 .switch input:checked + .slider:before {
   transform: translateX(22px);
@@ -300,13 +278,15 @@ function setTint(v: BackgroundTint) {
   font-variant-numeric: tabular-nums;
 }
 .select {
-  border: 1px solid var(--bb-border);
+  border: none;
   border-radius: 12px;
   padding: 0.55rem 0.75rem;
-  background: var(--bb-bg);
+  background: var(--bb-surface-lowest);
   color: var(--bb-text);
   font: inherit;
-  min-width: 14rem;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
 .tints {
@@ -318,11 +298,11 @@ function setTint(v: BackgroundTint) {
   width: 30px;
   height: 30px;
   border-radius: 999px;
-  border: 2px solid var(--bb-border);
+  border: 2px solid color-mix(in srgb, var(--bb-outline) 55%, transparent);
   background: #fff;
 }
 .tint.active {
-  border-color: #c2410c;
+  border-color: var(--bb-primary);
 }
 .tint.none {
   background: #fff;
@@ -343,13 +323,28 @@ function setTint(v: BackgroundTint) {
 .done {
   width: 100%;
   margin-top: 1rem;
-  border: 1px solid var(--bb-border);
-  background: var(--bb-surface);
-  color: var(--bb-text);
-  font-weight: 900;
+  border: none;
+  background: var(--bb-cta-gradient);
+  color: var(--bb-on-primary);
+  font-weight: 800;
   border-radius: 14px;
   padding: 0.85rem 1rem;
   cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .row-left {
+    min-width: 0;
+    width: 100%;
+  }
+  .row-right {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 </style>
 

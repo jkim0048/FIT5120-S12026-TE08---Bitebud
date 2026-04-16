@@ -4,17 +4,14 @@ import RecipeSearchView from '../views/RecipeSearchView.vue'
 import RecipeFlowPage from '../views/RecipeFlowPage.vue'
 import GuidedCookView from '../views/GuidedCookView.vue'
 import RecipeCompleteView from '../views/RecipeCompleteView.vue'
-import SensoryEntryChoiceView from '../views/SensoryEntryChoiceView.vue'
-import SensoryNewUserCodeView from '../views/SensoryNewUserCodeView.vue'
-import SensoryExistingUserView from '../views/SensoryExistingUserView.vue'
+import { getBiteBudUserId } from '../composables/useUserId'
 import SensorySetupView from '../views/SensorySetupView.vue'
-import SensoryTextureSetupView from '../views/SensoryTextureSetupView.vue'
-import SensoryTemperatureSetupView from '../views/SensoryTemperatureSetupView.vue'
-import SensoryDietaryCulturalSetupView from '../views/SensoryDietaryCulturalSetupView.vue'
-import SensoryFoodSafetySetupView from '../views/SensoryFoodSafetySetupView.vue'
 import SensorySummaryCompactView from '../views/SensorySummaryCompactView.vue'
-import SensoryMyProfileView from '../views/SensoryMyProfileView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import AuthView from '../views/AuthView.vue'
+import AuthNewUserView from '../views/AuthNewUserView.vue'
+import UnlockView from '../views/UnlockView.vue'
+import { isSiteUnlocked, safeUnlockRedirect } from '../lib/siteUnlock'
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -23,7 +20,10 @@ export const router = createRouter({
     return { left: 0, top: 0 }
   },
   routes: [
+    { path: '/unlock', name: 'unlock', component: UnlockView },
     { path: '/', name: 'home', component: HomeView },
+    { path: '/auth', name: 'auth', component: AuthView },
+    { path: '/auth/new-user', name: 'authNewUser', component: AuthNewUserView },
     { path: '/search', name: 'search', component: RecipeSearchView },
     { path: '/recipe/:id', name: 'recipe', component: RecipeFlowPage },
     { path: '/recipe/:id/cook', name: 'guided', component: GuidedCookView },
@@ -31,17 +31,7 @@ export const router = createRouter({
     {
       path: '/sensory',
       name: 'sensory',
-      component: SensoryEntryChoiceView,
-    },
-    {
-      path: '/sensory/new',
-      name: 'sensoryNew',
-      component: SensoryNewUserCodeView,
-    },
-    {
-      path: '/sensory/existing',
-      name: 'sensoryExisting',
-      component: SensoryExistingUserView,
+      redirect: () => (getBiteBudUserId() ? { name: 'sensorySetup' } : { name: 'auth' }),
     },
     {
       path: '/sensory/setup',
@@ -49,34 +39,9 @@ export const router = createRouter({
       component: SensorySetupView,
     },
     {
-      path: '/sensory/setup/texture',
-      name: 'sensorySetupTexture',
-      component: SensoryTextureSetupView,
-    },
-    {
-      path: '/sensory/setup/temperature',
-      name: 'sensorySetupTemperature',
-      component: SensoryTemperatureSetupView,
-    },
-    {
-      path: '/sensory/setup/dietary-cultural',
-      name: 'sensorySetupDietaryCultural',
-      component: SensoryDietaryCulturalSetupView,
-    },
-    {
-      path: '/sensory/setup/food-safety',
-      name: 'sensorySetupFoodSafety',
-      component: SensoryFoodSafetySetupView,
-    },
-    {
       path: '/sensory/summary',
       name: 'sensorySummary',
       component: SensorySummaryCompactView,
-    },
-    {
-      path: '/sensory/my-profile',
-      name: 'sensoryMyProfile',
-      component: SensoryMyProfileView,
     },
     {
       path: '/settings',
@@ -84,4 +49,18 @@ export const router = createRouter({
       component: SettingsView,
     },
   ],
+})
+
+router.beforeEach((to) => {
+  if (to.name === 'unlock') {
+    if (isSiteUnlocked()) {
+      const dest = safeUnlockRedirect(to.query.redirect)
+      return { path: dest, replace: true }
+    }
+    return true
+  }
+  if (!isSiteUnlocked()) {
+    return { name: 'unlock', query: { redirect: to.fullPath } }
+  }
+  return true
 })
