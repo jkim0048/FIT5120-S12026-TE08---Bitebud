@@ -127,9 +127,14 @@ const ingredientChecklistItems = computed(() => {
     .filter((n) => n.type === 'ingredient')
     .map((n) => ({
       label: String(n.label ?? '').trim(),
+      detail: String(n.detail ?? '').trim(),
       icon: typeof n.icon === 'string' ? n.icon : null,
       emoji: typeof n.emoji === 'string' ? n.emoji : null,
       imageUrl: typeof n.imageUrl === 'string' ? n.imageUrl : null,
+    }))
+    .map((x) => ({
+      ...x,
+      detail: x.detail && x.detail !== x.label ? x.detail : '',
     }))
     .filter((x) => Boolean(x.label))
 })
@@ -478,7 +483,10 @@ async function markStepDoneAndNext() {
                     <img v-if="item.imageUrl" class="ready-item-img" :src="item.imageUrl" :alt="item.label" />
                     <span v-else>{{ ingredientVisualToken({ label: item.label, emoji: item.emoji ?? undefined, icon: item.icon ?? undefined }) }}</span>
                   </span>
-                  <span>{{ item.label }}</span>
+                  <span class="ready-item-copy">
+                    <span class="ready-item-title">{{ item.label }}</span>
+                    <span v-if="item.detail" class="ready-item-detail">{{ item.detail }}</span>
+                  </span>
                 </span>
                 <input
                   v-model="ingredientChecks[item.label]"
@@ -925,6 +933,22 @@ async function markStepDoneAndNext() {
   align-items: center;
   gap: 0.52rem;
   font-weight: 600;
+}
+.ready-item-copy {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.ready-item-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ready-item-detail {
+  font-weight: 500;
+  font-size: 0.82rem;
+  color: var(--bb-muted);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 .ready-item-icon {
   width: 26px;

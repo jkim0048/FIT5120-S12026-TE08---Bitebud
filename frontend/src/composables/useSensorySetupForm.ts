@@ -125,6 +125,13 @@ export function useSensorySetupForm() {
       .filter((it) => it.label.toLowerCase().includes(q) || it.hint.toLowerCase().includes(q))
       .slice(0, 15)
   })
+  const selectedPickerItem = computed(() => {
+    const wickedIconId = foodInputWickedIconId.value.trim()
+    if (wickedIconId) return pickerItems.value.find((item) => item.wickedIconId === wickedIconId) ?? null
+    const query = foodQuery.value.trim().toLowerCase()
+    if (!query) return null
+    return pickerItems.value.find((item) => item.label.toLowerCase() === query) ?? null
+  })
 
   watch(
     () => [profile.value, hasProfile.value, profileLoading.value, getBiteBudUserId() ?? ''] as const,
@@ -409,6 +416,7 @@ export function useSensorySetupForm() {
     foodInputWickedIconId,
     foodInputStatus,
     foodQuery,
+    selectedPickerItem,
     pickerLoading,
     pickerError,
     filteredPickerItems,

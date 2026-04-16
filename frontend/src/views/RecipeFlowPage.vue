@@ -5,7 +5,7 @@ import SimplifiedRecipeFlow from '../components/flow/SimplifiedRecipeFlow.vue'
 import { biteBudUserIdHeader, getBiteBudUserId } from '../composables/useUserId'
 import { apiFetch } from '../lib/api'
 import { getOrderedRecipeSteps } from '../lib/recipeSteps'
-import type { RecipeGraph } from '../types/recipe'
+import type { RecipeGraph, RecipeNode } from '../types/recipe'
 import type { SensoryConflictResponse } from '../types/sensory'
 
 /** Must match `prepLaneLabel` on SimplifiedRecipeFlow and the Prep chip below. */
@@ -31,10 +31,13 @@ const conflicts = ref<SensoryConflictResponse | null>(null)
 const imageUrl = ref<string | null>(null)
 const recipeComplexity = ref<string | null>(null)
 const recipeTags = ref<string[]>([])
+const recipeLede = ref<string | null>(null)
+const roadmapView = ref<'visual' | 'full'>('visual')
 
 const recipeId = computed(() => route.params.id as string)
 const ingredients = computed(() => graph.value?.nodes.filter((n) => n.type === 'ingredient') ?? [])
 const stepNodes = computed(() => (graph.value ? getOrderedRecipeSteps(graph.value) : []))
+const timelineNodes = computed(() => stepNodes.value)
 const lanes = computed(() => [...new Set(stepNodes.value.map((n) => n.lane).filter((x): x is string => Boolean(x)))])
 
 const displayHeroImageUrl = computed(() => {
@@ -92,6 +95,7 @@ async function load(opts?: { showPageLoading?: boolean }) {
       refined?: boolean
       canRefine?: boolean
       imageUrl?: string | null
+      lede?: string | null
       complexity?: string | null
       heatLevel?: string | null
       tags?: unknown
@@ -102,6 +106,7 @@ async function load(opts?: { showPageLoading?: boolean }) {
     refined.value = data.refined ?? true
     canRefine.value = data.canRefine ?? false
     imageUrl.value = data.imageUrl ?? null
+    recipeLede.value = data.lede ?? null
     recipeComplexity.value = data.complexity ?? null
     recipeTags.value = Array.isArray(data.tags) ? data.tags.filter((t): t is string => typeof t === 'string') : []
     const uid = getBiteBudUserId()
@@ -156,8 +161,54 @@ onMounted(async () => {
   await loadConflicts()
 })
 
+function ingredientLabelsForStep(step: RecipeNode): string[] {
+  if (!graph.value || !step.ingredientIds?.length) return []
+  const byId = new Map(graph.value.nodes.map((n) => [n.id, n.label]))
+  return step.ingredientIds.map((id) => byId.get(id)).filter((v): v is string => Boolean(v))
+}
+
 function onSelectStep(payload: { id: string; label: string; detail: string; ingredientLabels: string[] }) {
   selected.value = payload
+}
+
+function ingredientSensoryKind(label: string): 'safe' | 'unsafe' | 'unsure' {
+  const c = conflicts.value
+  if (!c?.hasProfile) return 'safe'
+  const match = c.sensory.find((x) => x.label.toLowerCase() === label.toLowerCase())
+  if (!match) return 'safe'
+  return match.kind === 'unsafe' ? 'unsafe' : 'unsure'
+}
+
+function ingredientSensoryDisplay(label: string): string {
+  const k = ingredientSensoryKind(label)
+  if (k === 'safe') return 'Safe'
+  if (k === 'unsafe') return 'Avoid'
+  return 'Check'
+}
+
+function ingredientDietaryForLabel(label: string) {
+  const c = conflicts.value
+  if (!c?.hasProfile) return []
+  const low = label.toLowerCase()
+  return c.dietary.filter((d) => d.label.toLowerCase() === low)
+}
+
+function timelineHeat(step: RecipeNode): string {
+  const text = `${step.label} ${step.detail}`.toLowerCase()
+  if (text.includes('boil') || text.includes('fry') || text.includes('medium')) return 'Low-medium heat'
+  if (text.includes('low')) return 'Low heat'
+  return 'No heat'
+}
+
+function timelineEffort(step: RecipeNode): string {
+  const t = Number(step.timeMinutes ?? 0)
+  if (t >= 8) return 'Low effort'
+  if (t >= 4) return 'Medium effort'
+  return 'Quick step'
+}
+
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 function closeStepPanel() {
@@ -203,12 +254,7 @@ function closeStepPanel() {
     <div class="detail-layout" :class="{ 'detail-layout--no-image': !hasHeroImage }">
       <section class="hero-copy">
         <h1>{{ graph.title }}</h1>
-        <p class="lede">
-          <template v-if="recipeTags.length">
-            {{ recipeTags[0] }} · A gentle, low-sensory recipe view with calm steps.
-          </template>
-          <template v-else>A gentle, low-sensory recipe view. Calm steps and predictable structure.</template>
-        </p>
+        <p v-if="recipeLede" class="lede">{{ recipeLede }}</p>
         <div v-if="!hasHeroImage" class="hero-no-photo" role="note">
           <p class="hero-no-photo__title">No picture for this recipe</p>
           <p class="hero-no-photo__text">
@@ -254,9 +300,36 @@ function closeStepPanel() {
       <article class="panel timeline-panel timeline-panel--full">
         <header id="cooking-roadmap" class="roadmap-head" tabindex="-1">
           <h2>Cooking Roadmap</h2>
+          <div
+            v-if="timelineNodes.length || ingredients.length"
+            class="roadmap-view-tabs"
+            role="tablist"
+            aria-label="Roadmap view"
+          >
+            <button
+              type="button"
+              role="tab"
+              class="roadmap-tab"
+              :class="{ active: roadmapView === 'visual' }"
+              :aria-selected="roadmapView === 'visual'"
+              @click="roadmapView = 'visual'"
+            >
+              Visual Overview
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="roadmap-tab"
+              :class="{ active: roadmapView === 'full' }"
+              :aria-selected="roadmapView === 'full'"
+              @click="roadmapView = 'full'"
+            >
+              Full Steps
+            </button>
+          </div>
         </header>
 
-        <div v-if="lanes.length || ingredients.length" class="roadmap-visual">
+        <div v-show="roadmapView === 'visual' && (timelineNodes.length || ingredients.length)" class="roadmap-visual">
           <div v-if="ingredients.length || lanes.length" class="lane-list">
             <button type="button" class="mini" :class="{ active: !activeLane }" @click="activeLane = null">Full view</button>
             <button
@@ -290,6 +363,85 @@ function closeStepPanel() {
               @select-step="onSelectStep"
             />
           </div>
+          <div class="roadmap-actions">
+            <button type="button" class="mini" @click="scrollToTop">Back to top</button>
+          </div>
+        </div>
+
+        <details
+          v-show="ingredients.length && roadmapView === 'full'"
+          id="recipe-prep-ingredients"
+          class="full-prep-block"
+        >
+          <summary class="full-prep-head">
+            <span class="full-prep-title">{{ PREP_INGREDIENTS_LANE }}</span>
+            <span v-if="graph.servings != null" class="ingredients-servings">{{ graph.servings }} servings</span>
+            <span class="full-prep-chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <ul class="ing-list">
+            <li v-for="ing in ingredients" :key="ing.id" class="ing-item">
+              <span class="ing-main">
+                <img
+                  v-if="ing.imageUrl || ing.icon"
+                  :src="ing.imageUrl || `/api/icons/wicked/${ing.icon}`"
+                  :alt="ing.label"
+                  class="icon"
+                />
+                <span v-else class="emo" aria-hidden="true">{{ ing.emoji ?? '•' }}</span>
+                <span class="ing-name">{{ ing.label }}</span>
+                <span v-if="ing.detail && ing.detail !== ing.label" class="ing-detail">{{ ing.detail }}</span>
+              </span>
+              <span class="status-col">
+                <span
+                  class="status"
+                  :class="{
+                    sometimes: ingredientSensoryKind(ing.label) === 'unsure',
+                    unsafe: ingredientSensoryKind(ing.label) === 'unsafe',
+                  }"
+                >
+                  {{ ingredientSensoryDisplay(ing.label) }}
+                </span>
+                <span
+                  v-for="d in ingredientDietaryForLabel(ing.label)"
+                  :key="d.nodeId + ':' + d.constraint + ':' + d.kind"
+                  class="diet-pill"
+                >
+                  {{ d.kind === 'cultural' ? 'Cultural' : 'Diet' }}: {{ d.constraint }}
+                </span>
+              </span>
+            </li>
+          </ul>
+        </details>
+
+        <ol v-show="roadmapView === 'full'" class="timeline-list">
+          <li v-for="(step, idx) in timelineNodes" :key="step.id" class="timeline-item">
+            <div class="timeline-icon">{{ step.emoji ?? '•' }}</div>
+            <div class="timeline-body">
+              <h3>Step {{ idx + 1 }} — {{ step.label }}</h3>
+              <div class="timeline-meta">
+                <span>{{ step.timeMinutes ?? 1 }} min</span>
+                <span>{{ timelineHeat(step) }}</span>
+                <span>{{ timelineEffort(step) }}</span>
+              </div>
+              <div class="timeline-actions">
+                <details class="timeline-details">
+                  <summary class="mini">View details</summary>
+                  <div class="timeline-details__body">
+                    <p class="timeline-details__text">{{ step.detail }}</p>
+                    <div v-if="ingredientLabelsForStep(step).length">
+                      <div class="timeline-details__label">Ingredients for this step</div>
+                      <ul class="timeline-details__list">
+                        <li v-for="label in ingredientLabelsForStep(step)" :key="label">{{ label }}</li>
+                      </ul>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </li>
+        </ol>
+        <div v-show="roadmapView === 'full'" class="roadmap-actions">
+          <button type="button" class="mini" @click="scrollToTop">Back to top</button>
         </div>
       </article>
     </section>
@@ -540,6 +692,11 @@ function closeStepPanel() {
 .roadmap-visual .lane-list {
   margin-bottom: 0.5rem;
 }
+.roadmap-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.6rem;
+}
 .roadmap-flow-panel {
   overflow: visible;
   border-radius: 14px;
@@ -653,11 +810,25 @@ function closeStepPanel() {
   margin-bottom: 0.65rem;
   flex-wrap: wrap;
 }
+.full-prep-block > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.full-prep-block > summary::-webkit-details-marker {
+  display: none;
+}
 .full-prep-title {
-  margin: 0;
   font-family: var(--bb-font-headline);
   font-size: 1.05rem;
   font-weight: 800;
+}
+.full-prep-chevron {
+  margin-left: auto;
+  font-size: 1.1rem;
+  transition: transform 0.2s ease;
+}
+.full-prep-block[open] .full-prep-chevron {
+  transform: rotate(180deg);
 }
 .panel {
   background: var(--bb-surface-low);
@@ -796,6 +967,31 @@ function closeStepPanel() {
   gap: 0.55rem;
   flex-wrap: wrap;
   align-items: center;
+}
+.timeline-details {
+  width: 100%;
+}
+.timeline-details__body {
+  margin-top: 0.45rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid color-mix(in srgb, var(--bb-border) 80%, transparent);
+}
+.timeline-details__text {
+  margin: 0;
+  color: var(--bb-muted);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.timeline-details__label {
+  margin-top: 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+.timeline-details__list {
+  margin: 0.35rem 0 0;
+  padding-left: 1rem;
+  color: var(--bb-muted);
+  line-height: 1.45;
 }
 
 .lane-list {

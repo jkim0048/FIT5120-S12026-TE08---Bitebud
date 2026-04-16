@@ -13,6 +13,7 @@ model Recipe {
   id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId           String?          @map("user_id") @db.Uuid
   title            String
+  lede             String?          @map("lede")
   imageUrl         String?          @map("image_url")
   sourceUrl        String?          @map("source_url")
   totalTimeMinutes Int?             @map("total_time_minutes")

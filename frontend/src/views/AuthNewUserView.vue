@@ -101,7 +101,7 @@ async function onModalYes(): Promise<void> {
         <div class="modal-backdrop" @click="closeModal" />
         <div class="modal-box">
           <h3 id="new-user-modal-title" class="modal-title">Your User profile has been created.</h3>
-          <p class="modal-text">Do you want to set up your sensory profile?</p>
+          <p class="modal-text">Do you want to set up your sensory profile now?</p>
           <div class="modal-actions">
             <button type="button" class="bb-btn bb-btn--secondary" :disabled="busy" @click="onModalNo">No</button>
             <button type="button" class="bb-btn bb-btn--primary" :disabled="busy" @click="onModalYes">Continue</button>

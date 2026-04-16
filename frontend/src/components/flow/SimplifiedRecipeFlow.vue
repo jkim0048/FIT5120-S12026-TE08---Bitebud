@@ -20,10 +20,6 @@ const props = defineProps<{
   prepLaneLabel?: string
 }>()
 
-const emit = defineEmits<{
-  selectStep: [payload: { id: string; label: string; detail: string; ingredientLabels: string[] }]
-}>()
-
 const completed = computed(() => new Set(props.completedNodeIds))
 
 const ingredients = computed(() => props.graph.nodes.filter((n) => n.type === 'ingredient'))
@@ -78,20 +74,18 @@ const visibleLanes = computed(() => {
   return lanes.value.includes(a) ? [a] : lanes.value
 })
 
+function ingredientMeasurement(ing: RecipeNode): string | null {
+  const raw = typeof ing.detail === 'string' ? ing.detail.trim() : ''
+  if (!raw) return null
+  if (raw.toLowerCase() === (ing.label ?? '').trim().toLowerCase()) return null
+  return raw
+}
+
 function ingredientLabelsForStep(step: RecipeNode): string[] {
   const ids = step.ingredientIds ?? []
   if (!ids.length) return []
   const byId = new Map(ingredients.value.map((n) => [n.id, n.label]))
   return ids.map((id) => byId.get(id)).filter((v): v is string => Boolean(v))
-}
-
-function onStepClick(step: RecipeNode) {
-  emit('selectStep', {
-    id: step.id,
-    label: step.label,
-    detail: step.detail,
-    ingredientLabels: ingredientLabelsForStep(step),
-  })
 }
 
 function ingredientsForLane(lane: string): RecipeNode[] {
@@ -106,12 +100,6 @@ function ingredientsForLane(lane: string): RecipeNode[] {
   const inLane = ingredients.value.filter((i) => want.has(i.id))
   return inLane.length ? inLane : ingredients.value.slice(0, 3)
 }
-
-const finalStep = computed(() => {
-  const prefer = steps.value.filter((s) => s.type === 'serve' || s.type === 'assemble')
-  if (prefer.length) return prefer[prefer.length - 1]
-  return steps.value[steps.value.length - 1] ?? null
-})
 
 function timeLabel(n: RecipeNode): string | null {
   const t = n.timeMinutes
@@ -154,30 +142,68 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
   <section class="wrap" :class="{ embedded: embedded, stripLayout: stripLayout }">
     <!-- Horizontal strip (embedded hero) -->
     <template v-if="stripLayout">
-      <section
-        v-if="showPrepStripBlock"
-        class="strip-prep-section"
-        aria-labelledby="flow-strip-prep-heading"
-      >
-        <h4 id="flow-strip-prep-heading" class="flow-lane-heading flow-lane-heading--prep">{{ prepLaneName }}</h4>
-        <div class="strip-ing-grid">
-          <div
-            v-for="ing in prepDisplayIngredients"
-            :key="ing.id"
-            class="bubble bubble--strip"
-            :title="ing.label"
-          >
-            <img
-              v-if="ing.imageUrl || ing.icon"
-              :src="ing.imageUrl || `/api/icons/wicked/${ing.icon}`"
-              :alt="ing.label"
-              class="bubble__icon"
-            />
-            <span v-else class="bubble__emo" aria-hidden="true">{{ ing.emoji ?? '•' }}</span>
-            <span class="bubble__txt">{{ ing.label }}</span>
+      <template v-if="showPrepStripBlock">
+        <!-- Full view (activeLane = null): make Prep Ingredients collapsible -->
+        <details v-if="stripGroupByLane" class="strip-prep-section strip-prep-details" aria-labelledby="flow-strip-prep-heading">
+          <summary id="flow-strip-prep-heading" class="flow-section-heading flow-lane-heading--prep flow-lane-heading--summary">
+            <span>{{ prepLaneName }}</span>
+            <span class="lane-details__chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="strip-ing-grid">
+            <div
+              v-for="ing in prepDisplayIngredients"
+              :key="ing.id"
+              class="bubble bubble--strip"
+              :title="ing.label"
+            >
+              <img
+                v-if="ing.imageUrl || ing.icon"
+                :src="ing.imageUrl || `/api/icons/wicked/${ing.icon}`"
+                :alt="ing.label"
+                class="bubble__icon"
+              />
+              <span v-else class="bubble__emo" aria-hidden="true">{{ ing.emoji ?? '•' }}</span>
+              <div class="bubble__main">
+                <div class="bubble__txt">{{ ing.label }}</div>
+                <details v-if="ingredientMeasurement(ing)" class="ing-measure">
+                  <summary class="ing-measure__summary">View measurement</summary>
+                  <div class="ing-measure__body">{{ ingredientMeasurement(ing) }}</div>
+                </details>
+              </div>
+            </div>
           </div>
-        </div>
-      </section>
+        </details>
+
+        <!-- Other states (e.g. Prep lane selected): keep always visible -->
+        <section v-else class="strip-prep-section" aria-labelledby="flow-strip-prep-heading">
+          <h3 id="flow-strip-prep-heading" class="flow-section-heading flow-lane-heading--prep">
+            {{ prepLaneName }}
+          </h3>
+          <div class="strip-ing-grid">
+            <div
+              v-for="ing in prepDisplayIngredients"
+              :key="ing.id"
+              class="bubble bubble--strip"
+              :title="ing.label"
+            >
+              <img
+                v-if="ing.imageUrl || ing.icon"
+                :src="ing.imageUrl || `/api/icons/wicked/${ing.icon}`"
+                :alt="ing.label"
+                class="bubble__icon"
+              />
+              <span v-else class="bubble__emo" aria-hidden="true">{{ ing.emoji ?? '•' }}</span>
+              <div class="bubble__main">
+                <div class="bubble__txt">{{ ing.label }}</div>
+                <details v-if="ingredientMeasurement(ing)" class="ing-measure">
+                  <summary class="ing-measure__summary">View measurement</summary>
+                  <div class="ing-measure__body">{{ ingredientMeasurement(ing) }}</div>
+                </details>
+              </div>
+            </div>
+          </div>
+        </section>
+      </template>
 
       <section
         v-if="stripHasSteps && !prepLaneActive"
@@ -188,63 +214,73 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
 
         <template v-if="stripGroupByLane">
           <template v-for="lane in lanesWithStepsInFlow" :key="lane">
-            <h4 class="flow-lane-heading">{{ lane }}</h4>
-            <div class="strip-track strip-track--lane" role="list">
-              <button
-                v-for="s in orderedStepsInLane(lane)"
-                :key="s.id"
-                type="button"
-                class="step step--strip"
-                role="listitem"
-                :class="{ done: completed.has(s.id) }"
-                :title="s.detail || s.label"
-                  :aria-label="`View details: ${s.label}`"
-                @click="onStepClick(s)"
-              >
-                <div class="step-top">
-                  <span class="step-emo" aria-hidden="true">{{ s.emoji ?? '•' }}</span>
+            <details class="lane-details">
+              <summary class="flow-lane-heading flow-lane-heading--summary">
+                <span>{{ lane }}</span>
+                <span class="lane-details__chevron" aria-hidden="true">⌄</span>
+              </summary>
+              <div class="strip-track strip-track--lane" role="list">
+                <article
+                  v-for="s in orderedStepsInLane(lane)"
+                  :key="s.id"
+                  class="step step--strip"
+                  role="listitem"
+                  :class="{ done: completed.has(s.id) }"
+                >
+                  <div class="step-top">
+                    <span class="step-emo" aria-hidden="true">{{ s.emoji ?? '•' }}</span>
                     <div class="step-top-right">
                       <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
-                  <span class="step-view-details" aria-hidden="true">View details</span>
                     </div>
-                </div>
-                <div class="step-title step-title--clamp">{{ s.label }}</div>
-              </button>
-            </div>
+                  </div>
+                  <div class="step-title step-title--clamp">{{ s.label }}</div>
+                  <details class="step-details">
+                    <summary class="step-view-details">View details</summary>
+                    <div class="step-details__body">
+                      <p class="step-details__text">{{ s.detail || s.label }}</p>
+                      <div v-if="ingredientLabelsForStep(s).length">
+                        <div class="step-details__label">Ingredients for this step</div>
+                        <ul class="step-details__list">
+                          <li v-for="label in ingredientLabelsForStep(s)" :key="label">{{ label }}</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </details>
+                </article>
+              </div>
+            </details>
           </template>
-          <div v-if="finalStep" class="final-inner final-inner--strip final-inner--strip-block" role="note">
-            <div class="final-title">The Final Combine</div>
-            <div class="final-sub">{{ finalStep.detail || 'Toss together & serve warm' }}</div>
-          </div>
         </template>
 
         <template v-else>
           <div class="strip-track" role="list">
-            <button
+            <article
               v-for="s in stripSteps"
               :key="s.id"
-              type="button"
               class="step step--strip"
               role="listitem"
               :class="{ done: completed.has(s.id) }"
-              :title="s.detail || s.label"
-                :aria-label="`View details: ${s.label}`"
-              @click="onStepClick(s)"
             >
               <div class="step-top">
                 <span class="step-emo" aria-hidden="true">{{ s.emoji ?? '•' }}</span>
-                  <div class="step-top-right">
-                    <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
-                  <span class="step-view-details" aria-hidden="true">View details</span>
-                  </div>
+                <div class="step-top-right">
+                  <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
+                </div>
               </div>
               <div class="step-title step-title--clamp">{{ s.label }}</div>
-            </button>
-
-            <div v-if="finalStep && stripSteps.length" class="final-inner final-inner--strip" role="listitem">
-              <div class="final-title">The Final Combine</div>
-              <div class="final-sub">{{ finalStep.detail || 'Toss together & serve warm' }}</div>
-            </div>
+              <details class="step-details">
+                <summary class="step-view-details">View details</summary>
+                <div class="step-details__body">
+                  <p class="step-details__text">{{ s.detail || s.label }}</p>
+                  <div v-if="ingredientLabelsForStep(s).length">
+                    <div class="step-details__label">Ingredients for this step</div>
+                    <ul class="step-details__list">
+                      <li v-for="label in ingredientLabelsForStep(s)" :key="label">{{ label }}</li>
+                    </ul>
+                  </div>
+                </div>
+              </details>
+            </article>
           </div>
         </template>
       </section>
@@ -276,34 +312,35 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
 
           <div class="stack">
             <div class="stack-head">Cooking steps</div>
-            <button
+            <article
               v-for="s in steps.filter((x) => (x.lane ?? 'Steps') === lane)"
               :key="s.id"
-              type="button"
               class="step"
               :class="{ done: completed.has(s.id) }"
-              :title="s.detail || s.label"
-              :aria-label="`View details: ${s.label}`"
-              @click="onStepClick(s)"
             >
               <div class="step-top">
                 <span class="step-emo" aria-hidden="true">{{ s.emoji ?? '•' }}</span>
                 <div class="step-top-right">
                   <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
-                  <span class="step-view-details" aria-hidden="true">View details</span>
                 </div>
               </div>
               <div class="step-title">{{ s.label }}</div>
-            </button>
+              <details class="step-details">
+                <summary class="step-view-details">View details</summary>
+                <div class="step-details__body">
+                  <p class="step-details__text">{{ s.detail || s.label }}</p>
+                  <div v-if="ingredientLabelsForStep(s).length">
+                    <div class="step-details__label">Ingredients for this step</div>
+                    <ul class="step-details__list">
+                      <li v-for="label in ingredientLabelsForStep(s)" :key="label">{{ label }}</li>
+                    </ul>
+                  </div>
+                </div>
+              </details>
+            </article>
           </div>
         </div>
 
-        <div v-if="finalStep" class="final">
-          <div class="final-inner">
-            <div class="final-title">The Final Combine</div>
-            <div class="final-sub">{{ finalStep.detail || 'Toss together & serve warm' }}</div>
-          </div>
-        </div>
       </div>
     </template>
   </section>
@@ -353,6 +390,27 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
   letter-spacing: -0.01em;
   color: var(--bb-muted);
 }
+.flow-lane-heading--summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  cursor: pointer;
+  list-style: none;
+}
+.flow-lane-heading--summary::-webkit-details-marker {
+  display: none;
+}
+.lane-details {
+  margin-top: 0.35rem;
+}
+.lane-details__chevron {
+  transition: transform 0.2s ease;
+  font-size: 1.1rem;
+}
+.lane-details[open] .lane-details__chevron {
+  transform: rotate(180deg);
+}
 .flow-lane-heading:first-of-type {
   margin-top: 0.15rem;
 }
@@ -369,28 +427,69 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
   margin-bottom: 0.65rem;
 }
 .strip-ing-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-  padding: 0.15rem 0 0.25rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 0.45rem;
+  padding: 0.25rem 0 0.35rem;
+  align-items: stretch;
 }
 
 .bubble--strip {
-  width: 88px;
-  min-height: 88px;
-  padding: 0.45rem 0.35rem 0.5rem;
-  border-radius: 13px;
+  width: 100%;
+  min-height: 84px;
+  padding: 0.55rem 0.6rem;
+  border-radius: 12px;
+  border: 1px solid var(--bb-border);
+  box-shadow: 0 6px 18px rgba(26, 28, 25, 0.04);
+  background: var(--bb-surface-lowest);
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.6rem;
+  text-align: left;
 }
 .bubble--strip .bubble__icon {
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
 }
 .bubble--strip .bubble__emo {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
 }
 .bubble--strip .bubble__txt {
-  font-size: 0.6rem;
-  max-width: 80px;
+  font-size: 0.72rem;
+  max-width: none;
+  text-align: left;
+}
+.bubble--strip .bubble__main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.ing-measure {
+  margin-top: 0.1rem;
+}
+.ing-measure__summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--bb-muted);
+}
+.ing-measure__summary::-webkit-details-marker {
+  display: none;
+}
+.ing-measure[open] .ing-measure__summary,
+.ing-measure__summary:hover {
+  color: var(--bb-text);
+}
+.ing-measure__body {
+  margin-top: 0.18rem;
+  font-size: 0.72rem;
+  color: var(--bb-text);
+  opacity: 0.9;
 }
 
 .strip-track {
@@ -418,18 +517,7 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
   border-radius: 12px;
   padding: 0.5rem 0.55rem;
   box-shadow: 0 6px 18px rgba(26, 28, 25, 0.04);
-  cursor: pointer;
   font: inherit;
-}
-.step--strip:hover {
-  transform: translateY(-1px);
-}
-.step--strip:active {
-  transform: translateY(0);
-}
-.step--strip:focus-visible {
-  outline: 2px solid var(--bb-focus-ring);
-  outline-offset: 2px;
 }
 .step--strip.done {
   /* Keep done steps readable in light mode */
@@ -624,18 +712,7 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
   border-radius: 14px;
   padding: 0.8rem 0.85rem;
   box-shadow: 0 12px 32px rgba(26, 28, 25, 0.04);
-  cursor: pointer;
   font: inherit;
-}
-.step:hover {
-  transform: translateY(-1px);
-}
-.step:active {
-  transform: translateY(0);
-}
-.step:focus-visible {
-  outline: 2px solid var(--bb-focus-ring);
-  outline-offset: 2px;
 }
 .step.done {
   opacity: 0.68;
@@ -665,12 +742,45 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
   border: 1px solid color-mix(in srgb, var(--bb-muted) 18%, transparent);
   opacity: 0.92;
   white-space: nowrap;
+  cursor: pointer;
+  list-style: none;
 }
-.step:hover .step-view-details,
-.step--strip:hover .step-view-details {
+.step-view-details::-webkit-details-marker {
+  display: none;
+}
+.step-details[open] .step-view-details,
+.step-view-details:hover {
   color: var(--bb-accent);
   background: color-mix(in srgb, var(--bb-accent) 16%, transparent);
   border-color: color-mix(in srgb, var(--bb-accent) 26%, transparent);
+}
+.step-details {
+  margin-top: 0.55rem;
+}
+.step-details__body {
+  margin-top: 0.45rem;
+  border-top: 1px solid color-mix(in srgb, var(--bb-border) 80%, transparent);
+  padding-top: 0.5rem;
+}
+.step-details__text {
+  margin: 0;
+  color: var(--bb-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.step-details__label {
+  margin-top: 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--bb-text);
+}
+.step-details__list {
+  margin: 0.3rem 0 0;
+  padding-left: 1rem;
+  color: var(--bb-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 .step-emo {
   font-size: 1.15rem;

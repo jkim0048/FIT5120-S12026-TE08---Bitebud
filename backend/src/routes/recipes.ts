@@ -29,6 +29,7 @@ import {
 } from "../services/sensoryMatch.js";
 import { resolveVisualiseInput } from "../services/recipeUrlFetch.js";
 import { deriveRecipeMetadata, type RecipeMetadata } from "../services/recipeMetadata.js";
+import { generateRecipeLedeResilient } from "../services/recipeLede.js";
 import { parseBiteBudUserId } from "../biteBudUserId.js";
 
 function jsonStringArray(v: unknown): string[] {
@@ -91,13 +92,20 @@ const progressBody = z.object({
 
 async function persistGraph(
   graph: RecipeGraph,
-  opts: { mealDbId?: string | null; rawText?: string | null; refined?: boolean; metadata?: RecipeMetadata } = {},
+  opts: {
+    mealDbId?: string | null;
+    rawText?: string | null;
+    refined?: boolean;
+    metadata?: RecipeMetadata;
+    lede?: string | null;
+  } = {},
 ): Promise<{ recipeId: string; graph: RecipeGraph }> {
   const derived = deriveRecipeMetadata(graph);
   const metadata = opts.metadata ?? {};
   const recipe = await prisma.recipe.create({
     data: {
       title: graph.title,
+      lede: opts.lede ?? null,
       imageUrl: metadata.imageUrl ?? null,
       sourceUrl: graph.sourceUrl ?? null,
       totalTimeMinutes: graph.totalTimeMinutes ?? null,
@@ -109,7 +117,7 @@ async function persistGraph(
       mealDbId: opts.mealDbId ?? null,
       rawText: opts.rawText ?? null,
       refined: opts.refined ?? true,
-    },
+    } as any,
   });
   const fullGraph: RecipeGraph = { ...graph, id: recipe.id };
   await prisma.recipe.update({
@@ -285,7 +293,8 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const graph = parsed.graph;
     const refined = parsed.refined;
     const resolved = await withIcons(graph, userId);
-    const saved = await persistGraph(resolved, { rawText: textToParse, refined });
+    const lede = await generateRecipeLedeResilient({ title: resolved.title, rawText: textToParse });
+    const saved = await persistGraph(resolved, { rawText: textToParse, refined, lede });
     await linkRecipeToUser(saved.recipeId, userId);
     return reply.send({
       ...saved,
@@ -432,6 +441,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const graph = enrichGraphWithMealDbImages(meal, parsed.graph);
     const refined = parsed.refined;
     const resolved = await withIcons(graph, userId);
+    const lede = await generateRecipeLedeResilient({ title: resolved.title, rawText: text });
     const resolvedWithTime: RecipeGraph =
       knownTime != null && (resolved.totalTimeMinutes == null || !Number.isFinite(resolved.totalTimeMinutes))
         ? { ...resolved, totalTimeMinutes: knownTime }
@@ -447,6 +457,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         where: { id: existing.id },
         data: {
           title: fullGraph.title,
+          lede,
           imageUrl: imageUrl ?? null,
           sourceUrl: fullGraph.sourceUrl ?? null,
           totalTimeMinutes: totalTimeMinutesOut,
@@ -457,7 +468,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
           complexity: derived.complexity ?? null,
           heatLevel: derived.heatLevel ?? null,
           tags: (derived.tags ?? []) as unknown as object,
-        },
+        } as any,
       });
       await linkRecipeToUser(existing.id, userId);
       return reply.send({
@@ -471,6 +482,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       mealDbId: body.mealDbId,
       rawText: text,
       refined,
+      lede,
       metadata: { imageUrl },
     });
     if (saved.graph.totalTimeMinutes == null && knownTime != null) {
@@ -609,6 +621,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     return reply.send({
       recipeId: recipe.id,
       graph: resolved,
+      lede: (recipe as any).lede ?? null,
       imageUrl: imageUrlOut,
       complexity: recipe.complexity,
       heatLevel: recipe.heatLevel,
@@ -643,16 +656,18 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const resolved = await withIcons({ ...graphAfterParse, id: recipe.id }, userId);
     const fullGraph: RecipeGraph = { ...resolved, id: recipe.id };
     const meta = deriveRecipeMetadata(graphAfterParse);
+    const lede = await generateRecipeLedeResilient({ title: fullGraph.title, rawText: recipe.rawText });
     await prisma.recipe.update({
       where: { id: recipe.id },
       data: {
         graph: fullGraph as object,
         refined: parsed.refined,
+        lede,
         complexity: meta.complexity ?? null,
         heatLevel: meta.heatLevel ?? null,
         tags: (meta.tags ?? []) as unknown as object,
         ...(recipe.imageUrl == null && mealThumb ? { imageUrl: mealThumb } : {}),
-      },
+      } as any,
     });
     return reply.send({ ok: true, parserSource: parsed.parserSource });
   });
