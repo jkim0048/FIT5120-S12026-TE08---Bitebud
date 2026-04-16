@@ -12,6 +12,33 @@ import type { SensoryConflictResponse } from '../types/sensory'
 type JourneyPhase = 'getReady' | 'ingredients' | 'roadmap' | 'step' | 'timer'
 type TimerState = 'idle' | 'running' | 'paused'
 
+const brokenImageSrcs = ref<Set<string>>(new Set())
+function isBrokenImageSrc(src: string | null | undefined): boolean {
+  if (!src) return false
+  return brokenImageSrcs.value.has(src)
+}
+function markBrokenImageSrc(src: string | null | undefined) {
+  if (!src) return
+  brokenImageSrcs.value.add(src)
+}
+
+function markBrokenFromImgEvent(e: Event) {
+  const el = e.target as HTMLImageElement | null
+  const src = el?.currentSrc || el?.src
+  if (src) markBrokenImageSrc(src)
+}
+
+function ingredientVisualSrc(item: { imageUrl?: string | null; icon?: string | null }): string | null {
+  const img = typeof item.imageUrl === 'string' ? item.imageUrl.trim() : ''
+  if (img && !isBrokenImageSrc(img)) return img
+  const icon = typeof item.icon === 'string' ? item.icon.trim() : ''
+  if (icon) {
+    const src = `/api/icons/wicked/${icon}`
+    if (!isBrokenImageSrc(src)) return src
+  }
+  return null
+}
+
 const EQUIPMENT_CATALOG = [
   'pan',
   'pot',
@@ -126,6 +153,7 @@ const ingredientChecklistItems = computed(() => {
   return graph.value.nodes
     .filter((n) => n.type === 'ingredient')
     .map((n) => ({
+      id: String(n.id),
       label: String(n.label ?? '').trim(),
       detail: String(n.detail ?? '').trim(),
       icon: typeof n.icon === 'string' ? n.icon : null,
@@ -162,11 +190,14 @@ const segmentCount = computed(() => Math.max(1, steps.value.length))
 
 /** Large hero visuals: step emoji + ingredient thumbs/emojis */
 const stepVisualSlots = computed(() => {
+  // Reference `brokenImageSrcs` so this recomputes after any <img> error.
+  void brokenImageSrcs.value
   const out: Array<{ kind: 'img'; src: string; alt: string } | { kind: 'emoji'; s: string }> = []
   const c = current.value
   if (c?.emoji?.trim()) out.push({ kind: 'emoji', s: c.emoji.trim() })
   for (const ing of currentIngredientVisuals.value.slice(0, 4)) {
-    if (ing.imageUrl) out.push({ kind: 'img', src: ing.imageUrl, alt: ing.label })
+    const src = ingredientVisualSrc({ imageUrl: ing.imageUrl, icon: ing.icon })
+    if (src) out.push({ kind: 'img', src, alt: ing.label })
     else out.push({ kind: 'emoji', s: ingredientVisualToken(ing) })
   }
   if (out.length === 0) out.push({ kind: 'emoji', s: '👩‍🍳' })
@@ -354,7 +385,7 @@ watch(
 watch(
   ingredientChecklistItems,
   (items) => {
-    ingredientChecks.value = Object.fromEntries(items.map((item) => [item.label, false]))
+    ingredientChecks.value = Object.fromEntries(items.map((item) => [item.id, false]))
   },
   { immediate: true },
 )
@@ -476,11 +507,18 @@ async function markStepDoneAndNext() {
           <h1 class="ready-title">Ingredients Checklist</h1>
           <p class="ready-sub">Check off what you have on hand. This is session-only and won’t be saved.</p>
           <ul class="ready-list">
-            <li v-for="item in ingredientChecklistItems" :key="item.label">
+            <li v-for="item in ingredientChecklistItems" :key="item.id">
               <label class="ready-item">
                 <span class="ready-item-left">
                   <span class="ready-item-icon ready-item-icon--img" aria-hidden="true">
-                    <img v-if="item.imageUrl" class="ready-item-img" :src="item.imageUrl" :alt="item.label" />
+                    <img
+                      v-if="ingredientVisualSrc(item)"
+                      class="ready-item-img"
+                      :src="ingredientVisualSrc(item)!"
+                      :alt="item.label"
+                      loading="lazy"
+                      @error="markBrokenFromImgEvent"
+                    />
                     <span v-else>{{ ingredientVisualToken({ label: item.label, emoji: item.emoji ?? undefined, icon: item.icon ?? undefined }) }}</span>
                   </span>
                   <span class="ready-item-copy">
@@ -489,7 +527,7 @@ async function markStepDoneAndNext() {
                   </span>
                 </span>
                 <input
-                  v-model="ingredientChecks[item.label]"
+                  v-model="ingredientChecks[item.id]"
                   class="ready-check"
                   type="checkbox"
                   :aria-label="`Have ingredient: ${item.label}`"
@@ -574,7 +612,7 @@ async function markStepDoneAndNext() {
           <div class="step-hero" aria-hidden="true">
             <template v-for="(slot, si) in stepVisualSlots" :key="si">
               <span v-if="slot.kind === 'emoji'" class="step-hero__emoji">{{ slot.s }}</span>
-              <img v-else class="step-hero__img" :src="slot.src" :alt="slot.alt" />
+              <img v-else class="step-hero__img" :src="slot.src" :alt="slot.alt" loading="lazy" @error="markBrokenFromImgEvent" />
             </template>
           </div>
 
@@ -951,13 +989,13 @@ async function markStepDoneAndNext() {
   overflow-wrap: anywhere;
 }
 .ready-item-icon {
-  width: 26px;
-  height: 26px;
+  width: 42px;
+  height: 42px;
   border-radius: 999px;
   display: grid;
   place-items: center;
   background: color-mix(in srgb, var(--bb-muted) 14%, var(--bb-surface-high));
-  font-size: 0.96rem;
+  font-size: 1.05rem;
 }
 .ready-item-icon--img {
   overflow: hidden;
