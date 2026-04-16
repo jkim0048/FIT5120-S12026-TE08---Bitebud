@@ -11,6 +11,7 @@ const router = useRouter()
 const { hasProfile, profile, loading: profileLoading } = useSensoryProfile()
 
 const query = ref('')
+const searchComboRef = ref<HTMLElement | null>(null)
 const loadingSearch = ref(false)
 const loadingImport = ref(false)
 const err = ref<string | null>(null)
@@ -31,6 +32,15 @@ type BrowseCard = {
   image?: string
   minutes?: number
   tags?: string[]
+  matchStatus: SensoryMatch | 'unsafe'
+  profileWarnings?: string[]
+  source: 'db' | 'themealdb'
+}
+type SuggestionItem = {
+  id: string
+  mealDbId?: string | null
+  title: string
+  minutes?: number
   matchStatus: SensoryMatch | 'unsafe'
   profileWarnings?: string[]
   source: 'db' | 'themealdb'
@@ -70,6 +80,24 @@ const hasDietaryOrCultural = computed(() => {
   if (!p) return false
   return (p.dietaryNeeds?.length ?? 0) + (p.culturalRequirements?.length ?? 0) > 0
 })
+const showsProfileIndicator = computed(() => activeTab.value === 'explore' || activeTab.value === 'forYou')
+const profileModeLabel = computed(() => {
+  if (!hasProfile.value) return 'Filter: Prep time'
+  return filterMode.value === 'safeDishes' ? 'Filter: Safe dishes only' : 'Filter: Showing all dishes'
+})
+const profileModeHint = computed(() => {
+  if (!hasProfile.value) return 'Only prep time filters are active.'
+  return filterMode.value === 'safeDishes'
+    ? 'Conflicting dishes are filtered out.'
+    : 'All dishes stay visible and conflicts are flagged.'
+})
+const canShowSuggestionsForTab = computed(() => activeTab.value === 'explore' || activeTab.value === 'forYou')
+const suggestions = ref<SuggestionItem[]>([])
+const loadingSuggestions = ref(false)
+const suggestionsOpen = ref(false)
+const activeSuggestionIndex = ref(-1)
+let suggestionDebounce: ReturnType<typeof setTimeout> | null = null
+let latestSuggestionRequest = 0
 
 function tabFromRoute(): 'forYou' | 'explore' | 'describe' {
   const t = route.query.tab
@@ -126,6 +154,16 @@ function applySidebarFilters() {
 }
 
 const filterCount = computed(() => pendingPrep.value.length)
+const appliedPrepLabel = computed(() => {
+  if (!appliedPrep.value.length) return ''
+  return appliedPrep.value
+    .map((opt) => (opt === 'under30' ? '<30 min' : opt === '30to60' ? '30-60 min' : '>60 min'))
+    .join(', ')
+})
+const filterButtonLabel = computed(() => {
+  if (!appliedPrepLabel.value) return 'Filter'
+  return `Filter: ${appliedPrepLabel.value}`
+})
 
 function togglePendingPrep(p: PrepBucket) {
   if (p === 'any') {
@@ -158,7 +196,18 @@ function applyFiltersAndClose() {
 }
 
 function onGlobalKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && filtersOpen.value) closeFilters()
+  if (e.key === 'Escape') {
+    if (filtersOpen.value) closeFilters()
+    if (suggestionsOpen.value) closeSuggestions()
+  }
+}
+
+function onGlobalPointerDown(e: MouseEvent) {
+  if (!suggestionsOpen.value) return
+  const target = e.target
+  if (!(target instanceof Node)) return
+  if (searchComboRef.value?.contains(target)) return
+  closeSuggestions()
 }
 
 function autosizePasteField() {
@@ -175,10 +224,170 @@ function onPasteSearchKeydown(e: KeyboardEvent) {
   }
 }
 
+function resetSuggestions() {
+  suggestions.value = []
+  activeSuggestionIndex.value = -1
+  loadingSuggestions.value = false
+}
+
+function closeSuggestions() {
+  suggestionsOpen.value = false
+  activeSuggestionIndex.value = -1
+}
+
+function mapSuggestionCards(cards: BrowseCard[]): SuggestionItem[] {
+  return cards.slice(0, 6).map((card) => ({
+    id: card.id,
+    mealDbId: card.mealDbId,
+    title: card.title,
+    minutes: card.minutes,
+    matchStatus: card.matchStatus,
+    profileWarnings: card.profileWarnings ?? [],
+    source: card.source,
+  }))
+}
+
+async function fetchSuggestions(rawText: string) {
+  const text = rawText.trim()
+  if (!canShowSuggestionsForTab.value || !text || busy.value) {
+    resetSuggestions()
+    closeSuggestions()
+    return
+  }
+  const requestId = ++latestSuggestionRequest
+  loadingSuggestions.value = true
+  try {
+    if (activeTab.value === 'forYou') {
+      const params = new URLSearchParams()
+      params.set('q', text)
+      params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
+      params.set('limit', '6')
+      params.set('skip', '0')
+      params.set('sort', 'newest')
+      const data = await apiFetch<{ results: Omit<BrowseCard, 'source'>[] }>(
+        `/api/recipes/browse?${params.toString()}`,
+        { headers: biteBudUserIdHeader() },
+      )
+      if (requestId !== latestSuggestionRequest) return
+      suggestions.value = mapSuggestionCards(
+        data.results.map((r) => ({
+          ...r,
+          profileWarnings: r.profileWarnings ?? [],
+          source: 'db' as const,
+        })),
+      )
+    } else if (activeTab.value === 'explore') {
+      const params = new URLSearchParams()
+      params.set('q', text)
+      params.set('page', '0')
+      params.set('limit', '6')
+      params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
+      const data = await apiFetch<{
+        results: {
+          id: string
+          title: string
+          image?: string
+          minutes?: number | null
+          matchStatus?: SensoryMatch | 'unsafe'
+          profileWarnings?: string[]
+        }[]
+      }>(`/api/recipes/search?${params.toString()}`, { headers: biteBudUserIdHeader() })
+      if (requestId !== latestSuggestionRequest) return
+      suggestions.value = mapSuggestionCards(
+        data.results.map((r) => ({
+          id: r.id,
+          mealDbId: r.id,
+          title: r.title,
+          image: r.image,
+          minutes: r.minutes ?? undefined,
+          matchStatus: r.matchStatus ?? 'safe',
+          profileWarnings: r.profileWarnings ?? [],
+          source: 'themealdb' as const,
+          tags: [],
+        })),
+      )
+    }
+    suggestionsOpen.value = suggestions.value.length > 0
+    activeSuggestionIndex.value = suggestions.value.length ? 0 : -1
+  } catch {
+    if (requestId !== latestSuggestionRequest) return
+    resetSuggestions()
+    closeSuggestions()
+  } finally {
+    if (requestId === latestSuggestionRequest) loadingSuggestions.value = false
+  }
+}
+
+function queueSuggestionFetch(rawText: string) {
+  if (suggestionDebounce) clearTimeout(suggestionDebounce)
+  if (!rawText.trim() || !canShowSuggestionsForTab.value) {
+    resetSuggestions()
+    closeSuggestions()
+    return
+  }
+  suggestionDebounce = setTimeout(() => {
+    void fetchSuggestions(rawText)
+  }, 180)
+}
+
+function onSearchInputFocus() {
+  if (canShowSuggestionsForTab.value && suggestions.value.length) {
+    suggestionsOpen.value = true
+    if (activeSuggestionIndex.value < 0) activeSuggestionIndex.value = 0
+  }
+}
+
+async function selectSuggestion(item: SuggestionItem) {
+  closeSuggestions()
+  query.value = item.title
+  await openRecipeWithConfirm(item)
+}
+
+async function onSearchInputKeydown(e: KeyboardEvent) {
+  if (!canShowSuggestionsForTab.value) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      await search()
+    }
+    return
+  }
+  if (e.key === 'ArrowDown') {
+    if (!suggestions.value.length) return
+    e.preventDefault()
+    suggestionsOpen.value = true
+    activeSuggestionIndex.value = Math.min(activeSuggestionIndex.value + 1, suggestions.value.length - 1)
+    return
+  }
+  if (e.key === 'ArrowUp') {
+    if (!suggestions.value.length) return
+    e.preventDefault()
+    suggestionsOpen.value = true
+    activeSuggestionIndex.value = Math.max(activeSuggestionIndex.value - 1, 0)
+    return
+  }
+  if (e.key === 'Escape') {
+    if (suggestionsOpen.value) {
+      e.preventDefault()
+      closeSuggestions()
+    }
+    return
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    if (suggestionsOpen.value && activeSuggestionIndex.value >= 0 && suggestions.value[activeSuggestionIndex.value]) {
+      await selectSuggestion(suggestions.value[activeSuggestionIndex.value])
+      return
+    }
+    closeSuggestions()
+    await search()
+  }
+}
+
 watch(
   () => [query.value, activeTab.value] as const,
   () => {
     if (activeTab.value === 'describe') nextTick(() => autosizePasteField())
+    else queueSuggestionFetch(query.value)
   },
 )
 
@@ -186,6 +395,8 @@ watch(
   () => activeTab.value,
   () => {
     if (activeTab.value === 'describe') closeFilters()
+    resetSuggestions()
+    closeSuggestions()
   },
 )
 
@@ -193,20 +404,32 @@ watch(
   () => hasProfile.value,
   (ok) => {
     if (!ok) closeFilters()
+    queueSuggestionFetch(query.value)
+  },
+)
+
+watch(
+  () => filterMode.value,
+  () => {
+    queueSuggestionFetch(query.value)
   },
 )
 
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('mousedown', onGlobalPointerDown)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('mousedown', onGlobalPointerDown)
+  if (suggestionDebounce) clearTimeout(suggestionDebounce)
 })
 
 
 async function search() {
   err.value = null
+  closeSuggestions()
   hasSearched.value = true
   if (activeTab.value === 'describe' && !query.value.trim()) {
     results.value = []
@@ -461,14 +684,18 @@ async function openRecipeWithConfirm(c: BrowseCard) {
         <details v-if="hasProfile" class="tab-details">
           <summary>More about these tabs</summary>
           <ul class="tab-details-list">
-            <li><strong>Browse library</strong> — The public catalog; filters on the left apply here and on Your recipes.</li>
-            <li><strong>Paste a recipe</strong> — No catalog needed; paste ingredients and instructions together for best results.</li>
-            <li><strong>Your recipes</strong> — Linked to your profile when you open a recipe here. Newest first.</li>
+            <li><strong>Browse library</strong> — Search from our library of recipes</li>
+            <li><strong>Paste a recipe</strong> — Visulise your own recipes, paste our intrusctions and ingredients for best results.</li>
+            <li><strong>Your recipes</strong> — View your past recipes, unlock by signing into your sensory profile.</li>
           </ul>
         </details>
 
         <div class="toolbar">
-          <div class="toolbar-search" :class="{ 'toolbar-search--paste': activeTab === 'describe' }">
+          <div
+            ref="searchComboRef"
+            class="toolbar-search"
+            :class="{ 'toolbar-search--paste': activeTab === 'describe', 'toolbar-search--suggestions-open': suggestionsOpen }"
+          >
             <span class="search-ico" aria-hidden="true">🔎</span>
             <textarea
               v-if="activeTab === 'describe'"
@@ -493,8 +720,37 @@ async function openRecipeWithConfirm(c: BrowseCard) {
                   : 'Search dish name or ingredient'
               "
               :disabled="busy"
-              @keydown.enter="search"
+              autocomplete="off"
+              @focus="onSearchInputFocus"
+              @keydown="onSearchInputKeydown"
             />
+            <div
+              v-if="activeTab !== 'describe' && (suggestionsOpen || loadingSuggestions)"
+              class="search-suggestions"
+              role="listbox"
+              aria-label="Recipe suggestions"
+            >
+              <div v-if="loadingSuggestions" class="search-suggestions__state">Searching recipes…</div>
+              <template v-else-if="suggestions.length">
+                <button
+                  v-for="(item, idx) in suggestions"
+                  :key="`${item.source}:${item.id}`"
+                  type="button"
+                  class="search-suggestion"
+                  :class="{ 'search-suggestion--active': idx === activeSuggestionIndex }"
+                  :aria-selected="idx === activeSuggestionIndex"
+                  @mousedown.prevent
+                  @click="selectSuggestion(item)"
+                >
+                  <span class="search-suggestion__title">{{ item.title }}</span>
+                  <span class="search-suggestion__meta">
+                    <span v-if="item.minutes != null">{{ timeLabel(item.minutes) }}</span>
+                    <span>{{ item.source === 'db' ? 'Your recipe' : 'Library' }}</span>
+                  </span>
+                </button>
+              </template>
+              <div v-else class="search-suggestions__state">No matching recipes yet.</div>
+            </div>
             <button
               type="button"
               class="search-btn"
@@ -520,11 +776,20 @@ async function openRecipeWithConfirm(c: BrowseCard) {
               :aria-expanded="filtersOpen"
               @click="openFilters"
             >
-              {{ filterCount ? `Filter (${filterCount})` : 'Filter' }}
+              {{ filterButtonLabel }}
             </button>
           </div>
           <div class="toolbar-rest">
             <div class="count" aria-live="polite">{{ matchCountLabel }}</div>
+          </div>
+          <div
+            v-if="showsProfileIndicator"
+            class="profile-mode-chip"
+            role="status"
+            :aria-label="`${profileModeLabel}. ${profileModeHint}`"
+          >
+            <span class="profile-mode-chip__label">{{ profileModeLabel }}</span>
+            <span class="profile-mode-chip__hint">{{ profileModeHint }}</span>
           </div>
         </div>
 
@@ -1141,14 +1406,24 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   box-shadow: 0 8px 28px rgba(26, 28, 25, 0.04);
 }
 .toolbar-search {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.65rem;
   flex: 1 1 auto;
   min-width: min(100%, 32rem);
+  max-width: 44rem;
+  padding: 0.35rem 0.35rem 0.35rem 0.45rem;
+  background: var(--bb-surface-low);
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 12%, transparent);
+  border-radius: 22px;
 }
 .toolbar-search--paste {
   align-items: flex-start;
+}
+.toolbar-search--suggestions-open {
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
 }
 .toolbar-search--paste .search-ico {
   margin-top: 0.35rem;
@@ -1158,6 +1433,30 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   flex-wrap: wrap;
   align-items: center;
   gap: 1rem;
+  margin-left: 0.25rem;
+}
+.profile-mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  width: 55%;
+  margin-left: 0;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bb-primary) 10%, var(--bb-surface-low));
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 18%, transparent);
+  color: var(--bb-text);
+}
+.profile-mode-chip__label {
+  font-family: var(--bb-font-label);
+  font-weight: 900;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+}
+.profile-mode-chip__hint {
+  font-size: 0.82rem;
+  color: var(--bb-muted);
 }
 .search-ico {
   width: 36px;
@@ -1176,18 +1475,18 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   outline: none;
   background: transparent;
   font: inherit;
-  font-size: 1.08rem;
+  font-size: 1.12rem;
   line-height: 1.4;
   color: var(--bb-text);
-  padding: 0.4rem 0;
+  padding: 0.8rem 0.1rem;
 }
 .search-input--paste {
-  min-height: 52px;
+  min-height: 72px;
   max-height: 320px;
   overflow-y: auto;
   resize: vertical;
   field-sizing: content;
-  padding: 0.45rem 0;
+  padding: 0.7rem 0.1rem;
 }
 @supports not (field-sizing: content) {
   .search-input--paste {
@@ -1224,6 +1523,57 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   opacity: 0.55;
   cursor: not-allowed;
 }
+.search-suggestions {
+  position: absolute;
+  top: calc(100% - 0.2rem);
+  left: 0;
+  right: 0;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.45rem;
+  background: var(--bb-surface-low);
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 12%, transparent);
+  border-top: none;
+  border-radius: 0 0 22px 22px;
+  box-shadow: 0 20px 40px rgba(26, 28, 25, 0.12);
+}
+.search-suggestions__state {
+  padding: 0.7rem 0.8rem;
+  font-size: 0.92rem;
+  color: var(--bb-muted);
+}
+.search-suggestion {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.75rem 0.85rem;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--bb-text);
+  text-align: left;
+  cursor: pointer;
+}
+.search-suggestion:hover,
+.search-suggestion--active {
+  background: color-mix(in srgb, var(--bb-primary) 10%, transparent);
+}
+.search-suggestion__title {
+  min-width: 0;
+  font-weight: 700;
+}
+.search-suggestion__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  color: var(--bb-muted);
+}
 
 .count {
   font-family: var(--bb-font-label);
@@ -1231,6 +1581,56 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   font-size: 0.8rem;
   color: var(--bb-muted);
   letter-spacing: 0.04em;
+}
+
+@media (max-width: 720px) {
+  .toolbar {
+    padding: 1rem;
+  }
+  .toolbar-search {
+    width: 100%;
+    min-width: 100%;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    padding: 0.45rem 0.45rem 0.45rem 0.55rem;
+    border-radius: 24px;
+  }
+  .search-ico {
+    order: 1;
+    width: 42px;
+    height: 42px;
+    font-size: 1.05rem;
+  }
+  .search-input {
+    order: 2;
+    flex: 1 1 calc(100% - 3.5rem);
+    font-size: 1.05rem;
+    padding: 0.95rem 0.1rem;
+  }
+  .search-btn,
+  .filter-btn {
+    margin-left: 0;
+    padding: 0.8rem 1rem;
+  }
+  .search-btn {
+    order: 3;
+  }
+  .filter-btn {
+    order: 4;
+  }
+  .search-suggestions {
+    border-radius: 0 0 24px 24px;
+  }
+  .search-suggestion {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .profile-mode-chip {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+    border-radius: 16px;
+  }
 }
 
 .grid {
