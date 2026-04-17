@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core'
+import { apiUrl } from '../../lib/api'
 
 defineProps<{
   data: {
@@ -16,7 +17,7 @@ defineProps<{
     <Handle type="target" :position="Position.Top" />
     <img
       v-if="data.imageUrl || data.iconId"
-      :src="data.imageUrl || `/api/icons/wicked/${data.iconId}`"
+      :src="data.imageUrl || apiUrl(`/api/icons/wicked/${data.iconId}`)"
       :alt="data.label"
       class="icon"
     />

@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import SimplifiedRecipeFlow from '../components/flow/SimplifiedRecipeFlow.vue'
 import { biteBudUserIdHeader, getBiteBudUserId } from '../composables/useUserId'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiUrl } from '../lib/api'
 import { getOrderedRecipeSteps } from '../lib/recipeSteps'
 import type { RecipeGraph, RecipeNode } from '../types/recipe'
 import type { SensoryConflictResponse } from '../types/sensory'
@@ -383,7 +383,7 @@ function closeStepPanel() {
               <span class="ing-main">
                 <img
                   v-if="ing.imageUrl || ing.icon"
-                  :src="ing.imageUrl || `/api/icons/wicked/${ing.icon}`"
+                  :src="ing.imageUrl || apiUrl(`/api/icons/wicked/${ing.icon}`)"
                   :alt="ing.label"
                   class="icon"
                 />

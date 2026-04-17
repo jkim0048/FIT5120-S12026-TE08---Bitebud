@@ -855,7 +855,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
               </div>
             </article>
 
-            <div v-if="hasSearched && !filteredCards.length" class="empty">
+            <div v-if="hasSearched && !filteredCards.length && !err" class="empty">
               No recipes match your current filters.
             </div>
           </div>

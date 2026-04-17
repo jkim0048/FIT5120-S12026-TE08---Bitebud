@@ -1,6 +1,6 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiUrl } from '../lib/api'
 import { fetchWickedPickerItems, type WickedPickerItem } from '../lib/wickedIconPicker'
 import { parseSensoryFoodItemFromApi, persistSensoryCode, useSensoryProfile } from './useSensoryProfile'
 import { persistSensoryProfileSnapshot } from '../lib/sensorySnapshot'
@@ -239,7 +239,7 @@ export function useSensorySetupForm() {
   function resolveWickedImage(iconId: string | undefined | null): string | null {
     if (!iconId?.trim()) return null
     // Prefer backend proxy endpoint; fallback handled in the UI on image error.
-    return `/api/icons/wicked/${iconId}`
+    return apiUrl(`/api/icons/wicked/${iconId}`)
   }
 
   async function ensureProfileCreated() {

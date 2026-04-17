@@ -23,7 +23,6 @@ const {
   selectedCultural,
   foodInputStatus,
   foodQuery,
-  selectedPickerItem,
   pickerLoading,
   pickerError,
   filteredPickerItems,
@@ -227,23 +226,16 @@ function onFoodEditThumbError(e: Event) {
                 </li>
               </ul>
             </div>
-            <div v-if="selectedPickerItem" class="food-selected-preview" aria-live="polite">
-              <img
-                class="food-selected-preview__thumb"
-                :src="resolveWickedImage(selectedPickerItem.wickedIconId) || selectedPickerItem.imageUrl || ''"
-                :alt="`${selectedPickerItem.label} icon`"
-                @error="onSuggestionImageError($event, selectedPickerItem.imageUrl)"
-              />
-              <span class="food-selected-preview__name">{{ selectedPickerItem.label }}</span>
+            <div class="food-actions">
+              <select v-model="foodInputStatus" class="food-status-select" aria-label="Food safety status">
+                <option value="UNSURE">Sometimes</option>
+                <option value="SAFE">Safe</option>
+                <option value="UNSAFE">Unsafe</option>
+              </select>
+              <button type="button" class="food-add-btn" :disabled="addFoodBusy" @click="addFood">
+                {{ addFoodBusy ? 'Adding…' : 'Add' }}
+              </button>
             </div>
-            <select v-model="foodInputStatus" class="food-status-select" aria-label="Food safety status">
-              <option value="UNSURE">Sometimes</option>
-              <option value="SAFE">Safe</option>
-              <option value="UNSAFE">Unsafe</option>
-            </select>
-            <button type="button" class="food-add-btn" :disabled="addFoodBusy" @click="addFood">
-              {{ addFoodBusy ? 'Adding…' : 'Add' }}
-            </button>
           </div>
           <div v-if="pickerLoading" class="muted">Loading food tags…</div>
           <div v-if="pickerError" class="save-err">{{ pickerError }}</div>
@@ -497,9 +489,14 @@ function onFoodEditThumbError(e: Event) {
 }
 .food-add-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 170px auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.5rem;
   align-items: start;
+}
+.food-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 .food-input-wrap {
   position: relative;
@@ -567,30 +564,6 @@ function onFoodEditThumbError(e: Event) {
   border-radius: 8px;
   object-fit: cover;
   background: var(--bb-surface-high);
-}
-.food-selected-preview {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  min-width: 0;
-  padding: 0.45rem 0.65rem;
-  border: 1px solid var(--bb-border);
-  border-radius: 10px;
-  background: var(--bb-surface-lowest);
-}
-.food-selected-preview__thumb {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  object-fit: cover;
-  background: var(--bb-surface-high);
-  flex-shrink: 0;
-}
-.food-selected-preview__name {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--bb-text);
-  overflow-wrap: anywhere;
 }
 .food-list {
   margin: 0.9rem 0 0;

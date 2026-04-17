@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { apiUrl } from '../../lib/api'
 import { getOrderedRecipeSteps } from '../../lib/recipeSteps'
 import type { RecipeGraph, RecipeNode } from '../../types/recipe'
 
@@ -158,7 +159,7 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
             >
               <img
                 v-if="ing.imageUrl || ing.icon"
-                :src="ing.imageUrl || `/api/icons/wicked/${ing.icon}`"
+                :src="ing.imageUrl || apiUrl(`/api/icons/wicked/${ing.icon}`)"
                 :alt="ing.label"
                 class="bubble__icon"
               />
@@ -188,7 +189,7 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
             >
               <img
                 v-if="ing.imageUrl || ing.icon"
-                :src="ing.imageUrl || `/api/icons/wicked/${ing.icon}`"
+                :src="ing.imageUrl || apiUrl(`/api/icons/wicked/${ing.icon}`)"
                 :alt="ing.label"
                 class="bubble__icon"
               />
@@ -301,7 +302,7 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
             <div v-for="ing in ingredientsForLane(lane)" :key="ing.id" class="bubble" :title="ing.label">
               <img
                 v-if="ing.imageUrl || ing.icon"
-                :src="ing.imageUrl || `/api/icons/wicked/${ing.icon}`"
+                :src="ing.imageUrl || apiUrl(`/api/icons/wicked/${ing.icon}`)"
                 :alt="ing.label"
                 class="bubble__icon"
               />

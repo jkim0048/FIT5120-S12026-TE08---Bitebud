@@ -12,7 +12,14 @@ const app = Fastify({ logger: true });
 
 await app.register(cors, {
   origin: true,
+  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "X-User-Id"],
 });
+
+app.get("/", async () => ({
+  service: "bitesbud-api",
+  health: "/api/health",
+}));
 
 app.get("/api/health", async () => ({ ok: true }));
 

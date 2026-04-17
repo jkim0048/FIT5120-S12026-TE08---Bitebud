@@ -7,6 +7,8 @@ RUN npm ci
 COPY backend/ ./
 RUN npx prisma generate
 RUN npm run build
+# tsc does not emit JSON; recipes route loads dist/data/mealdb.json at runtime
+RUN test -f dist/data/mealdb.json
 
 FROM node:20-bookworm-slim AS runner
 WORKDIR /app
