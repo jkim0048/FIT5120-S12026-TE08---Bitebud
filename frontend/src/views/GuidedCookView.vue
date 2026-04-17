@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { biteBudUserIdHeader, getBiteBudUserId } from '../composables/useUserId'
 import { useSettings } from '../composables/useSettings'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiUrl } from '../lib/api'
 import { getOrderedRecipeSteps } from '../lib/recipeSteps'
 import { findTtsVoiceByName } from '../lib/ttsVoices'
 import type { RecipeGraph } from '../types/recipe'
@@ -33,7 +33,7 @@ function ingredientVisualSrc(item: { imageUrl?: string | null; icon?: string | n
   if (img && !isBrokenImageSrc(img)) return img
   const icon = typeof item.icon === 'string' ? item.icon.trim() : ''
   if (icon) {
-    const src = `/api/icons/wicked/${icon}`
+    const src = apiUrl(`/api/icons/wicked/${icon}`)
     if (!isBrokenImageSrc(src)) return src
   }
   return null

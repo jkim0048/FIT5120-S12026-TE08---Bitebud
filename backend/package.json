@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-dist-data.mjs",
     "start": "node dist/index.js",
     "icons:ingest": "tsx src/jobs/ingest-wicked-icons.ts",
     "icons:list": "tsx src/jobs/list-wicked-icons.ts",

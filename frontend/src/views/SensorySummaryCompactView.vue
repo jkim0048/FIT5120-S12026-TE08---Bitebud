@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiUrl } from '../lib/api'
 import { persistSensoryProfileSnapshot } from '../lib/sensorySnapshot'
 import { refreshSensoryProfile, useSensoryProfile } from '../composables/useSensoryProfile'
 import { getBiteBudUserId } from '../composables/useUserId'
@@ -69,7 +69,7 @@ function statusPillClass(status: SensoryFoodStatus): string {
 
 function resolveWickedImage(iconId: string | undefined | null): string | null {
   if (!iconId?.trim()) return null
-  return `/api/icons/wicked/${iconId}`
+  return apiUrl(`/api/icons/wicked/${iconId}`)
 }
 
 function onFoodImageError(ev: Event) {

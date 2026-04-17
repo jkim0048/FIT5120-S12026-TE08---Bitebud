@@ -10,3 +10,5 @@ deploy/cloudrun-env.generated.yaml
 backend/.env
 *.log
 .DS_Store
+
+.env
