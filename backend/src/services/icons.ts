@@ -33,6 +33,7 @@ type WickedTokenIndex = {
 
 let wickedTokenIndexPromise: Promise<WickedTokenIndex> | null = null;
 
+/** Normalize an icon id/name into a stable token-friendly form for indexing and lookups. */
 function normalizeForWickedIndex(value: string): string {
   return value
     .toLowerCase()
@@ -42,6 +43,11 @@ function normalizeForWickedIndex(value: string): string {
     .trim();
 }
 
+/**
+ * Build (and memoize) a name/id → icon id index from the database.
+ *
+ * Cached in-process for performance; invalidated after `ingestWickedIcons`.
+ */
 async function getWickedNameIndex(): Promise<WickedNameIndex> {
   if (!wickedNameIndexPromise) {
     wickedNameIndexPromise = (async () => {
@@ -62,10 +68,16 @@ async function getWickedNameIndex(): Promise<WickedNameIndex> {
   return wickedNameIndexPromise;
 }
 
+/** Split a normalized string into tokens (used for token-subset matching). */
 function tokensFromNormalized(value: string): string[] {
   return normalizeForWickedIndex(value).split(" ").filter(Boolean);
 }
 
+/**
+ * Build (and memoize) a token index for “subset/closest” matching across all Wicked icons.
+ *
+ * Stores per-icon token sets and token frequencies to break ties deterministically.
+ */
 async function getWickedTokenIndex(): Promise<WickedTokenIndex> {
   if (!wickedTokenIndexPromise) {
     wickedTokenIndexPromise = (async () => {
@@ -99,6 +111,7 @@ const CATEGORY_FALLBACKS: Array<{ match: RegExp; search: string[]; emoji: string
   { match: /\b(pasta|noodle|noodles)\b/, search: ["pasta", "noodle"], emoji: "🍝" },
 ];
 
+/** Extremely small English plural→singular heuristic used for ingredient key stability. */
 function singularizeSimple(value: string): string {
   if (!value) return value;
   if (value.endsWith("ies") && value.length > 3) return value.slice(0, -3) + "y";
@@ -108,6 +121,11 @@ function singularizeSimple(value: string): string {
   return value;
 }
 
+/**
+ * Conservative ingredient-label cleanup used to derive matching keys.
+ *
+ * Drops quantities/units/prep words/parentheticals and normalizes whitespace; matching happens in later steps.
+ */
 function basicClean(value: string): string {
   return value
     .toLowerCase()
@@ -121,6 +139,7 @@ function basicClean(value: string): string {
     .trim();
 }
 
+/** Singularize each word in a multi-word key using the simple heuristic. */
 function singularizeWords(key: string): string {
   return key
     .split(" ")
@@ -129,6 +148,7 @@ function singularizeWords(key: string): string {
     .trim();
 }
 
+/** Heuristic: last non-empty token often carries the core noun (“egg roll wrappers” → “wrappers”). */
 function lastNounCandidate(cleaned: string): string {
   const parts = cleaned.split(" ").filter(Boolean);
   if (!parts.length) return "";
@@ -136,10 +156,12 @@ function lastNounCandidate(cleaned: string): string {
   return parts.slice(-1).join(" ").trim();
 }
 
+/** Heuristic: first ~3 tokens often form a useful stable key (“extra virgin olive oil” → “extra virgin olive”). */
 function headCandidate(cleaned: string): string {
   return cleaned.split(" ").slice(0, 3).join(" ").trim();
 }
 
+/** Heuristic: first token can be a safer fallback for generic-noun phrases (“lemon juice” → “lemon”). */
 function firstTokenCandidate(cleaned: string): string {
   return cleaned.split(" ").slice(0, 1).join(" ").trim();
 }
@@ -193,6 +215,7 @@ const BUTTER_SPREAD_EXCLUDE_TOKENS = new Set([
 /** Single-token fish keys (e.g. "salmon" from "smoked salmon fillet") should not pick roe/caviar icons. */
 const FISH_ROE_STYLE_EXCLUDE_TOKENS = new Set(["roe", "ikura", "caviar"]);
 
+/** Normalize a raw ingredient label into a stable, human-editable key for DB mappings and overrides. */
 export function normalizeIngredientKey(value: string): string {
   const cleaned = basicClean(value);
 
@@ -213,6 +236,11 @@ export function formatIngredientDisplayLabel(ingredientKey: string): string {
     .join(" ");
 }
 
+/**
+ * Generate candidate mapping keys for a raw ingredient label, ordered from most-specific to safest fallbacks.
+ *
+ * Adds targeted fallbacks for known patterns (juice/oil/wrappers/fish tokens) and de-duplicates results.
+ */
 function candidateKeysFromIngredientLabel(value: string): string[] {
   const cleaned = basicClean(value);
   if (!cleaned) return [];
@@ -272,6 +300,7 @@ function candidateKeysFromIngredientLabel(value: string): string[] {
   return [...new Set(candidates)];
 }
 
+/** Resolve a possibly-relative URL against a base, returning the original string on parse errors. */
 function absoluteUrl(base: string, maybeRelative: string): string {
   try {
     return new URL(maybeRelative, base).toString();
@@ -280,6 +309,7 @@ function absoluteUrl(base: string, maybeRelative: string): string {
   }
 }
 
+/** Parse `<img>` tags from HTML and return image candidates (src + alt), resolving relative URLs. */
 function parseImgTags(html: string, baseUrl: string): Array<{ src: string; alt: string }> {
   const out: Array<{ src: string; alt: string }> = [];
   const rx =
@@ -293,12 +323,18 @@ function parseImgTags(html: string, baseUrl: string): Array<{ src: string; alt: 
   return out;
 }
 
+/** Derive a stable icon id from an image URL filename (strip extension; normalize to `[-a-z0-9_]`). */
 function iconIdFromUrl(url: string): string {
   const pathname = new URL(url).pathname;
   const base = pathname.split("/").pop() ?? "icon";
   return base.replace(/\.[a-z0-9]+$/i, "").replace(/[^a-z0-9_-]/gi, "-");
 }
 
+/**
+ * Ingest icons from the Wicked source page by scraping `<img>` tags and upserting rows into Prisma.
+ *
+ * Optionally downloads and stores binary assets; invalidates in-process indexes on completion.
+ */
 export async function ingestWickedIcons(opts?: {
   sourceUrl?: string;
   limit?: number;
@@ -353,6 +389,7 @@ export async function ingestWickedIcons(opts?: {
   return { discovered: imgs.length, upserted, withAssets };
 }
 
+/** Best-effort fuzzy DB lookup by partial id/name contains (used as an escape hatch; not the primary matcher). */
 async function fuzzyFindIconIdForKey(key: string): Promise<string | null> {
   const q = key.trim();
   if (!q) return null;
@@ -376,6 +413,7 @@ async function fuzzyFindIconIdForKey(key: string): Promise<string | null> {
   return null;
 }
 
+/** Resolve an icon id from the exact name/id index (fast path for stable keys). */
 async function exactIconIdFromIndex(key: string): Promise<string | null> {
   const q = normalizeForWickedIndex(key);
   if (!q) return null;
@@ -383,6 +421,7 @@ async function exactIconIdFromIndex(key: string): Promise<string | null> {
   return idx.byNormalizedName.get(q) ?? idx.byNormalizedId.get(q) ?? null;
 }
 
+/** Check whether all needle tokens exist in the haystack token set. */
 function isSubsetTokens(needles: string[], haystackSet: Set<string>): boolean {
   for (const t of needles) {
     if (!haystackSet.has(t)) return false;
@@ -390,6 +429,7 @@ function isSubsetTokens(needles: string[], haystackSet: Set<string>): boolean {
   return true;
 }
 
+/** Guardrail: “butter” should not match compound spreads like “peanut butter” icons. */
 function isCompoundButterSpreadIcon(iconTokenSet: Set<string>, needles: string[]): boolean {
   if (needles.length !== 1 || needles[0] !== "butter") return false;
   for (const t of iconTokenSet) {
@@ -399,6 +439,7 @@ function isCompoundButterSpreadIcon(iconTokenSet: Set<string>, needles: string[]
   return false;
 }
 
+/** Guardrail: single-token fish matches should not select roe/caviar-style icons. */
 function isRoeOrCaviarFishIcon(iconTokenSet: Set<string>, needles: string[]): boolean {
   if (needles.length !== 1) return false;
   const primary = needles[0];
@@ -410,6 +451,12 @@ function isRoeOrCaviarFishIcon(iconTokenSet: Set<string>, needles: string[]): bo
   return false;
 }
 
+/**
+ * Find the “closest” icon whose tokens are a superset of the query tokens.
+ *
+ * Uses tie-breakers (fewest extra tokens, smaller token set, token popularity, shorter normalized string, then id)
+ * and applies a couple of safety exclusions to avoid common wrong matches.
+ */
 async function tokenSubsetClosestIconIdForKey(key: string): Promise<string | null> {
   const needles = tokensFromNormalized(key);
   if (!needles.length) return null;
@@ -446,6 +493,7 @@ async function tokenSubsetClosestIconIdForKey(key: string): Promise<string | nul
   return best?.id ?? null;
 }
 
+/** Levenshtein edit distance with an upper bound (`max`) for early exit (used for conservative typo repair). */
 function editDistanceLevenshtein(a: string, b: string, max: number): number {
   // Early exits for performance and safety.
   if (a === b) return 0;
@@ -470,6 +518,11 @@ function editDistanceLevenshtein(a: string, b: string, max: number): number {
   return v0[b.length];
 }
 
+/**
+ * Conservatively “repair” unknown tokens by splitting joined words or applying small edit-distance corrections.
+ *
+ * This is intentionally bounded to avoid over-matching; it only triggers when there is a clear single winner.
+ */
 async function repairKeyTokensConservatively(key: string): Promise<string> {
   const tokens = tokensFromNormalized(key);
   if (!tokens.length) return key;
@@ -561,6 +614,11 @@ async function repairKeyTokensConservatively(key: string): Promise<string> {
   return repaired.join(" ").trim();
 }
 
+/**
+ * Debug helper to show how an ingredient label resolves to an icon (candidates, chosen key, method).
+ *
+ * Useful for building/admin tooling and for spot-checking matching heuristics without mutating DB mappings.
+ */
 export async function debugResolveWickedIconForIngredientLabel(
   label: string,
 ): Promise<{
@@ -589,6 +647,7 @@ export async function debugResolveWickedIconForIngredientLabel(
   return { candidates, chosenKey: candidates[0] ?? null, iconId: null, method: "none" };
 }
 
+/** Choose a coarse emoji fallback for a key when no Wicked icon mapping is available. */
 function emojiFallbackForKey(key: string): string {
   for (const c of CATEGORY_FALLBACKS) {
     if (c.match.test(key)) return c.emoji;
@@ -596,6 +655,12 @@ function emojiFallbackForKey(key: string): string {
   return "•";
 }
 
+/**
+ * Apply ingredient icon mappings to a recipe graph.
+ *
+ * For each ingredient node, chooses the best key from candidate keys, checks user overrides, then existing DB maps,
+ * and finally infers/persists a best-effort Wicked icon id (best-effort DB upserts; skips nodes with `imageUrl`).
+ */
 export async function applyIconMappings(
   graph: RecipeGraph,
   userId?: string | null,

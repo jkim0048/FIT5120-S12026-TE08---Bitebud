@@ -83,16 +83,16 @@ async function onModalYes(): Promise<void> {
       <p v-if="error" class="err" role="alert">{{ error }}</p>
       <div class="actions">
         <button type="button" class="bb-btn bb-btn--secondary btn-skip" :disabled="busy || !userCode" @click="onSkip">
-          Skip for now
+          Go back
         </button>
         <button type="button" class="bb-btn bb-btn--primary btn-continue" :disabled="busy || !userCode" @click="onContinue">
-          Continue
+          Create Sensory Profile
         </button>
       </div>
     </div>
 
     <p class="footer-hint">
-      Already have an ID?
+      Already have a Sensory Profile?
       <RouterLink to="/auth" class="inline-link">Sign in</RouterLink>
     </p>
 
@@ -101,7 +101,7 @@ async function onModalYes(): Promise<void> {
         <div class="modal-backdrop" @click="closeModal" />
         <div class="modal-box">
           <h3 id="new-user-modal-title" class="modal-title">Your User profile has been created.</h3>
-          <p class="modal-text">Do you want to set up your sensory profile?</p>
+          <p class="modal-text">Do you want to set up your sensory profile now?</p>
           <div class="modal-actions">
             <button type="button" class="bb-btn bb-btn--secondary" :disabled="busy" @click="onModalNo">No</button>
             <button type="button" class="bb-btn bb-btn--primary" :disabled="busy" @click="onModalYes">Continue</button>

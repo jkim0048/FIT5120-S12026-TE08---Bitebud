@@ -23,6 +23,7 @@ const {
   selectedCultural,
   foodInputStatus,
   foodQuery,
+  selectedPickerItem,
   pickerLoading,
   pickerError,
   filteredPickerItems,
@@ -225,6 +226,15 @@ function onFoodEditThumbError(e: Event) {
                   </button>
                 </li>
               </ul>
+            </div>
+            <div v-if="selectedPickerItem" class="food-selected-preview" aria-live="polite">
+              <img
+                class="food-selected-preview__thumb"
+                :src="resolveWickedImage(selectedPickerItem.wickedIconId) || selectedPickerItem.imageUrl || ''"
+                :alt="`${selectedPickerItem.label} icon`"
+                @error="onSuggestionImageError($event, selectedPickerItem.imageUrl)"
+              />
+              <span class="food-selected-preview__name">{{ selectedPickerItem.label }}</span>
             </div>
             <select v-model="foodInputStatus" class="food-status-select" aria-label="Food safety status">
               <option value="UNSURE">Sometimes</option>
@@ -557,6 +567,30 @@ function onFoodEditThumbError(e: Event) {
   border-radius: 8px;
   object-fit: cover;
   background: var(--bb-surface-high);
+}
+.food-selected-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--bb-border);
+  border-radius: 10px;
+  background: var(--bb-surface-lowest);
+}
+.food-selected-preview__thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--bb-surface-high);
+  flex-shrink: 0;
+}
+.food-selected-preview__name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--bb-text);
+  overflow-wrap: anywhere;
 }
 .food-list {
   margin: 0.9rem 0 0;

@@ -30,9 +30,8 @@ function goSignUp() {
       </div>
       <div class="auth-col auth-col--signup">
         <div class="signup-inner">
-          <h2 class="hello">Hello, Friend!</h2>
-          <p class="signup-copy">Fill up information and start journey with us</p>
-          <button type="button" class="btn-outline" @click="goSignUp">Sign Up</button>
+          <h2 class="hello">Let us know your Sensory preferences</h2>
+          <button type="button" class="btn-outline" @click="goSignUp">Create Sensory Profile</button>
         </div>
       </div>
     </div>

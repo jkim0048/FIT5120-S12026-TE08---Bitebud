@@ -1,5 +1,6 @@
 const BASE = "https://www.themealdb.com/api/json/v1";
 
+/** Resolve TheMealDB API key from env, falling back to the public development key (`1`). */
 function apiKey(): string {
   // TheMealDB supports the public test key '1' for development.
   return (process.env.THEMEALDB_API_KEY ?? "1").trim() || "1";
@@ -36,6 +37,7 @@ export function mealIngredientLines(meal: MealDbMeal): string[] {
   return lines;
 }
 
+/** Looser normalization for cross-source matching (ingredient names, labels), used for substring contains checks. */
 function normalizeLoose(value: string): string {
   return value
     .toLowerCase()
@@ -44,12 +46,14 @@ function normalizeLoose(value: string): string {
     .trim();
 }
 
+/** Build the canonical TheMealDB ingredient image URL for a raw ingredient name. */
 function mealDbIngredientImageUrl(name: string): string {
   // TheMealDB ingredient images use this pattern.
   // Example: https://www.themealdb.com/images/ingredients/Smoked%20Salmon-Small.png
   return `https://www.themealdb.com/images/ingredients/${encodeURIComponent(name.trim())}-Small.png`;
 }
 
+/** Fetch JSON from a TheMealDB endpoint, throwing a readable error on non-2xx responses. */
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -255,6 +259,7 @@ function inferFallbackMinutes(instructions: string, steps: number, ingredientCou
   return Math.max(OUT_MIN, Math.min(maxOut, total));
 }
 
+/** Infer total minutes for a MealDB meal using explicit time parsing first, then a heuristic fallback estimate. */
 function inferMinutes(meal: MealDbMeal): number {
   const instructions = String(meal.strInstructions ?? "").trim();
   const blob = mealTimeTextBlob(meal);
@@ -270,6 +275,7 @@ function inferMinutes(meal: MealDbMeal): number {
   return inferFallbackMinutes(instructions, steps, ingredients);
 }
 
+/** Coarse “heat” level based on cooking-method keywords in the instructions. */
 function inferHeatLevel(meal: MealDbMeal): "none" | "low" | "medium" {
   const text = String(meal.strInstructions ?? "").toLowerCase();
   if (/(fry|boil|bake|roast|grill|saute|simmer)/.test(text)) return "medium";
@@ -277,12 +283,14 @@ function inferHeatLevel(meal: MealDbMeal): "none" | "low" | "medium" {
   return "none";
 }
 
+/** Coarse complexity based on estimated instruction step count. */
 function inferComplexity(meal: MealDbMeal): "low" | "medium" {
   const instructions = String(meal.strInstructions ?? "").trim();
   const steps = countInstructionSteps(instructions);
   return steps > 8 ? "medium" : "low";
 }
 
+/** Compute derived fields used by search hit cards (time/heat/complexity). */
 export function mealSearchHitFields(meal: MealDbMeal): {
   minutes: number;
   heatLevel: "none" | "low" | "medium";
@@ -295,6 +303,11 @@ export function mealSearchHitFields(meal: MealDbMeal): {
   };
 }
 
+/**
+ * Search meals by free-text query and map to lightweight hit cards.
+ *
+ * Applies optional time/complexity/heat filters and uses best-effort time inference when API data lacks it.
+ */
 export async function searchMeals(
   query: string,
   filters?: { maxMinutes?: number; complexity?: string; heatLevel?: string },
@@ -327,6 +340,7 @@ export async function searchMeals(
   });
 }
 
+/** Convert a list of MealDB rows to filtered `MealDbSearchHit`s with inferred fields (shared by multiple endpoints). */
 function mapMealsToHits(
   meals: MealDbMeal[],
   filters?: { maxMinutes?: number; complexity?: string; heatLevel?: string },
@@ -409,6 +423,7 @@ export async function browseMealsOrdered(
   return top.map((h) => byId.get(h.id)).filter((m): m is MealDbMeal => Boolean(m));
 }
 
+/** Look up a single meal by id (throws when id is empty or meal is missing). */
 export async function lookupMealById(id: string): Promise<MealDbMeal> {
   const mealId = id.trim();
   if (!mealId) throw new Error("MealDB id required");
@@ -419,6 +434,11 @@ export async function lookupMealById(id: string): Promise<MealDbMeal> {
   return meal;
 }
 
+/**
+ * Convert a MealDB row into a plain-text recipe block suitable for downstream graph parsing.
+ *
+ * Includes an Ingredients section, an Instructions section, and returns optional source/image URLs for UI attribution.
+ */
 export function mealToRecipeText(meal: MealDbMeal): {
   title: string;
   text: string;
@@ -457,6 +477,12 @@ export function mealToRecipeText(meal: MealDbMeal): {
   };
 }
 
+/**
+ * Enrich a parsed recipe graph with MealDB-derived images.
+ *
+ * Sets `heroImageUrl` from the meal thumbnail and adds per-ingredient `imageUrl` matches using normalized
+ * substring matching (prefers the longest matching ingredient token).
+ */
 export function enrichGraphWithMealDbImages<TGraph extends { heroImageUrl?: string | null; nodes: Array<any> }>(
   meal: MealDbMeal,
   graph: TGraph,

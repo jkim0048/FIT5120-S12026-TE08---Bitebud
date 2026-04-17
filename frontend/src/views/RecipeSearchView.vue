@@ -347,6 +347,12 @@ async function onSearchInputKeydown(e: KeyboardEvent) {
   if (!canShowSuggestionsForTab.value) {
     if (e.key === 'Enter') {
       e.preventDefault()
+      if (activeTab.value !== 'explore') {
+        activeTab.value = 'explore'
+        catalogPage.value = 0
+        browseSkip.value = 0
+        await router.replace({ path: '/search', query: { ...route.query, tab: 'library' } })
+      }
       await search()
     }
     return
@@ -374,11 +380,13 @@ async function onSearchInputKeydown(e: KeyboardEvent) {
   }
   if (e.key === 'Enter') {
     e.preventDefault()
-    if (suggestionsOpen.value && activeSuggestionIndex.value >= 0 && suggestions.value[activeSuggestionIndex.value]) {
-      await selectSuggestion(suggestions.value[activeSuggestionIndex.value])
-      return
-    }
     closeSuggestions()
+    if (activeTab.value !== 'explore') {
+      activeTab.value = 'explore'
+      catalogPage.value = 0
+      browseSkip.value = 0
+      await router.replace({ path: '/search', query: { ...route.query, tab: 'library' } })
+    }
     await search()
   }
 }
@@ -665,19 +673,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
           <button type="button" class="tab" :class="{ on: activeTab === 'describe' }" @click="setRouteTab('describe')">
             Paste a recipe
           </button>
-          <button
-            type="button"
-            class="tab"
-            :class="{ on: activeTab === 'forYou' }"
-            :disabled="!hasProfile"
-            @click="setRouteTab('forYou')"
-          >
-            Your recipes
-          </button>
         </div>
-        <p v-if="!hasProfile" class="gentle-note">
-          Set up your sensory profile to use the Your recipes tab.
-        </p>
         <p v-if="activeTab === 'forYou' && hasProfile" class="tab-help" role="note">
           These are dishes you have already opened in BiteBud. Search by name to find one again.
         </p>
@@ -686,7 +682,6 @@ async function openRecipeWithConfirm(c: BrowseCard) {
           <ul class="tab-details-list">
             <li><strong>Browse library</strong> — Search from our library of recipes</li>
             <li><strong>Paste a recipe</strong> — Visulise your own recipes, paste our intrusctions and ingredients for best results.</li>
-            <li><strong>Your recipes</strong> — View your past recipes, unlock by signing into your sensory profile.</li>
           </ul>
         </details>
 

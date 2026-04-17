@@ -12,6 +12,33 @@ import type { SensoryConflictResponse } from '../types/sensory'
 type JourneyPhase = 'getReady' | 'ingredients' | 'roadmap' | 'step' | 'timer'
 type TimerState = 'idle' | 'running' | 'paused'
 
+const brokenImageSrcs = ref<Set<string>>(new Set())
+function isBrokenImageSrc(src: string | null | undefined): boolean {
+  if (!src) return false
+  return brokenImageSrcs.value.has(src)
+}
+function markBrokenImageSrc(src: string | null | undefined) {
+  if (!src) return
+  brokenImageSrcs.value.add(src)
+}
+
+function markBrokenFromImgEvent(e: Event) {
+  const el = e.target as HTMLImageElement | null
+  const src = el?.currentSrc || el?.src
+  if (src) markBrokenImageSrc(src)
+}
+
+function ingredientVisualSrc(item: { imageUrl?: string | null; icon?: string | null }): string | null {
+  const img = typeof item.imageUrl === 'string' ? item.imageUrl.trim() : ''
+  if (img && !isBrokenImageSrc(img)) return img
+  const icon = typeof item.icon === 'string' ? item.icon.trim() : ''
+  if (icon) {
+    const src = `/api/icons/wicked/${icon}`
+    if (!isBrokenImageSrc(src)) return src
+  }
+  return null
+}
+
 const EQUIPMENT_CATALOG = [
   'pan',
   'pot',
@@ -68,17 +95,15 @@ const instructionTitle = computed(() => {
   const c = current.value
   if (!c) return ''
   const label = (c.label ?? '').trim()
-  if (label) return label
-  return (c.detail ?? '').trim()
+  const fallback = (c.detail ?? '').trim()
+  const stepLabel = label || fallback
+  if (!stepLabel) return ''
+  return `Step ${index.value + 1} — ${stepLabel}`
 })
 const instructionSubtitle = computed(() => {
   const c = current.value
   if (!c) return ''
-  const label = (c.label ?? '').trim()
-  const detail = (c.detail ?? '').trim()
-  if (!detail) return ''
-  if (looksDuplicateInstruction(label, detail)) return ''
-  return detail
+  return (c.detail ?? '').trim()
 })
 const instructionText = computed(() => instructionSubtitle.value || instructionTitle.value)
 
@@ -128,10 +153,16 @@ const ingredientChecklistItems = computed(() => {
   return graph.value.nodes
     .filter((n) => n.type === 'ingredient')
     .map((n) => ({
+      id: String(n.id),
       label: String(n.label ?? '').trim(),
+      detail: String(n.detail ?? '').trim(),
       icon: typeof n.icon === 'string' ? n.icon : null,
       emoji: typeof n.emoji === 'string' ? n.emoji : null,
       imageUrl: typeof n.imageUrl === 'string' ? n.imageUrl : null,
+    }))
+    .map((x) => ({
+      ...x,
+      detail: x.detail && x.detail !== x.label ? x.detail : '',
     }))
     .filter((x) => Boolean(x.label))
 })
@@ -159,11 +190,14 @@ const segmentCount = computed(() => Math.max(1, steps.value.length))
 
 /** Large hero visuals: step emoji + ingredient thumbs/emojis */
 const stepVisualSlots = computed(() => {
+  // Reference `brokenImageSrcs` so this recomputes after any <img> error.
+  void brokenImageSrcs.value
   const out: Array<{ kind: 'img'; src: string; alt: string } | { kind: 'emoji'; s: string }> = []
   const c = current.value
   if (c?.emoji?.trim()) out.push({ kind: 'emoji', s: c.emoji.trim() })
   for (const ing of currentIngredientVisuals.value.slice(0, 4)) {
-    if (ing.imageUrl) out.push({ kind: 'img', src: ing.imageUrl, alt: ing.label })
+    const src = ingredientVisualSrc({ imageUrl: ing.imageUrl, icon: ing.icon })
+    if (src) out.push({ kind: 'img', src, alt: ing.label })
     else out.push({ kind: 'emoji', s: ingredientVisualToken(ing) })
   }
   if (out.length === 0) out.push({ kind: 'emoji', s: '👩‍🍳' })
@@ -176,26 +210,6 @@ function toTitleCase(v: string): string {
 function toolIconFor(label: string): string {
   const hit = TOOL_ICON_HINTS.find((r) => r.match.test(label))
   return hit?.icon ?? '🍽️'
-}
-function looksDuplicateInstruction(label: string, detail: string): boolean {
-  const normalize = (value: string) =>
-    value
-      .toLowerCase()
-      .replace(/&/g, ' and ')
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .replace(/\b(the|a|an|to|of|for|in|on|under|with|and|or|then|cooked)\b/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  const labelNorm = normalize(label)
-  const detailNorm = normalize(detail)
-  if (!labelNorm || !detailNorm) return false
-  if (labelNorm === detailNorm) return true
-  const labelTokens = new Set(labelNorm.split(' ').filter(Boolean))
-  const detailTokens = new Set(detailNorm.split(' ').filter(Boolean))
-  if (labelTokens.size === 0 || detailTokens.size === 0) return false
-  const overlap = [...labelTokens].filter((token) => detailTokens.has(token)).length
-  const coverage = overlap / Math.max(1, labelTokens.size)
-  return coverage >= 0.65
 }
 function ingredientVisualToken(item: { label: string; emoji?: string; icon?: string }): string {
   if (item.icon && item.icon.trim()) return item.icon.trim().slice(0, 2)
@@ -371,7 +385,7 @@ watch(
 watch(
   ingredientChecklistItems,
   (items) => {
-    ingredientChecks.value = Object.fromEntries(items.map((item) => [item.label, false]))
+    ingredientChecks.value = Object.fromEntries(items.map((item) => [item.id, false]))
   },
   { immediate: true },
 )
@@ -493,17 +507,27 @@ async function markStepDoneAndNext() {
           <h1 class="ready-title">Ingredients Checklist</h1>
           <p class="ready-sub">Check off what you have on hand. This is session-only and won’t be saved.</p>
           <ul class="ready-list">
-            <li v-for="item in ingredientChecklistItems" :key="item.label">
+            <li v-for="item in ingredientChecklistItems" :key="item.id">
               <label class="ready-item">
                 <span class="ready-item-left">
                   <span class="ready-item-icon ready-item-icon--img" aria-hidden="true">
-                    <img v-if="item.imageUrl" class="ready-item-img" :src="item.imageUrl" :alt="item.label" />
+                    <img
+                      v-if="ingredientVisualSrc(item)"
+                      class="ready-item-img"
+                      :src="ingredientVisualSrc(item)!"
+                      :alt="item.label"
+                      loading="lazy"
+                      @error="markBrokenFromImgEvent"
+                    />
                     <span v-else>{{ ingredientVisualToken({ label: item.label, emoji: item.emoji ?? undefined, icon: item.icon ?? undefined }) }}</span>
                   </span>
-                  <span>{{ item.label }}</span>
+                  <span class="ready-item-copy">
+                    <span class="ready-item-title">{{ item.label }}</span>
+                    <span v-if="item.detail" class="ready-item-detail">{{ item.detail }}</span>
+                  </span>
                 </span>
                 <input
-                  v-model="ingredientChecks[item.label]"
+                  v-model="ingredientChecks[item.id]"
                   class="ready-check"
                   type="checkbox"
                   :aria-label="`Have ingredient: ${item.label}`"
@@ -588,7 +612,7 @@ async function markStepDoneAndNext() {
           <div class="step-hero" aria-hidden="true">
             <template v-for="(slot, si) in stepVisualSlots" :key="si">
               <span v-if="slot.kind === 'emoji'" class="step-hero__emoji">{{ slot.s }}</span>
-              <img v-else class="step-hero__img" :src="slot.src" :alt="slot.alt" />
+              <img v-else class="step-hero__img" :src="slot.src" :alt="slot.alt" loading="lazy" @error="markBrokenFromImgEvent" />
             </template>
           </div>
 
@@ -948,14 +972,30 @@ async function markStepDoneAndNext() {
   gap: 0.52rem;
   font-weight: 600;
 }
+.ready-item-copy {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.ready-item-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ready-item-detail {
+  font-weight: 500;
+  font-size: 0.82rem;
+  color: var(--bb-muted);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
 .ready-item-icon {
-  width: 26px;
-  height: 26px;
+  width: 42px;
+  height: 42px;
   border-radius: 999px;
   display: grid;
   place-items: center;
   background: color-mix(in srgb, var(--bb-muted) 14%, var(--bb-surface-high));
-  font-size: 0.96rem;
+  font-size: 1.05rem;
 }
 .ready-item-icon--img {
   overflow: hidden;

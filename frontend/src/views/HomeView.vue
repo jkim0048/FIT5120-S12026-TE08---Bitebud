@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import { useSession } from '../composables/useSession'
-import { useSensoryProfile } from '../composables/useSensoryProfile'
 
 const { isSignedIn } = useSession()
-const { hasProfile } = useSensoryProfile()
+
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
 </script>
 
 <template>
@@ -20,18 +22,9 @@ const { hasProfile } = useSensoryProfile()
           to a safe meal.
         </p>
         <div class="ctas">
-          <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Find a recipe</RouterLink>
-          <RouterLink v-if="!isSignedIn" to="/auth" class="bb-btn bb-btn--secondary cta">
-            Sign in to access your sensory profile
-          </RouterLink>
-          <RouterLink
-            v-else-if="!hasProfile"
-            to="/sensory/setup"
-            class="bb-btn bb-btn--secondary cta"
-          >
-            Set up sensory profile
-          </RouterLink>
-          <RouterLink v-else to="/sensory/setup" class="bb-btn bb-btn--secondary cta">Update sensory profile</RouterLink>
+          <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Let's Start Cooking</RouterLink>
+          <RouterLink v-if="!isSignedIn" to="/auth" class="bb-btn bb-btn--secondary cta">Customise sensory profile</RouterLink>
+          <RouterLink v-else to="/sensory/setup" class="bb-btn bb-btn--secondary cta">Customise sensory profile</RouterLink>
         </div>
       </div>
     </section>
@@ -48,8 +41,11 @@ const { hasProfile } = useSensoryProfile()
       </div>
 
       <div class="bento">
-        <article class="tile tile-wide">
-          <h3 class="h3">Visual Recipe Flow</h3>
+        <details class="tile tile-wide">
+          <summary class="tile-summary">
+            <h3 class="h3">Visual Recipe Flow</h3>
+            <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
+          </summary>
           <p class="tile-copy">
             One instruction at a time. Clear lanes and gentle pacing replace cluttered lists so your attention stays on
             the next step.
@@ -80,13 +76,15 @@ const { hasProfile } = useSensoryProfile()
               </div>
             </div>
           </div>
-        </article>
+        </details>
 
-        <article class="tile tile-green">
-          <h3 class="h3">Sensory Profiling</h3>
+        <details class="tile tile-green">
+          <summary class="tile-summary">
+            <h3 class="h3">Sensory Profiling</h3>
+            <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
+          </summary>
           <p class="tile-copy">
-            Set up your sensory profile now. 
-            Filter by dietary and cultural requirements.
+            Customise your sensory profile and filter by dietary and cultural requirements.
           </p>
           <div class="tile-demo tile-demo--compact" aria-hidden="true">
             <div class="demo-k">Example profile</div>
@@ -100,10 +98,13 @@ const { hasProfile } = useSensoryProfile()
               <div class="warn-title">So you are aware exactly what you should watch out for</div>
             </div>
           </div>
-        </article>
+        </details>
 
-        <article class="tile tile-dark">
-          <h3 class="h3">Guided cooking</h3>
+        <details class="tile tile-dark">
+          <summary class="tile-summary">
+            <h3 class="h3">Guided cooking</h3>
+            <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
+          </summary>
           <p class="tile-copy">
             Cook with one clear step at a time. Track progress, stay oriented, and move at your pace.
           </p>
@@ -117,35 +118,16 @@ const { hasProfile } = useSensoryProfile()
               <div class="progress">
                 <div class="bar" />
               </div>
-              <div class="step-hint">Tap “done” when ready.</div>
+              <div class="step-hint">One calm instruction at a time.</div>
             </div>
           </div>
-        </article>
+        </details>
       </div>
     </section>
 
-    <section class="section">
-      <div class="cta-card">
-        <div class="cta-copy">
-          <h2 class="h2">Ready for a calmer kitchen?</h2>
-          <p class="subhead">Start with a recipe search—or build your sensory profile first.</p>
-        </div>
-        <div class="cta-actions">
-          <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Find a recipe</RouterLink>
-          <RouterLink v-if="!isSignedIn" to="/auth" class="bb-btn bb-btn--secondary cta">
-            Sign in to access your sensory profile
-          </RouterLink>
-          <RouterLink
-            v-else-if="!hasProfile"
-            to="/sensory/setup"
-            class="bb-btn bb-btn--secondary cta"
-          >
-            Set up sensory profile
-          </RouterLink>
-          <RouterLink v-else to="/sensory/setup" class="bb-btn bb-btn--secondary cta">Update sensory profile</RouterLink>
-        </div>
-      </div>
-    </section>
+    <div class="page-actions">
+      <button type="button" class="bb-btn bb-btn--secondary scroll-top-btn" @click="scrollToTop">Back to top</button>
+    </div>
   </main>
 </template>
 
@@ -260,12 +242,20 @@ const { hasProfile } = useSensoryProfile()
 .tile {
   background: var(--bb-surface-lowest);
   border-radius: 16px;
-  padding: 1.05rem 1.05rem;
+  padding: 0.85rem 0.85rem;
   box-shadow: 0 12px 32px rgba(26, 28, 25, 0.04);
-  min-height: 360px;
+  min-height: 84px;
   display: flex;
   flex-direction: column;
   align-self: stretch;
+}
+.tile:not([open]) .tile-copy,
+.tile:not([open]) .tile-demo,
+.tile:not([open]) .micro-flow {
+  display: none;
+}
+.tile[open] .tile-summary__chevron {
+  transform: rotate(180deg);
 }
 .tile-wide {
   /* keep semantic class, but same size as other tiles */
@@ -281,13 +271,29 @@ const { hasProfile } = useSensoryProfile()
   color: #fff;
 }
 .h3 {
-  margin: 0.85rem 0 0.35rem;
+  margin: 0;
   font-family: var(--bb-font-headline);
   font-weight: 800;
   color: inherit;
 }
+.tile-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+.tile-summary::-webkit-details-marker {
+  display: none;
+}
+.tile-summary__chevron {
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  transition: transform 0.2s ease;
+}
 .tile-copy {
-  margin: 0;
+  margin: 0.85rem 0 0;
   color: color-mix(in srgb, currentColor 76%, transparent);
   line-height: 1.65;
 }
@@ -486,20 +492,13 @@ const { hasProfile } = useSensoryProfile()
   border-left: 2px dotted color-mix(in srgb, var(--bb-primary) 40%, transparent);
 }
 
-.cta-card {
-  border-radius: 22px;
-  background: var(--bb-surface-high);
-  padding: 1.3rem 1.15rem;
+.page-actions {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  justify-content: center;
+  margin-top: 2rem;
 }
-.cta-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+.scroll-top-btn {
+  min-width: 11rem;
 }
 
 @media (max-width: 980px) {
@@ -516,6 +515,10 @@ const { hasProfile } = useSensoryProfile()
 }
 
 @media (min-width: 981px) {
+  .tile {
+    padding: 1.05rem 1.05rem;
+    min-height: 110px;
+  }
   .hero-copy {
     text-align: center;
     max-width: 56rem;
