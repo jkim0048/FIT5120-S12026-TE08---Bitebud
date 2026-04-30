@@ -14,6 +14,13 @@ import AuthView from '../views/AuthView.vue'
 import AuthNewUserView from '../views/AuthNewUserView.vue'
 import UnlockView from '../views/UnlockView.vue'
 import { isSiteUnlocked, safeUnlockRedirect } from '../lib/siteUnlock'
+import RestaurantEntryView from '../views/RestaurantEntryView.vue'
+import RestaurantSearchView from '../views/RestaurantSearchView.vue'
+import RestaurantReviewDetailView from '../views/RestaurantReviewDetailView.vue'
+import RestaurantRateView from '../views/RestaurantRateView.vue'
+import RestaurantBestTimeView from '../views/RestaurantBestTimeView.vue'
+import RestaurantSavedConfirmView from '../views/RestaurantSavedConfirmView.vue'
+import RestaurantMyReviewsView from '../views/RestaurantMyReviewsView.vue'
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -52,6 +59,13 @@ export const router = createRouter({
       name: 'settings',
       component: SettingsView,
     },
+    { path: '/restaurants', name: 'restaurantEntry', component: RestaurantEntryView },
+    { path: '/restaurants/search', name: 'restaurantSearch', component: RestaurantSearchView },
+    { path: '/restaurants/my-reviews', name: 'restaurantMyReviews', component: RestaurantMyReviewsView },
+    { path: '/restaurants/:id', name: 'restaurantReviewDetail', component: RestaurantReviewDetailView },
+    { path: '/restaurants/:id/rate', name: 'restaurantRate', component: RestaurantRateView },
+    { path: '/restaurants/:id/best-time', name: 'restaurantBestTime', component: RestaurantBestTimeView },
+    { path: '/restaurants/:id/saved', name: 'restaurantSavedConfirm', component: RestaurantSavedConfirmView },
   ],
 })
 

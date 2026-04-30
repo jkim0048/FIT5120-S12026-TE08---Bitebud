@@ -124,6 +124,62 @@ model SensoryCodeAttempt {
   @@map("sensory_code_attempts")
 }
 
+model RestaurantPlace {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nominatimPlaceId String?              @unique @map("nominatim_place_id")
+  osmType          String?              @map("osm_type")
+  osmId            String?              @map("osm_id")
+  name             String
+  displayName      String               @map("display_name")
+  cuisine          String?
+  address          String?
+  suburb           String?
+  latitude         Float
+  longitude        Float
+  extratags        Json                 @default("{}")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+  reviews          RestaurantReview[]
+  favorites        RestaurantFavorite[]
+
+  @@index([name])
+  @@index([suburb])
+  @@map("restaurant_places")
+}
+
+model RestaurantReview {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  placeId        String          @map("place_id") @db.Uuid
+  userId         String          @map("user_id")
+  overallRating  Float           @map("overall_rating")
+  noiseRating    Int             @map("noise_rating")
+  musicRating    Int             @map("music_rating")
+  lightRating    Int             @map("light_rating")
+  crowdsRating   Int             @map("crowds_rating")
+  smellsRating   Int             @map("smells_rating")
+  bestMealBlocks Json            @default("[]") @map("best_meal_blocks")
+  bestTimesOfDay Json            @default("[]") @map("best_times_of_day")
+  bestDaysOfWeek Json            @default("[]") @map("best_days_of_week")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  place          RestaurantPlace @relation(fields: [placeId], references: [id], onDelete: Cascade)
+
+  @@index([placeId])
+  @@index([userId])
+  @@map("restaurant_reviews")
+}
+
+model RestaurantFavorite {
+  placeId   String          @map("place_id") @db.Uuid
+  userId    String          @map("user_id")
+  createdAt DateTime        @default(now()) @map("created_at")
+  place     RestaurantPlace @relation(fields: [placeId], references: [id], onDelete: Cascade)
+
+  @@id([placeId, userId])
+  @@index([userId])
+  @@map("restaurant_favorites")
+}
+
 enum SensoryFoodStatus {
   SAFE
   UNSURE
