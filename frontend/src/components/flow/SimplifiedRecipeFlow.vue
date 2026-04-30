@@ -582,9 +582,9 @@ function shouldNumberLaneSteps(laneSteps: RecipeNode[]): boolean {
   text-align: left;
   border: 1px solid var(--bb-border);
   background: var(--bb-surface-lowest);
-  border-radius: 10px;
-  padding: 0.4rem 0.45rem;
-  box-shadow: 0 4px 14px rgba(26, 28, 25, 0.035);
+  border-radius: 12px;
+  padding: 0.5rem 0.55rem;
+  box-shadow: 0 6px 18px rgba(26, 28, 25, 0.04);
   font: inherit;
 }
 .step--strip.done {
@@ -603,7 +603,7 @@ function shouldNumberLaneSteps(laneSteps: RecipeNode[]): boolean {
   word-break: break-word;
 }
 .step-title--full {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   line-height: 1.35;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -784,9 +784,9 @@ function shouldNumberLaneSteps(laneSteps: RecipeNode[]): boolean {
   text-align: left;
   border: 1px solid var(--bb-border);
   background: var(--bb-surface-lowest);
-  border-radius: 12px;
-  padding: 0.65rem 0.7rem;
-  box-shadow: 0 8px 24px rgba(26, 28, 25, 0.035);
+  border-radius: 14px;
+  padding: 0.8rem 0.85rem;
+  box-shadow: 0 12px 32px rgba(26, 28, 25, 0.04);
   font: inherit;
 }
 .step.done {
@@ -895,7 +895,6 @@ function shouldNumberLaneSteps(laneSteps: RecipeNode[]): boolean {
   font-weight: 700;
   line-height: 1.25;
   color: var(--bb-text);
-  font-size: 0.92rem;
 }
 
 .final {
