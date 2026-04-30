@@ -1,0 +1,39 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc && node scripts/copy-dist-data.mjs",
+    "start": "node dist/index.js",
+    "icons:ingest": "tsx src/jobs/ingest-wicked-icons.ts",
+    "icons:list": "tsx src/jobs/list-wicked-icons.ts",
+    "icons:spotcheck": "tsx src/jobs/spot-check-ingredient-icon-matching.ts",
+    "recipes:backfill-images": "dotenv -e ../.env -- tsx src/jobs/backfill-recipe-images.ts",
+    "recipes:backfill-meta": "dotenv -e ../.env -- tsx src/jobs/backfill-recipe-metadata.ts",
+    "icons:clear-poisoned-maps": "dotenv -e ../.env -- tsx src/jobs/clear-poisoned-ingredient-icon-map.ts",
+    "recipes:wipe-mealdb-cache": "dotenv -e ../.env -- tsx src/jobs/wipe-mealdb-cache.ts",
+    "recipes:backfill-mealdb-time": "dotenv -e ../.env -- tsx src/jobs/backfill-mealdb-total-time.ts",
+    "sensory:backfill": "dotenv -e ../.env -- tsx src/jobs/backfill-sensory-food-items.ts",
+    "prisma:generate": "dotenv -e ../.env -- prisma generate",
+    "prisma:studio": "dotenv -e ../.env -- prisma studio",
+    "prisma:migrate": "dotenv -e ../.env -- prisma migrate dev",
+    "prisma:deploy": "dotenv -e ../.env -- prisma migrate deploy"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@google/generative-ai": "^0.24.1",
+    "@prisma/client": "5.22.0",
+    "dotenv": "^17.4.1",
+    "fastify": "^5.8.4",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "dotenv-cli": "^11.0.0",
+    "prisma": "5.22.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}

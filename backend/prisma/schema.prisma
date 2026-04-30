@@ -1,0 +1,187 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Recipe {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String?          @map("user_id") @db.Uuid
+  title            String
+  lede             String?          @map("lede")
+  imageUrl         String?          @map("image_url")
+  sourceUrl        String?          @map("source_url")
+  totalTimeMinutes Int?             @map("total_time_minutes")
+  complexity       String?
+  heatLevel        String?          @map("heat_level")
+  tags             Json             @default("[]")
+  servings         Int?
+  graph            Json
+  rawText          String?          @map("raw_text")
+  refined          Boolean          @default(true)
+  mealDbId         String?          @unique @map("mealdb_id")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  progress         RecipeProgress[]
+
+  @@index([title])
+  @@index([totalTimeMinutes])
+  @@index([complexity])
+  @@index([heatLevel])
+  @@map("recipes")
+}
+
+model RecipeProgress {
+  recipeId         String   @map("recipe_id") @db.Uuid
+  userId           String   @map("user_id")
+  completedNodeIds Json     @default("[]") @map("completed_node_ids")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  recipe           Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@id([recipeId, userId])
+  @@map("recipe_progress")
+}
+
+model WickedIcon {
+  id             String              @id
+  name           String
+  category       String?
+  imageUrl       String?             @map("image_url")
+  asset          Bytes?
+  createdAt      DateTime            @default(now()) @map("created_at")
+  ingredientMaps IngredientIconMap[] @relation("MapIcon")
+  userOverrides  UserIconOverride[]  @relation("OverrideIcon")
+
+  @@map("wicked_icons")
+}
+
+model IngredientIconMap {
+  ingredientKey String     @id @map("ingredient_key")
+  wickedIconId  String     @map("wicked_icon_id")
+  emojiFallback String?    @map("emoji_fallback")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  wickedIcon    WickedIcon @relation("MapIcon", fields: [wickedIconId], references: [id])
+
+  @@map("ingredient_icon_map")
+}
+
+model UserIconOverride {
+  userId        String      @map("user_id")
+  ingredientKey String      @map("ingredient_key")
+  wickedIconId  String?     @map("wicked_icon_id")
+  emojiFallback String?     @map("emoji_fallback")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  wickedIcon    WickedIcon? @relation("OverrideIcon", fields: [wickedIconId], references: [id])
+
+  @@id([userId, ingredientKey])
+  @@map("user_icon_overrides")
+}
+
+model SensoryProfile {
+  id                   String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String            @unique @map("user_id")
+  codeHash             String            @unique @map("code_hash")
+  texturePrefs         Json              @default("[]") @map("texture_prefs")
+  temperaturePref      String?           @map("temperature_pref")
+  dietaryNeeds         Json              @default("[]") @map("dietary_needs")
+  safeFoods            Json              @default("[]") @map("safe_foods")
+  unsafeFoods          Json              @default("[]") @map("unsafe_foods")
+  sometimesFoods       Json              @default("[]") @map("sometimes_foods")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+  culturalRequirements Json              @default("[]") @map("cultural_requirements")
+  foodItems            SensoryFoodItem[]
+
+  @@map("sensory_profiles")
+}
+
+model SensoryFoodItem {
+  id        String            @id @default(uuid()) @db.Uuid
+  profileId String            @map("profile_id") @db.Uuid
+  name      String
+  status    SensoryFoodStatus
+  notes     Json              @default("{}")
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+  profile   SensoryProfile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("sensory_food_items")
+}
+
+model SensoryCodeAttempt {
+  codeHash     String    @id @map("code_hash")
+  failedCount  Int       @default(0) @map("failed_count")
+  lockoutUntil DateTime? @map("lockout_until")
+  lastFailedAt DateTime? @map("last_failed_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("sensory_code_attempts")
+}
+
+model RestaurantPlace {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nominatimPlaceId String?              @unique @map("nominatim_place_id")
+  osmType          String?              @map("osm_type")
+  osmId            String?              @map("osm_id")
+  name             String
+  displayName      String               @map("display_name")
+  cuisine          String?
+  address          String?
+  suburb           String?
+  latitude         Float
+  longitude        Float
+  extratags        Json                 @default("{}")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+  reviews          RestaurantReview[]
+  favorites        RestaurantFavorite[]
+
+  @@index([name])
+  @@index([suburb])
+  @@map("restaurant_places")
+}
+
+model RestaurantReview {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  placeId           String             @map("place_id") @db.Uuid
+  userId            String             @map("user_id")
+  overallRating     Float              @map("overall_rating")
+  noiseRating       Int                @map("noise_rating")
+  musicRating       Int                @map("music_rating")
+  lightRating       Int                @map("light_rating")
+  crowdsRating      Int                @map("crowds_rating")
+  smellsRating      Int                @map("smells_rating")
+  bestMealBlocks    Json               @default("[]") @map("best_meal_blocks")
+  bestTimesOfDay    Json               @default("[]") @map("best_times_of_day")
+  bestDaysOfWeek    Json               @default("[]") @map("best_days_of_week")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  place             RestaurantPlace    @relation(fields: [placeId], references: [id], onDelete: Cascade)
+
+  @@index([placeId])
+  @@index([userId])
+  @@map("restaurant_reviews")
+}
+
+model RestaurantFavorite {
+  placeId    String          @map("place_id") @db.Uuid
+  userId     String          @map("user_id")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  place      RestaurantPlace @relation(fields: [placeId], references: [id], onDelete: Cascade)
+
+  @@id([placeId, userId])
+  @@index([userId])
+  @@map("restaurant_favorites")
+}
+
+enum SensoryFoodStatus {
+  SAFE
+  UNSURE
+  UNSAFE
+}

@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>BiteBud — Codebase Map</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161922;
+    --panel-2: #1d2230;
+    --line: #2a3142;
+    --text: #e6e8ee;
+    --muted: #9aa3b2;
+    --accent: #ffd166;
+    --accent-2: #7ad7f0;
+    --safe: #6ee7b7;
+    --warn: #fca5a5;
+    --pill: #2a3142;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header.top {
+    position: sticky; top: 0; z-index: 5;
+    background: linear-gradient(180deg, #11141c, #0f1115);
+    border-bottom: 1px solid var(--line);
+    padding: 14px 22px;
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  }
+  header.top h1 { margin: 0; font-size: 18px; letter-spacing: .3px; }
+  header.top .sub { color: var(--muted); font-size: 13px; }
+  .search {
+    margin-left: auto; display: flex; gap: 8px; align-items: center;
+  }
+  .search input {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 12px; min-width: 280px; font: inherit;
+  }
+  .layout { display: grid; grid-template-columns: 260px 1fr; gap: 0; min-height: calc(100vh - 56px); }
+  nav.side {
+    border-right: 1px solid var(--line);
+    background: var(--panel);
+    padding: 16px 12px;
+    position: sticky; top: 56px; align-self: start;
+    height: calc(100vh - 56px); overflow: auto;
+  }
+  nav.side h3 { margin: 12px 8px 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  nav.side a { display: block; padding: 6px 10px; border-radius: 6px; color: var(--text); }
+  nav.side a:hover { background: var(--panel-2); text-decoration: none; }
+  main { padding: 20px 28px 80px; max-width: 1100px; }
+  section.feature { margin: 28px 0; padding: 18px 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  section.feature h2 { margin: 0 0 6px; font-size: 20px; color: var(--accent); }
+  section.feature .desc { color: var(--muted); margin-bottom: 14px; }
+  .group { margin-top: 14px; }
+  .group h4 { margin: 0 0 6px; font-size: 12px; color: var(--accent-2); text-transform: uppercase; letter-spacing: .6px; }
+  ul.files { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr; gap: 4px; }
+  ul.files li {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 12px; display: flex; gap: 12px; align-items: baseline;
+  }
+  ul.files code { color: var(--text); font: 13px/1.4 ui-monospace, "SF Mono", Consolas, monospace; }
+  ul.files .role { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--pill); color: var(--muted); font-size: 11px; margin-right: 6px; }
+  .pill.fe { background: #1e3a8a; color: #c7d2fe; }
+  .pill.be { background: #064e3b; color: #a7f3d0; }
+  .pill.db { background: #4c1d95; color: #ddd6fe; }
+  .pill.shared { background: #78350f; color: #fde68a; }
+  .toc-mini { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+  .stack { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .legend { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); font-style: italic; }
+  details > summary { cursor: pointer; color: var(--accent-2); }
+  .hidden { display: none !important; }
+  .match { outline: 2px solid var(--accent); outline-offset: 2px; }
+  footer { color: var(--muted); font-size: 12px; padding: 30px 28px; }
+  kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; font: 12px ui-monospace, monospace; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div>
+    <h1>BiteBud — Codebase Map</h1>
+    <div class="sub">Vue 3 + Vite frontend · Fastify + Prisma backend · Postgres</div>
+  </div>
+  <div class="search">
+    <input id="q" type="search" placeholder="Search features or files (e.g. 'sensory', 'restaurant', 'recipe graph')…" />
+    <span class="legend">Tip: <kbd>/</kbd> to focus</span>
+  </div>
+</header>
+
+<div class="layout">
+
+  <nav class="side" aria-label="Feature index">
+    <h3>Features</h3>
+    <a href="#sensory">Sensory profile</a>
+    <a href="#recipes">Recipes &amp; flow graph</a>
+    <a href="#guided-cook">Guided cooking</a>
+    <a href="#icons">Wicked icons / ingredients</a>
+    <a href="#restaurants">Restaurants</a>
+    <a href="#auth">Auth &amp; session</a>
+    <a href="#settings">Settings &amp; theming</a>
+    <a href="#site-unlock">Site unlock gate</a>
+
+    <h3>Cross-cutting</h3>
+    <a href="#frontend-shell">Frontend shell</a>
+    <a href="#backend-shell">Backend shell</a>
+    <a href="#data-model">Database (Prisma)</a>
+    <a href="#external-apis">External services</a>
+    <a href="#jobs">One-off jobs / scripts</a>
+    <a href="#deploy">Deploy / infra</a>
+
+    <h3>Legend</h3>
+    <div class="legend" style="padding: 0 8px;">
+      <span class="pill fe">FE</span> frontend file<br/>
+      <span class="pill be">BE</span> backend file<br/>
+      <span class="pill db">DB</span> schema/migrations<br/>
+      <span class="pill shared">∞</span> shared/contract
+    </div>
+  </nav>
+
+  <main>
+    <p class="toc-mini">
+      Each section lists the files that implement a feature, grouped by layer (frontend view → composable → component → API client; backend route → service → DB). Use the search box to filter sections live.
+    </p>
+
+    <!-- =================== SENSORY =================== -->
+    <section class="feature" id="sensory" data-keys="sensory profile texture food safe unsafe unsure dietary cultural code 3-digit 3 digit setup summary">
+      <h2>Sensory profile</h2>
+      <div class="desc">
+        A user’s sensory eating profile: texture preferences, temperature, dietary needs, cultural requirements, and per-food classifications (SAFE / UNSURE / UNSAFE). Profiles are accessible by a hashed 3-character code with brute-force lockout.
+      </div>
+
+      <div class="group">
+        <h4>Frontend — pages (views)</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/views/SensorySetupView.vue</code><span class="role">Multi-step setup form</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/views/SensorySummaryCompactView.vue</code><span class="role">Compact summary screen</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Frontend — components</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/components/sensory/FoodItemRow.vue</code><span class="role">Per-food row (status, notes)</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Frontend — composables / state</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/composables/useSensoryProfile.ts</code><span class="role">Reactive profile, fetch/save</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/composables/useSensorySetupForm.ts</code><span class="role">Setup wizard form state</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Frontend — lib / types</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/lib/persistMinimalSensoryProfile.ts</code><span class="role">Minimal-payload save helper</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/lib/sensorySnapshot.ts</code><span class="role">Local snapshot serialization</span></li>
+          <li><span class="pill shared">∞</span><code>frontend/src/types/sensory.ts</code><span class="role">Shared sensory TS types</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Backend — routes &amp; services</h4>
+        <ul class="files">
+          <li><span class="pill be">BE</span><code>backend/src/routes/sensory.ts</code><span class="role">/api/sensory/* endpoints, code hashing &amp; lockout</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/services/sensoryMatch.ts</code><span class="role">Match recipes/foods against profile</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/services/ingredientTextures.ts</code><span class="role">Ingredient → texture metadata</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/services/dietaryConstraintKeywords.ts</code><span class="role">Dietary / cultural keyword lists</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Database</h4>
+        <ul class="files">
+          <li><span class="pill db">DB</span><code>backend/prisma/schema.prisma</code><span class="role">Models: <code>SensoryProfile</code>, <code>SensoryFoodItem</code>, <code>SensoryCodeAttempt</code>, enum <code>SensoryFoodStatus</code></span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>One-off jobs</h4>
+        <ul class="files">
+          <li><span class="pill be">BE</span><code>backend/src/jobs/backfill-sensory-food-items.ts</code><span class="role">Backfill per-food items</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- =================== RECIPES =================== -->
+    <section class="feature" id="recipes" data-keys="recipe recipes search flow graph paste url import lede metadata themealdb meal db gemini openrouter parser">
+      <h2>Recipes &amp; flow graph</h2>
+      <div class="desc">
+        Recipe search, paste-from-URL/text import, AI-driven parsing into a node-graph (ingredients → steps), and the visual flow canvas. TheMealDB is used as a seed source.
+      </div>
+
+      <div class="group">
+        <h4>Frontend — pages</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/views/RecipeSearchView.vue</code><span class="role">Search/list, paste-recipe entry</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/views/RecipeFlowPage.vue</code><span class="role">Flow-graph view of one recipe</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/views/RecipeCompleteView.vue</code><span class="role">Post-cook completion screen</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Frontend — flow components</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/components/flow/RecipeFlowCanvas.vue</code><span class="role">Vue Flow canvas wrapper</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/components/flow/SimplifiedRecipeFlow.vue</code><span class="role">Compact flow variant</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/components/flow/IngredientNode.vue</code><span class="role">Custom ingredient node</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/components/flow/StepNode.vue</code><span class="role">Custom step node</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/components/PasteRecipeGuide.vue</code><span class="role">Paste-URL onboarding</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Frontend — lib / utils / types</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/lib/api.ts</code><span class="role">Recipe API client</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/lib/recipeSteps.ts</code><span class="role">Step traversal helpers</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/utils/layoutGraph.ts</code><span class="role">Auto-layout for flow nodes</span></li>
+          <li><span class="pill shared">∞</span><code>frontend/src/types/recipe.ts</code><span class="role">Recipe / graph TS types</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Backend — routes</h4>
+        <ul class="files">
+          <li><span class="pill be">BE</span><code>backend/src/routes/recipes.ts</code><span class="role">/api/recipes/* — list, get, import, save progress</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Backend — services</h4>
+        <ul class="files">
+          <li><span class="pill be">BE</span><code>backend/src/services/recipeUrlFetch.ts</code><span class="role">Fetch HTML from a URL</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/services/basicRecipeParser.ts</code><span class="role">Heuristic JSON-LD/HTML parser</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/services/recipeMetadata.ts</code><span class="role">Title, image, total-time, complexity</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/services/recipeLede.ts</code><span class="role">Generate short lede</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/services/themealdb.ts</code><span class="role">TheMealDB API client</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/services/gemini.ts</code><span class="role">Google Gemini wrapper</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/services/openrouter.ts</code><span class="role">OpenRouter LLM wrapper</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/services/graphRepair.ts</code><span class="role">Repair malformed AI graphs</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/graph/recipeGraph.ts</code><span class="role">Build recipe graph from parsed data</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Database</h4>
+        <ul class="files">
+          <li><span class="pill db">DB</span><code>backend/prisma/schema.prisma</code><span class="role">Models: <code>Recipe</code>, <code>RecipeProgress</code></span></li>
+          <li><span class="pill be">BE</span><code>backend/src/data/mealdb.json</code><span class="role">Bundled MealDB seed</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>One-off jobs</h4>
+        <ul class="files">
+          <li><span class="pill be">BE</span><code>backend/src/jobs/backfill-recipe-images.ts</code></li>
+          <li><span class="pill be">BE</span><code>backend/src/jobs/backfill-recipe-metadata.ts</code></li>
+          <li><span class="pill be">BE</span><code>backend/src/jobs/backfill-mealdb-total-time.ts</code></li>
+          <li><span class="pill be">BE</span><code>backend/src/jobs/wipe-mealdb-cache.ts</code></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- =================== GUIDED COOK =================== -->
+    <section class="feature" id="guided-cook" data-keys="guided cook step tts voice progress complete walkthrough">
+      <h2>Guided cooking</h2>
+      <div class="desc">Step-by-step guided cook with TTS, progress tracking, and a completion screen.</div>
+      <div class="group">
+        <h4>Frontend</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/views/GuidedCookView.vue</code><span class="role">Step-by-step UI</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/views/RecipeCompleteView.vue</code><span class="role">Completion screen</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/lib/ttsVoices.ts</code><span class="role">Text-to-speech voice picker</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/lib/recipeSteps.ts</code><span class="role">Step ordering helpers</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h4>Backend</h4>
+        <ul class="files">
+          <li><span class="pill be">BE</span><code>backend/src/routes/recipes.ts</code><span class="role"><code>RecipeProgress</code> save/restore endpoints</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- =================== ICONS =================== -->
+    <section class="feature" id="icons" data-keys="icon icons wicked ingredient pictogram emoji image map override">
+      <h2>Wicked icons / ingredients</h2>
+      <div class="desc">Maps recipe ingredients to “Wicked” pictogram icons (with emoji fallbacks) and supports per-user overrides.</div>
+      <div class="group">
+        <h4>Frontend</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/lib/ingredientMap.ts</code><span class="role">Client-side ingredient → key normalization</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/lib/wickedIconPicker.ts</code><span class="role">Pick/choose icon UI helper</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h4>Backend</h4>
+        <ul class="files">
+          <li><span class="pill be">BE</span><code>backend/src/routes/icons.ts</code><span class="role">/api/icons/* endpoints</span></li>
+          <li><span class="pill be">BE</span><code>backend/src/services/icons.ts</code><span class="role">Display labels, lookup</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h4>Database</h4>
+        <ul class="files">
+          <li><span class="pill db">DB</span><code>backend/prisma/schema.prisma</code><span class="role">Models: <code>WickedIcon</code>, <code>IngredientIconMap</code>, <code>UserIconOverride</code></span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h4>One-off jobs</h4>
+        <ul class="files">
+          <li><span class="pill be">BE</span><code>backend/src/jobs/ingest-wicked-icons.ts</code></li>
+          <li><span class="pill be">BE</span><code>backend/src/jobs/list-wicked-icons.ts</code></li>
+          <li><span class="pill be">BE</span><code>backend/src/jobs/build-wicked-aliases.ts</code></li>
+          <li><span class="pill be">BE</span><code>backend/src/jobs/clear-poisoned-ingredient-icon-map.ts</code></li>
+          <li><span class="pill be">BE</span><code>backend/src/jobs/cleanup-bad-ingredient-icon-map-keys.ts</code></li>
+          <li><span class="pill be">BE</span><code>backend/src/jobs/report-missing-ingredient-icons.ts</code></li>
+          <li><span class="pill be">BE</span><code>backend/src/jobs/spot-check-ingredient-icon-map.ts</code></li>
+          <li><span class="pill be">BE</span><code>backend/src/jobs/spot-check-ingredient-icon-matching.ts</code></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- =================== RESTAURANTS =================== -->
+    <section class="feature" id="restaurants" data-keys="restaurant restaurants place review rating noise music light crowds smells favorite favourite nominatim osm best time day">
+      <h2>Restaurants</h2>
+      <div class="desc">Search restaurants (via Nominatim/OSM), review them along sensory axes (noise/music/light/crowds/smells), record best meal times, and save favorites.</div>
+
+      <div class="group">
+        <h4>Frontend — pages</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/views/RestaurantEntryView.vue</code><span class="role">Entry/landing</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/views/RestaurantSearchView.vue</code><span class="role">Search by name/suburb</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/views/RestaurantReviewDetailView.vue</code><span class="role">Place detail + reviews</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/views/RestaurantRateView.vue</code><span class="role">Submit a sensory rating</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/views/RestaurantBestTimeView.vue</code><span class="role">Best meal/time/day picker</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/views/RestaurantSavedConfirmView.vue</code><span class="role">Save confirmation</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Frontend — lib</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/lib/restaurantsApi.ts</code><span class="role">Restaurant API client</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Backend</h4>
+        <ul class="files">
+          <li><span class="pill be">BE</span><code>backend/src/routes/restaurants.ts</code><span class="role">/api/restaurants/* — search, place, review, favorite</span></li>
+        </ul>
+      </div>
+
+      <div class="group">
+        <h4>Database</h4>
+        <ul class="files">
+          <li><span class="pill db">DB</span><code>backend/prisma/schema.prisma</code><span class="role">Models: <code>RestaurantPlace</code>, <code>RestaurantReview</code>, <code>RestaurantFavorite</code></span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- =================== AUTH =================== -->
+    <section class="feature" id="auth" data-keys="auth login signin sign-in user session userid bitebud user id new user">
+      <h2>Auth &amp; session</h2>
+      <div class="desc">Lightweight identity model: a per-browser <code>biteBudUserId</code> sent as the <code>X-User-Id</code> header. Sign-in screen and a “new user” onboarding view; no passwords.</div>
+      <div class="group">
+        <h4>Frontend</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/views/AuthView.vue</code><span class="role">Sign-in screen</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/views/AuthNewUserView.vue</code><span class="role">First-time user onboarding</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/components/auth/SignInPanel.vue</code><span class="role">Reusable sign-in panel</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/composables/useSession.ts</code><span class="role">Reactive session (userId, isSignedIn, logout)</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/composables/useUserId.ts</code><span class="role">Read/seed <code>biteBudUserId</code></span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/lib/biteBudUserId.ts</code><span class="role">Storage helpers</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h4>Backend</h4>
+        <ul class="files">
+          <li><span class="pill be">BE</span><code>backend/src/biteBudUserId.ts</code><span class="role">Parse <code>X-User-Id</code> header</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- =================== SETTINGS =================== -->
+    <section class="feature" id="settings" data-keys="settings preferences theme dark mode text size font tint accessibility background">
+      <h2>Settings &amp; theming</h2>
+      <div class="desc">User-tunable accessibility/theme controls: text size, dark mode, background tint. Applied via CSS vars on <code>&lt;html&gt;</code> in <code>App.vue</code>.</div>
+      <div class="group">
+        <h4>Frontend</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/views/SettingsView.vue</code><span class="role">Settings UI</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/composables/useSettings.ts</code><span class="role">Reactive, persisted settings</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/App.vue</code><span class="role">Applies theme via CSS variables</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/style.css</code><span class="role">Global styles</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- =================== UNLOCK =================== -->
+    <section class="feature" id="site-unlock" data-keys="unlock gate password site lock redirect">
+      <h2>Site unlock gate</h2>
+      <div class="desc">Whole-site soft gate (e.g. for staging/demo). Every route except <code>/unlock</code> is redirected until unlocked.</div>
+      <div class="group">
+        <h4>Frontend</h4>
+        <ul class="files">
+          <li><span class="pill fe">FE</span><code>frontend/src/views/UnlockView.vue</code><span class="role">Unlock screen</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/lib/siteUnlock.ts</code><span class="role"><code>isSiteUnlocked</code>, redirect helpers</span></li>
+          <li><span class="pill fe">FE</span><code>frontend/src/router/index.ts</code><span class="role">Global <code>beforeEach</code> guard</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- =================== FE SHELL =================== -->
+    <section class="feature" id="frontend-shell" data-keys="frontend shell main app vue router vite entry index html bootstrap">
+      <h2>Frontend shell</h2>
+      <div class="desc">Vite + Vue 3 + vue-router app bootstrap, root layout, and routing table.</div>
+      <ul class="files">
+        <li><span class="pill fe">FE</span><code>frontend/index.html</code><span class="role">HTML entry</span></li>
+        <li><span class="pill fe">FE</span><code>frontend/src/main.ts</code><span class="role">App bootstrap (mounts router)</span></li>
+        <li><span class="pill fe">FE</span><code>frontend/src/App.vue</code><span class="role">Top-level layout, header, theming</span></li>
+        <li><span class="pill fe">FE</span><code>frontend/src/router/index.ts</code><span class="role">Routes table + unlock guard</span></li>
+        <li><span class="pill fe">FE</span><code>frontend/src/views/HomeView.vue</code><span class="role">Landing page</span></li>
+        <li><span class="pill fe">FE</span><code>frontend/vite.config.ts</code><span class="role">Vite config</span></li>
+        <li><span class="pill fe">FE</span><code>frontend/src/style.css</code><span class="role">Global styles &amp; CSS vars</span></li>
+        <li><span class="pill fe">FE</span><code>frontend/src/assets/hero.png</code><span class="role">Static assets</span></li>
+      </ul>
+    </section>
+
+    <!-- =================== BE SHELL =================== -->
+    <section class="feature" id="backend-shell" data-keys="backend shell fastify server entry index env cors prisma">
+      <h2>Backend shell</h2>
+      <div class="desc">Fastify HTTP server, CORS, env loading, Prisma client. All routes registered from <code>index.ts</code>.</div>
+      <ul class="files">
+        <li><span class="pill be">BE</span><code>backend/src/index.ts</code><span class="role">Server entry, route registration</span></li>
+        <li><span class="pill be">BE</span><code>backend/src/env.ts</code><span class="role">Env loading + validation</span></li>
+        <li><span class="pill be">BE</span><code>backend/src/prisma.ts</code><span class="role">Prisma client singleton</span></li>
+        <li><span class="pill be">BE</span><code>backend/src/biteBudUserId.ts</code><span class="role">Header-based user id</span></li>
+        <li><span class="pill be">BE</span><code>backend/package.json</code><span class="role">Backend deps/scripts</span></li>
+        <li><span class="pill be">BE</span><code>backend/tsconfig.json</code></li>
+        <li><span class="pill be">BE</span><code>backend/docker-entrypoint.sh</code><span class="role">Container entrypoint</span></li>
+      </ul>
+    </section>
+
+    <!-- =================== DATA MODEL =================== -->
+    <section class="feature" id="data-model" data-keys="database db prisma schema migration postgres model table">
+      <h2>Database (Prisma / Postgres)</h2>
+      <div class="desc">Single Prisma schema for all features. See per-feature sections above for which models belong to which.</div>
+      <ul class="files">
+        <li><span class="pill db">DB</span><code>backend/prisma/schema.prisma</code><span class="role">All models &amp; enums</span></li>
+        <li><span class="pill db">DB</span><code>backend/prisma/migrations/</code><span class="role">Generated migrations</span></li>
+      </ul>
+      <div class="group">
+        <h4>Models at a glance</h4>
+        <ul class="files">
+          <li><code>Recipe</code>, <code>RecipeProgress</code><span class="role">Recipes &amp; per-user progress</span></li>
+          <li><code>WickedIcon</code>, <code>IngredientIconMap</code>, <code>UserIconOverride</code><span class="role">Ingredient icons</span></li>
+          <li><code>SensoryProfile</code>, <code>SensoryFoodItem</code>, <code>SensoryCodeAttempt</code> + enum <code>SensoryFoodStatus</code><span class="role">Sensory profile</span></li>
+          <li><code>RestaurantPlace</code>, <code>RestaurantReview</code>, <code>RestaurantFavorite</code><span class="role">Restaurants</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- =================== EXTERNAL =================== -->
+    <section class="feature" id="external-apis" data-keys="external api integrations gemini openrouter themealdb meal db nominatim osm llm ai">
+      <h2>External services</h2>
+      <ul class="files">
+        <li><span class="pill be">BE</span><code>backend/src/services/gemini.ts</code><span class="role">Google Gemini (recipe parsing)</span></li>
+        <li><span class="pill be">BE</span><code>backend/src/services/openrouter.ts</code><span class="role">OpenRouter LLM gateway</span></li>
+        <li><span class="pill be">BE</span><code>backend/src/services/themealdb.ts</code><span class="role">TheMealDB recipes</span></li>
+        <li><span class="pill be">BE</span><code>backend/src/routes/restaurants.ts</code><span class="role">Nominatim / OSM lookups</span></li>
+        <li><span class="pill be">BE</span><code>backend/src/services/recipeUrlFetch.ts</code><span class="role">Generic web fetch</span></li>
+      </ul>
+    </section>
+
+    <!-- =================== JOBS =================== -->
+    <section class="feature" id="jobs" data-keys="job jobs script scripts cron one-off backfill ingest cleanup spot check">
+      <h2>One-off jobs / scripts</h2>
+      <div class="desc">Stand-alone TS scripts, run via the backend’s tsx/Node runner. Useful for backfills and data hygiene.</div>
+      <ul class="files">
+        <li><span class="pill be">BE</span><code>backend/src/jobs/</code><span class="role">All backfill / ingest / cleanup scripts</span></li>
+        <li><span class="pill be">BE</span><code>backend/scripts/</code><span class="role">Shell-level tooling</span></li>
+        <li><span class="pill be">BE</span><code>scripts/</code><span class="role">Repo-root scripts</span></li>
+      </ul>
+    </section>
+
+    <!-- =================== DEPLOY =================== -->
+    <section class="feature" id="deploy" data-keys="deploy docker firebase hosting ci infra dockerfile entrypoint">
+      <h2>Deploy / infra</h2>
+      <ul class="files">
+        <li><span class="pill be">BE</span><code>Dockerfile</code><span class="role">Container build</span></li>
+        <li><span class="pill be">BE</span><code>backend/docker-entrypoint.sh</code><span class="role">Runs migrations + server</span></li>
+        <li><span class="pill fe">FE</span><code>firebase.json</code><span class="role">Firebase hosting (frontend)</span></li>
+        <li><span class="pill be">BE</span><code>deploy/</code><span class="role">Deployment configs</span></li>
+        <li><span class="shared pill">∞</span><code>package.json</code><span class="role">Workspace scripts</span></li>
+      </ul>
+    </section>
+
+    <footer>
+      <strong>How to use this map.</strong> For any feature you’re developing, start at the matching section. Touch the <em>view</em> first to see the user-facing screen, follow imports into <em>composables</em> + <em>lib</em> for client logic, then hop to the matching backend <em>route</em> file and from there into <em>services</em> and the Prisma <em>schema</em>. Database changes always need a new Prisma migration.
+    </footer>
+
+  </main>
+</div>
+
+<script>
+  const q = document.getElementById('q');
+  const sections = document.querySelectorAll('section.feature');
+
+  function applyFilter(term) {
+    const t = term.trim().toLowerCase();
+    sections.forEach(s => {
+      if (!t) { s.classList.remove('hidden'); s.classList.remove('match'); return; }
+      const hay = (s.id + ' ' + (s.dataset.keys || '') + ' ' + s.textContent).toLowerCase();
+      const hit = hay.includes(t);
+      s.classList.toggle('hidden', !hit);
+      s.classList.toggle('match', hit);
+    });
+  }
+
+  q.addEventListener('input', e => applyFilter(e.target.value));
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && document.activeElement !== q) {
+      e.preventDefault(); q.focus();
+    }
+  });
+</script>
+
+</body>
+</html>
