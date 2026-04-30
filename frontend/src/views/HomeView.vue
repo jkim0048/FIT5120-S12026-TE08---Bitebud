@@ -732,6 +732,16 @@ function scrollToTop() {
     grid-template-columns: 1fr;
     gap: 1.75rem;
   }
+  .ctas {
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+  }
+  .ctas .bb-btn {
+    width: min(60%, 22rem);
+    justify-content: center;
+    text-align: center;
+  }
   .bento {
     grid-template-columns: 1fr;
   }
