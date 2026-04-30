@@ -13,9 +13,9 @@ import {
   lookupMealById,
   mealIngredientLines,
   mealSearchHitFields,
+  mealToRecipeText,
   searchMealsOrdered,
 } from "../services/themealdb.js";
-import { mealToRecipeTextPreferSource } from "../services/mealdbSourceIngredients.js";
 import { applyIconMappings } from "../services/icons.js";
 import { basicRecipeTextToGraph } from "../services/basicRecipeParser.js";
 import { parseRecipeTextToGraphViaOpenRouter } from "../services/openrouter.js";
@@ -476,7 +476,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       });
     }
     const meal = await lookupMealById(body.mealDbId);
-    const { text, sourceUrl, imageUrl } = await mealToRecipeTextPreferSource(meal);
+    const { text, sourceUrl, imageUrl } = mealToRecipeText(meal);
     const parsed = await parseRecipeTextToGraphResilient(text, sourceUrl);
     const graph = enrichGraphWithMealDbImages(meal, parsed.graph);
     const refined = parsed.refined;
@@ -643,7 +643,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         const knownTime = mealDbMinutes.get(recipe.mealDbId) ?? null;
         const knownServings = mealDbServings.get(recipe.mealDbId) ?? null;
         const meal = await lookupMealById(recipe.mealDbId);
-        const { text, sourceUrl, imageUrl } = await mealToRecipeTextPreferSource(meal);
+        const { text, sourceUrl, imageUrl } = mealToRecipeText(meal);
         const parsed = await parseRecipeTextToGraphResilient(text, sourceUrl);
         const graph = enrichGraphWithMealDbImages(meal, parsed.graph);
         const refined = parsed.refined;
