@@ -15,6 +15,7 @@
     "icons:clear-poisoned-maps": "dotenv -e ../.env -- tsx src/jobs/clear-poisoned-ingredient-icon-map.ts",
     "recipes:wipe-mealdb-cache": "dotenv -e ../.env -- tsx src/jobs/wipe-mealdb-cache.ts",
     "recipes:backfill-mealdb-time": "dotenv -e ../.env -- tsx src/jobs/backfill-mealdb-total-time.ts",
+    "recipes:backfill-mealdb-servings": "dotenv -e ../.env -- tsx src/jobs/backfill-mealdb-servings.ts",
     "sensory:backfill": "dotenv -e ../.env -- tsx src/jobs/backfill-sensory-food-items.ts",
     "prisma:generate": "dotenv -e ../.env -- prisma generate",
     "prisma:studio": "dotenv -e ../.env -- prisma studio",

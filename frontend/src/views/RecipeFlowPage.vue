@@ -85,6 +85,12 @@ const effortLabel = computed(() => {
   return 'High'
 })
 
+const servingsLabel = computed(() => {
+  const s = Number(graph.value?.servings ?? NaN)
+  if (!Number.isFinite(s) || s <= 0) return '—'
+  return `${Math.round(s)}`
+})
+
 async function load(opts?: { showPageLoading?: boolean }) {
   const showGlobal = opts?.showPageLoading !== false
   if (showGlobal) pageLoading.value = true
@@ -270,6 +276,10 @@ function closeStepPanel() {
             <div class="hero-stat__label">Effort</div>
             <div class="hero-stat__value">{{ effortLabel }}</div>
           </div>
+          <div class="hero-stat">
+            <div class="hero-stat__label">Servings</div>
+            <div class="hero-stat__value">{{ servingsLabel }}</div>
+          </div>
         </div>
         <div v-if="recipeTags.length > 1" class="hero-tags">
           <span v-for="tag in recipeTags.slice(1, 5)" :key="tag" class="chip">{{ tag }}</span>
@@ -280,7 +290,11 @@ function closeStepPanel() {
         </div>
 
         <div class="cta-row">
-          <button type="button" class="bb-btn bb-btn--primary bb-btn--guided" @click="router.push({ name: 'guided', params: { id: recipeId } })">
+          <button
+            type="button"
+            class="bb-btn bb-btn--primary bb-btn--guided"
+            @click="router.push({ name: 'guidedServings', params: { id: recipeId } })"
+          >
             <svg class="cta-play" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
               <path fill="currentColor" d="M8 5v14l11-7L8 5z" />
             </svg>
@@ -646,7 +660,7 @@ function closeStepPanel() {
 .hero-stats {
   margin-top: 0.85rem;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem 1rem;
   max-width: 22rem;
 }

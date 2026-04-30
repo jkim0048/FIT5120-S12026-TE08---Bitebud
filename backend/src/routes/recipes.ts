@@ -13,12 +13,13 @@ import {
   lookupMealById,
   mealIngredientLines,
   mealSearchHitFields,
-  mealToRecipeText,
   searchMealsOrdered,
 } from "../services/themealdb.js";
+import { mealToRecipeTextPreferSource } from "../services/mealdbSourceIngredients.js";
 import { applyIconMappings } from "../services/icons.js";
 import { basicRecipeTextToGraph } from "../services/basicRecipeParser.js";
 import { parseRecipeTextToGraphViaOpenRouter } from "../services/openrouter.js";
+import { inferFlavorProfile } from "../services/flavorProfile.js";
 import {
   computeSensoryConflicts,
   computeSensoryConflictsFromIngredientLines,
@@ -59,6 +60,29 @@ async function getMealDbMinutes(): Promise<Map<string, number>> {
   return map;
 }
 
+let _mealDbServings: Map<string, number> | null = null;
+async function getMealDbServings(): Promise<Map<string, number>> {
+  if (_mealDbServings) return _mealDbServings;
+  const jsonUrl = new URL("../data/mealdb.json", import.meta.url);
+  const raw = await readFile(jsonUrl, "utf8");
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed)) throw new Error("mealdb.json must be an array");
+  const map = new Map<string, number>();
+  for (const row of parsed) {
+    if (row == null || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const id = typeof r.mealdb_id === "string" ? r.mealdb_id.trim() : "";
+    const n = typeof r.servings === "number" ? r.servings : Number(r.servings);
+    if (!id) continue;
+    if (!Number.isFinite(n)) continue;
+    const servings = Math.round(n);
+    if (servings <= 0) continue;
+    map.set(id, servings);
+  }
+  _mealDbServings = map;
+  return map;
+}
+
 function graphIngredientLines(graph: RecipeGraph): string[] {
   return (graph.nodes ?? [])
     .filter((n) => n.type === "ingredient")
@@ -73,6 +97,8 @@ const visualiseBody = z.object({
 
 const importBody = z.object({
   mealDbId: z.string().min(1),
+  /** When true, skip re-fetch/re-parse and return the stored graph if the recipe is already refined. Default false so re-import picks up source ingredients and parser fixes. */
+  useCache: z.boolean().optional(),
 });
 
 const browseQuery = z.object({
@@ -399,17 +425,30 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const body = importBody.parse(request.body);
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
     const mealDbMinutes = await getMealDbMinutes();
+    const mealDbServings = await getMealDbServings();
     const knownTime = mealDbMinutes.get(body.mealDbId) ?? null;
+    const knownServings = mealDbServings.get(body.mealDbId) ?? null;
     const existing = await prisma.recipe.findUnique({
       where: { mealDbId: body.mealDbId },
     });
-    if (existing && existing.refined) {
+    if (existing && existing.refined && body.useCache === true) {
       if (existing.totalTimeMinutes == null && knownTime != null) {
         await prisma.recipe.update({
           where: { id: existing.id },
           data: { totalTimeMinutes: knownTime },
         });
         existing.totalTimeMinutes = knownTime;
+      }
+      if (existing.servings == null && knownServings != null) {
+        const g0 = parseRecipeGraph(existing.graph);
+        await prisma.recipe.update({
+          where: { id: existing.id },
+          data: {
+            servings: knownServings,
+            graph: { ...(g0 as unknown as object), servings: knownServings } as object,
+          },
+        });
+        existing.servings = knownServings;
       }
       if (!existing.imageUrl) {
         try {
@@ -427,7 +466,8 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         }
       }
       const g = parseRecipeGraph(existing.graph);
-      const resolved = await withIcons({ ...g, id: existing.id }, userId);
+      const withKnownServings = g.servings == null && knownServings != null ? { ...g, servings: knownServings } : g;
+      const resolved = await withIcons({ ...withKnownServings, id: existing.id }, userId);
       await linkRecipeToUser(existing.id, userId);
       return reply.send({
         recipeId: existing.id,
@@ -436,17 +476,22 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       });
     }
     const meal = await lookupMealById(body.mealDbId);
-    const { text, sourceUrl, imageUrl } = mealToRecipeText(meal);
+    const { text, sourceUrl, imageUrl } = await mealToRecipeTextPreferSource(meal);
     const parsed = await parseRecipeTextToGraphResilient(text, sourceUrl);
     const graph = enrichGraphWithMealDbImages(meal, parsed.graph);
     const refined = parsed.refined;
     const resolved = await withIcons(graph, userId);
     const lede = await generateRecipeLedeResilient({ title: resolved.title, rawText: text });
-    const resolvedWithTime: RecipeGraph =
-      knownTime != null && (resolved.totalTimeMinutes == null || !Number.isFinite(resolved.totalTimeMinutes))
-        ? { ...resolved, totalTimeMinutes: knownTime }
-        : resolved;
-    if (existing && !existing.refined) {
+    const resolvedWithTime: RecipeGraph = {
+      ...resolved,
+      ...(knownTime != null && (resolved.totalTimeMinutes == null || !Number.isFinite(resolved.totalTimeMinutes))
+        ? { totalTimeMinutes: knownTime }
+        : {}),
+      ...(knownServings != null && (resolved.servings == null || !Number.isFinite(resolved.servings))
+        ? { servings: knownServings }
+        : {}),
+    };
+    if (existing) {
       const derived = deriveRecipeMetadata(resolvedWithTime);
       const totalTimeMinutesOut =
         knownTime != null && (resolvedWithTime.totalTimeMinutes == null || !Number.isFinite(resolvedWithTime.totalTimeMinutes))
@@ -485,16 +530,27 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       lede,
       metadata: { imageUrl },
     });
-    if (saved.graph.totalTimeMinutes == null && knownTime != null) {
-      // Keep persisted graph JSON in sync with the DB column where possible.
+    if ((saved.graph.totalTimeMinutes == null && knownTime != null) || (saved.graph.servings == null && knownServings != null)) {
+      // Keep persisted graph JSON in sync with DB columns where possible.
+      const graphPatch: Record<string, unknown> = {};
+      const dataPatch: Record<string, unknown> = {};
+      if (saved.graph.totalTimeMinutes == null && knownTime != null) {
+        graphPatch.totalTimeMinutes = knownTime;
+        dataPatch.totalTimeMinutes = knownTime;
+        saved.graph.totalTimeMinutes = knownTime;
+      }
+      if (saved.graph.servings == null && knownServings != null) {
+        graphPatch.servings = knownServings;
+        dataPatch.servings = knownServings;
+        saved.graph.servings = knownServings;
+      }
       await prisma.recipe.update({
         where: { id: saved.recipeId },
         data: {
-          totalTimeMinutes: knownTime,
-          graph: { ...(saved.graph as unknown as object), totalTimeMinutes: knownTime } as object,
+          ...(dataPatch as object),
+          graph: { ...(saved.graph as unknown as object), ...graphPatch } as object,
         },
       });
-      saved.graph.totalTimeMinutes = knownTime;
     }
     await linkRecipeToUser(saved.recipeId, userId);
     return reply.send({ ...saved, parserSource: parsed.parserSource });
@@ -549,6 +605,31 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     });
   });
 
+  app.get("/api/recipes/:id/flavors", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const recipe = await prisma.recipe.findUnique({ where: { id } });
+    if (!recipe) return reply.status(404).send({ error: "Not found" });
+    const g = parseRecipeGraph(recipe.graph);
+    const ingredients = (g.nodes ?? [])
+      .filter((n) => n.type === "ingredient")
+      .map((n) => ({
+        id: String(n.id),
+        label: String(n.label ?? "").trim(),
+        detail: String(n.detail ?? "").trim(),
+      }))
+      .filter((x) => x.id && x.label);
+    const inferred = await inferFlavorProfile(ingredients);
+    return reply.send({
+      flavors: [
+        { key: "sweet", label: "Sweet", ingredientIds: inferred.sweet },
+        { key: "salty", label: "Salty", ingredientIds: inferred.salty },
+        { key: "sour", label: "Sour", ingredientIds: inferred.sour },
+        { key: "bitter", label: "Bitter", ingredientIds: inferred.bitter },
+        { key: "spicy", label: "Spicy", ingredientIds: inferred.spicy },
+      ].filter((f) => f.ingredientIds.length > 0),
+    });
+  });
+
   app.get("/api/recipes/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
@@ -558,9 +639,11 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     if (recipe.mealDbId && !recipe.refined) {
       try {
         const mealDbMinutes = await getMealDbMinutes();
+        const mealDbServings = await getMealDbServings();
         const knownTime = mealDbMinutes.get(recipe.mealDbId) ?? null;
+        const knownServings = mealDbServings.get(recipe.mealDbId) ?? null;
         const meal = await lookupMealById(recipe.mealDbId);
-        const { text, sourceUrl, imageUrl } = mealToRecipeText(meal);
+        const { text, sourceUrl, imageUrl } = await mealToRecipeTextPreferSource(meal);
         const parsed = await parseRecipeTextToGraphResilient(text, sourceUrl);
         const graph = enrichGraphWithMealDbImages(meal, parsed.graph);
         const refined = parsed.refined;
@@ -570,7 +653,16 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
           knownTime != null && (graph.totalTimeMinutes == null || !Number.isFinite(graph.totalTimeMinutes))
             ? knownTime
             : (graph.totalTimeMinutes ?? null);
-        const fullGraph: RecipeGraph = { ...graph, id: recipe.id, totalTimeMinutes: totalTimeMinutesOut };
+        const servingsOut =
+          knownServings != null && (graph.servings == null || !Number.isFinite(graph.servings))
+            ? knownServings
+            : (graph.servings ?? null);
+        const fullGraph: RecipeGraph = {
+          ...graph,
+          id: recipe.id,
+          totalTimeMinutes: totalTimeMinutesOut,
+          servings: servingsOut,
+        };
 
         await prisma.recipe.update({
           where: { id: recipe.id },
@@ -579,7 +671,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
             imageUrl: imageUrl ?? null,
             sourceUrl: fullGraph.sourceUrl ?? null,
             totalTimeMinutes: totalTimeMinutesOut,
-            servings: fullGraph.servings ?? null,
+            servings: servingsOut,
             graph: fullGraph as object,
             rawText: text,
             refined,
