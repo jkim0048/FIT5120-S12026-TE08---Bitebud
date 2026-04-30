@@ -11,6 +11,8 @@ import type { SensoryConflictResponse } from '../types/sensory'
 
 type JourneyPhase = 'getReady' | 'ingredients' | 'roadmap' | 'step' | 'timer'
 type TimerState = 'idle' | 'running' | 'paused'
+type FlavorKey = 'sweet' | 'salty' | 'sour' | 'bitter' | 'spicy'
+type FlavorItem = { key: FlavorKey; label: string; ingredientIds: string[] }
 
 const brokenImageSrcs = ref<Set<string>>(new Set())
 function isBrokenImageSrc(src: string | null | undefined): boolean {
@@ -89,6 +91,16 @@ const totalSeconds = ref<number | null>(null)
 const timer = ref<number | null>(null)
 
 const recipeId = computed(() => route.params.id as string)
+const selectedServings = ref<number | null>(null)
+const baseServings = ref<number | null>(null)
+const flavorAdjustments = ref<Record<FlavorKey, number>>({
+  sweet: 0,
+  salty: 0,
+  sour: 0,
+  bitter: 0,
+  spicy: 0,
+})
+const flavorItems = ref<FlavorItem[]>([])
 const steps = computed(() => (graph.value ? getOrderedRecipeSteps(graph.value) : []))
 const current = computed(() => steps.value[index.value] ?? null)
 const instructionTitle = computed(() => {
@@ -148,23 +160,128 @@ const allIngredientLabels = computed(() => {
     .filter(Boolean)
 })
 
-const ingredientChecklistItems = computed(() => {
+/** BBC/source lines often prefix `For the crust: …` — split so headings can show once above each group. */
+function splitForTheSection(detail: string): { section: string | null; body: string } {
+  const d = detail.trim()
+  const m = d.match(/^((?:for\s+the\s+)[^:]+):\s*(.*)$/i)
+  if (!m) return { section: null, body: d }
+  const body = (m[2] ?? '').trim()
+  return body ? { section: (m[1] ?? '').trim(), body } : { section: null, body: d }
+}
+
+function formatSectionHeading(section: string): string {
+  const t = section.trim()
+  const m = t.match(/^(for the )(.+)$/i)
+  if (!m) return t
+  const words = m[2].trim().split(/\s+/).filter(Boolean)
+  const pretty = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+  return `For the ${pretty}`
+}
+
+/** Remove trailing duplicate ingredient name from qty line when the title already shows it (e.g. "5 thinly sliced Onion" → "5 thinly sliced"). */
+function qtyDetailWithoutTrailingLabel(detail: string, label: string): string {
+  const d = detail.trim()
+  const lab = label.trim()
+  if (!lab || !d) return d
+  const escaped = lab.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const trimmed = d.replace(new RegExp(`\\s+${escaped}\\s*$`, 'i'), '').trim()
+  return trimmed.length >= 2 ? trimmed : d
+}
+
+/** Strip `For the …:` accidentally stored on the ingredient label (section already shown above). */
+function stripLeadingForTheFromLabel(label: string): string {
+  return label.replace(/^((?:for\s+the\s+)[^:]+):\s*/i, '').trim()
+}
+
+/**
+ * One checklist line: prefer scaled `detail` (servings + flavors). Prepend cleaned `label` only when
+ * `detail` is measure-only and does not already name the ingredient.
+ */
+function ingredientChecklistSingleLine(label: string, detail: string): string {
+  const lab = stripLeadingForTheFromLabel(label).trim() || label.trim()
+  const d = detail.trim()
+  if (!d) return lab
+  if (!lab) return d
+  const dLo = d.toLowerCase()
+  const tokens = lab
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length >= 4)
+  if (tokens.some((t) => dLo.includes(t))) return d
+  return `${lab} ${d}`
+}
+
+type IngredientChecklistRow = {
+  id: string
+  label: string
+  detail: string
+  icon: string | null
+  emoji: string | null
+  imageUrl: string | null
+}
+
+type IngredientChecklistGroup = {
+  sectionKey: string
+  sectionTitle: string | null
+  items: IngredientChecklistRow[]
+}
+
+const ingredientChecklistGroups = computed((): IngredientChecklistGroup[] => {
   if (!graph.value) return []
-  return graph.value.nodes
+  const selected = selectedServings.value
+  const base = baseServings.value ?? parsePositiveInt(graph.value.servings)
+  const servingsFactor = selected && base ? selected / base : 1
+  const flavorFactorByIngredient = new Map<string, number>()
+  for (const ing of graph.value.nodes.filter((n) => n.type === 'ingredient')) {
+    const factors: number[] = []
+    for (const f of flavorItems.value) {
+      if (!f.ingredientIds.includes(String(ing.id))) continue
+      factors.push(flavorValueToFactor(Number(flavorAdjustments.value[f.key] ?? 0)))
+    }
+    const avg = factors.length
+      ? factors.reduce((a, b) => a + b, 0) / factors.length
+      : flavorFallbackFactor({ label: String(ing.label ?? ''), detail: String(ing.detail ?? '') })
+    flavorFactorByIngredient.set(String(ing.id), avg)
+  }
+
+  const rows: Array<IngredientChecklistRow & { section: string | null }> = graph.value.nodes
     .filter((n) => n.type === 'ingredient')
-    .map((n) => ({
-      id: String(n.id),
-      label: String(n.label ?? '').trim(),
-      detail: String(n.detail ?? '').trim(),
-      icon: typeof n.icon === 'string' ? n.icon : null,
-      emoji: typeof n.emoji === 'string' ? n.emoji : null,
-      imageUrl: typeof n.imageUrl === 'string' ? n.imageUrl : null,
-    }))
-    .map((x) => ({
-      ...x,
-      detail: x.detail && x.detail !== x.label ? x.detail : '',
-    }))
+    .map((n) => {
+      const rawDetail = String(n.detail ?? '').trim()
+      const { section, body } = splitForTheSection(rawDetail)
+      const factor = servingsFactor * (flavorFactorByIngredient.get(String(n.id)) ?? 1)
+      const scaledBody = scaleIngredientDetail(body, factor)
+      let detail = scaledBody && scaledBody !== String(n.label ?? '').trim() ? scaledBody : ''
+      const lab = String(n.label ?? '').trim()
+      if (detail) detail = qtyDetailWithoutTrailingLabel(detail, lab)
+      return {
+        id: String(n.id),
+        label: String(n.label ?? '').trim(),
+        section,
+        detail,
+        icon: typeof n.icon === 'string' ? n.icon : null,
+        emoji: typeof n.emoji === 'string' ? n.emoji : null,
+        imageUrl: typeof n.imageUrl === 'string' ? n.imageUrl : null,
+      }
+    })
     .filter((x) => Boolean(x.label))
+
+  const groups: IngredientChecklistGroup[] = []
+  for (const row of rows) {
+    const key = row.section ?? ''
+    const last = groups[groups.length - 1]
+    const { section, ...item } = row
+    if (last && last.sectionKey === key) {
+      last.items.push(item)
+    } else {
+      groups.push({
+        sectionKey: key,
+        sectionTitle: section,
+        items: [item],
+      })
+    }
+  }
+  return groups
 })
 
 const equipmentItems = computed(() => {
@@ -216,6 +333,178 @@ function ingredientVisualToken(item: { label: string; emoji?: string; icon?: str
   if (item.emoji && item.emoji.trim()) return item.emoji.trim().slice(0, 2)
   const short = item.label.trim().slice(0, 2)
   return short ? short.toUpperCase() : '•'
+}
+
+function servingsStorageKey(id: string): string {
+  return `bitebud:servings:${id}`
+}
+function flavorKeyStorage(id: string): string {
+  return `bitebud:flavors:${id}`
+}
+function flavorMapStorage(id: string): string {
+  return `bitebud:flavor-map:${id}`
+}
+
+function parsePositiveInt(v: unknown): number | null {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return null
+  const i = Math.round(n)
+  return i > 0 ? i : null
+}
+
+function gcd(a: number, b: number): number {
+  let x = Math.abs(a)
+  let y = Math.abs(b)
+  while (y) {
+    const t = y
+    y = x % y
+    x = t
+  }
+  return x || 1
+}
+
+function toFractionString(value: number): string {
+  if (!Number.isFinite(value)) return String(value)
+  const sign = value < 0 ? '-' : ''
+  const abs = Math.abs(value)
+  const whole = Math.floor(abs)
+  const frac = abs - whole
+  if (frac < 0.01) return `${sign}${whole}`
+  const denom = 8
+  let num = Math.round(frac * denom)
+  if (num === 0) return `${sign}${whole}`
+  if (num === denom) return `${sign}${whole + 1}`
+  const d = gcd(num, denom)
+  num /= d
+  const den = denom / d
+  if (whole === 0) return `${sign}${num}/${den}`
+  return `${sign}${whole} ${num}/${den}`
+}
+
+function toSpokenFractionString(value: number): string {
+  const compact = toFractionString(value)
+  const mixed = compact.match(/^(-?\d+)\s+(\d+)\/(\d+)$/)
+  if (mixed) return `${mixed[1]} and ${mixed[2]}/${mixed[3]}`
+  return compact
+}
+
+function parseQuantityToken(token: string): number | null {
+  const t = token.trim()
+  const spokenMixed = t.match(/^(\d+)\s+and\s+(\d+)\/(\d+)$/i)
+  if (spokenMixed) {
+    const whole = Number(spokenMixed[1])
+    const num = Number(spokenMixed[2])
+    const den = Number(spokenMixed[3])
+    if (den > 0) return whole + num / den
+  }
+  const mixed = t.match(/^(\d+)\s+(\d+)\/(\d+)$/)
+  if (mixed) {
+    const whole = Number(mixed[1])
+    const num = Number(mixed[2])
+    const den = Number(mixed[3])
+    if (den > 0) return whole + num / den
+  }
+  const fraction = t.match(/^(\d+)\/(\d+)$/)
+  if (fraction) {
+    const num = Number(fraction[1])
+    const den = Number(fraction[2])
+    if (den > 0) return num / den
+  }
+  const n = Number(t)
+  return Number.isFinite(n) ? n : null
+}
+
+function isMetricMassVolumeUnit(unit: string): boolean {
+  const u = unit.toLowerCase()
+  return /^(g|gram|grams|kg|kilogram|kilograms|ml|millilitre|milliliter|milliliters|millilitres|l|liter|litre|litres|liters)$/.test(
+    u,
+  )
+}
+
+function normalizeUnicodeFractions(s: string): string {
+  return s
+    .replace(/½/g, "1/2")
+    .replace(/⅓/g, "1/3")
+    .replace(/⅔/g, "2/3")
+    .replace(/¼/g, "1/4")
+    .replace(/¾/g, "3/4")
+    .replace(/⅛/g, "1/8")
+    .replace(/⅜/g, "3/8")
+    .replace(/⅝/g, "5/8")
+    .replace(/⅞/g, "7/8")
+}
+
+function scaleIngredientDetail(detail: string, factor: number): string {
+  if (!detail || !Number.isFinite(factor) || factor <= 0 || Math.abs(factor - 1) < 0.001) return detail
+  const source = normalizeUnicodeFractions(detail)
+  const leadRe = /^\s*(\d+\s+and\s+\d+\/\d+|\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?)\s*([a-zA-Z]+)?(\b[\s\S]*)?$/
+  const lead = source.match(leadRe)
+  if (lead) {
+    const baseQty = parseQuantityToken(lead[1])
+    const unitRaw = (lead[2] ?? '').trim()
+    const rest = lead[3] ?? ''
+    if (baseQty != null) {
+      const scaled = Number((baseQty * factor).toFixed(3))
+      const unit = unitRaw.toLowerCase()
+      if (unit === 'kg' && scaled > 0 && scaled < 1) {
+        const grams = Math.max(1, Math.round(scaled * 1000))
+        return `${grams} grams${rest}`
+      }
+      let qtyText: string
+      if (unitRaw && isMetricMassVolumeUnit(unitRaw)) qtyText = String(Math.round(scaled))
+      else qtyText = unitRaw ? toFractionString(scaled) : toSpokenFractionString(scaled)
+      return `${qtyText}${unitRaw ? ` ${unitRaw}` : ''}${rest}`
+    }
+  }
+  const quantityRe = /\b\d+\s+and\s+\d+\/\d+|\b\d+\s+\d+\/\d+|\b\d+\/\d+|\b\d+(?:\.\d+)?\b/g
+  return source.replace(quantityRe, (token, offset) => {
+    const parsed = parseQuantityToken(token)
+    if (parsed == null) return token
+    const scaled = parsed * factor
+    if (!Number.isFinite(scaled) || scaled <= 0) return token
+    const after = source.slice(offset + token.length).replace(/^\s*/, '')
+    const unitMatch = /^([a-zA-Z]{1,20})\b/.exec(after)
+    const unitWord = unitMatch?.[1] ?? ''
+    if (unitWord && isMetricMassVolumeUnit(unitWord))
+      return String(Math.round(Number(scaled.toFixed(5))))
+    return toFractionString(Number(scaled.toFixed(3)))
+  })
+}
+
+function flavorValueToFactor(v: number): number {
+  if (v <= -100) return 0
+  if (v <= -50) return 0.5
+  if (v <= -25) return 0.75
+  if (v >= 100) return 2
+  if (v >= 50) return 1.5
+  if (v >= 25) return 1.25
+  return 1
+}
+
+function flavorFallbackFactor(ingredient: { label: string; detail?: string | null }): number {
+  const text = `${ingredient.label} ${ingredient.detail ?? ''}`.toLowerCase()
+  const factors: number[] = []
+  if (/(sugar|honey|jaggery|syrup|sweetener|molasses|maple|dates?|raisins?)/.test(text)) {
+    factors.push(flavorValueToFactor(flavorAdjustments.value.sweet))
+  }
+  if (/(salt|soy sauce|brine|stock cube|bouillon|fish sauce|anchovy|miso)/.test(text)) {
+    factors.push(flavorValueToFactor(flavorAdjustments.value.salty))
+  }
+  if (
+    /(lemon|lime|vinegar|tamarind|sumac|yogurt|curd|citric|sour(?:ed)?\s+cream|cr[eè]me\s+fra[iî]che|buttermilk|cream of tartar)/.test(
+      text,
+    )
+  ) {
+    factors.push(flavorValueToFactor(flavorAdjustments.value.sour))
+  }
+  if (/(coffee|cocoa|dark chocolate|kale|fenugreek|radicchio|bitter gourd|turmeric)/.test(text)) {
+    factors.push(flavorValueToFactor(flavorAdjustments.value.bitter))
+  }
+  if (/(chilli|chili|pepper|jalape|serrano|cayenne|paprika|hot sauce|wasabi|mustard)/.test(text)) {
+    factors.push(flavorValueToFactor(flavorAdjustments.value.spicy))
+  }
+  if (!factors.length) return 1
+  return factors.reduce((a, b) => a + b, 0) / factors.length
 }
 const timerPct = computed(() => {
   if (remaining.value == null || totalSeconds.value == null || totalSeconds.value <= 0) return 0
@@ -282,7 +571,14 @@ function enterIngredientsPhase() {
 }
 
 function backFromGetReady() {
-  void router.push({ name: 'recipe', params: { id: recipeId.value } })
+  void router.push({
+    name: 'guidedFlavors',
+    params: { id: recipeId.value },
+    query: {
+      servings: String(selectedServings.value ?? 2),
+      baseServings: String(baseServings.value ?? selectedServings.value ?? 2),
+    },
+  })
 }
 
 function enterStepPhase(stepIdx?: number) {
@@ -335,6 +631,49 @@ async function loadRecipe() {
       headers: biteBudUserIdHeader(),
     })
     graph.value = data.graph
+    const baseFromQuery = parsePositiveInt(route.query.baseServings)
+    const selectedFromQuery = parsePositiveInt(route.query.servings)
+    const baseFromGraph = parsePositiveInt(data.graph.servings)
+    baseServings.value = baseFromQuery ?? baseFromGraph ?? 2
+    selectedServings.value = selectedFromQuery ?? null
+    if (selectedServings.value == null) {
+      try {
+        selectedServings.value = parsePositiveInt(sessionStorage.getItem(servingsStorageKey(recipeId.value)))
+      } catch {
+        selectedServings.value = null
+      }
+    }
+    if (selectedServings.value == null) selectedServings.value = baseServings.value
+    flavorItems.value = []
+    try {
+      const fromApi = await apiFetch<{ flavors: FlavorItem[] }>(`/api/recipes/${recipeId.value}/flavors`, {
+        headers: biteBudUserIdHeader(),
+      })
+      flavorItems.value = fromApi.flavors ?? []
+    } catch {
+      flavorItems.value = []
+    }
+    try {
+      const raw = sessionStorage.getItem(flavorKeyStorage(recipeId.value))
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, unknown>
+        for (const k of ['sweet', 'salty', 'sour', 'bitter', 'spicy'] as const) {
+          const n = Number(parsed[k])
+          if (Number.isFinite(n)) flavorAdjustments.value[k] = n
+        }
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const rawMap = sessionStorage.getItem(flavorMapStorage(recipeId.value))
+      if (rawMap) {
+        const parsed = JSON.parse(rawMap) as FlavorItem[]
+        if (Array.isArray(parsed) && parsed.length) flavorItems.value = parsed
+      }
+    } catch {
+      // ignore
+    }
     await loadProgress()
 
     const uid = getBiteBudUserId()
@@ -349,7 +688,6 @@ async function loadRecipe() {
     } else {
       conflicts.value = null
     }
-    journeyPhase.value = 'getReady'
   } catch (e) {
     err.value = e instanceof Error ? e.message : 'Load failed'
     graph.value = null
@@ -361,6 +699,7 @@ async function loadRecipe() {
 watch(
   recipeId,
   async () => {
+    journeyPhase.value = 'getReady'
     graph.value = null
     index.value = 0
     conflicts.value = null
@@ -383,9 +722,10 @@ watch(
 )
 
 watch(
-  ingredientChecklistItems,
-  (items) => {
-    ingredientChecks.value = Object.fromEntries(items.map((item) => [item.id, false]))
+  ingredientChecklistGroups,
+  (groups) => {
+    const flat = groups.flatMap((g) => g.items)
+    ingredientChecks.value = Object.fromEntries(flat.map((item) => [item.id, false]))
   },
   { immediate: true },
 )
@@ -507,33 +847,37 @@ async function markStepDoneAndNext() {
           <h1 class="ready-title">Ingredients Checklist</h1>
           <p class="ready-sub">Check off what you have on hand. This is session-only and won’t be saved.</p>
           <ul class="ready-list">
-            <li v-for="item in ingredientChecklistItems" :key="item.id">
-              <label class="ready-item">
-                <span class="ready-item-left">
-                  <span class="ready-item-icon ready-item-icon--img" aria-hidden="true">
-                    <img
-                      v-if="ingredientVisualSrc(item)"
-                      class="ready-item-img"
+            <template v-for="(group, gi) in ingredientChecklistGroups" :key="`${group.sectionKey}-${gi}`">
+              <li v-if="group.sectionTitle" class="ready-ingredient-section" role="presentation">
+                <span class="ready-ingredient-section-title">{{ formatSectionHeading(group.sectionTitle) }}</span>
+              </li>
+              <li v-for="item in group.items" :key="item.id">
+                <label class="ready-item">
+                  <span class="ready-item-left">
+                    <span class="ready-item-icon ready-item-icon--img" aria-hidden="true">
+                      <img
+                        v-if="ingredientVisualSrc(item)"
+                        class="ready-item-img"
                       :src="ingredientVisualSrc(item)!"
-                      :alt="item.label"
+                      :alt="ingredientChecklistSingleLine(item.label, item.detail)"
                       loading="lazy"
-                      @error="markBrokenFromImgEvent"
-                    />
-                    <span v-else>{{ ingredientVisualToken({ label: item.label, emoji: item.emoji ?? undefined, icon: item.icon ?? undefined }) }}</span>
+                        @error="markBrokenFromImgEvent"
+                      />
+                      <span v-else>{{ ingredientVisualToken({ label: item.label, emoji: item.emoji ?? undefined, icon: item.icon ?? undefined }) }}</span>
+                    </span>
+                    <span class="ready-item-copy ready-item-copy--single">
+                      <span class="ready-item-line">{{ ingredientChecklistSingleLine(item.label, item.detail) }}</span>
+                    </span>
                   </span>
-                  <span class="ready-item-copy">
-                    <span class="ready-item-title">{{ item.label }}</span>
-                    <span v-if="item.detail" class="ready-item-detail">{{ item.detail }}</span>
-                  </span>
-                </span>
-                <input
-                  v-model="ingredientChecks[item.id]"
-                  class="ready-check"
-                  type="checkbox"
-                  :aria-label="`Have ingredient: ${item.label}`"
-                />
-              </label>
-            </li>
+                  <input
+                    v-model="ingredientChecks[item.id]"
+                    class="ready-check"
+                    type="checkbox"
+                    :aria-label="`Have ingredient: ${ingredientChecklistSingleLine(item.label, item.detail)}`"
+                  />
+                </label>
+              </li>
+            </template>
           </ul>
           <div class="ready-actions">
             <button type="button" class="bb-btn bb-btn--primary guided-btn ready-back-btn" @click="enterGetReadyPhase">Back</button>
@@ -957,6 +1301,23 @@ async function markStepDoneAndNext() {
   display: grid;
   gap: 0.6rem;
 }
+.ready-ingredient-section {
+  list-style: none;
+  margin: 0;
+  padding: 0.85rem 0 0.15rem;
+  grid-column: 1 / -1;
+}
+.ready-ingredient-section:first-child {
+  padding-top: 0;
+}
+.ready-ingredient-section-title {
+  display: block;
+  font-family: var(--bb-font-headline);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--bb-text, inherit);
+  letter-spacing: 0.01em;
+}
 .ready-item {
   display: flex;
   align-items: center;
@@ -976,6 +1337,17 @@ async function markStepDoneAndNext() {
   display: grid;
   gap: 0.15rem;
   min-width: 0;
+}
+.ready-item-copy--single {
+  gap: 0;
+}
+.ready-item-line {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  color: var(--bb-text, inherit);
 }
 .ready-item-title {
   min-width: 0;
