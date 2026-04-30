@@ -2,6 +2,7 @@
 
 BiteBud is a neurodiverse friendly cooking assistant with visual recipe flow, sensory profiling, and guided cooking.
 
+
 ## Tech stack
 
 - **Frontend**: Vue 3, Vite, TypeScript

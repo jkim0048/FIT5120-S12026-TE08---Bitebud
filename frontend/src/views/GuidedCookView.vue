@@ -85,6 +85,26 @@ const journeyPhase = ref<JourneyPhase>('getReady')
 const getReadyChecks = ref<Record<string, boolean>>({})
 const ingredientChecks = ref<Record<string, boolean>>({})
 
+type ChecklistConfirmContext = 'getReadyToIngredients' | 'ingredientsToSteps'
+const checklistConfirmOpen = ref(false)
+const checklistConfirmContext = ref<ChecklistConfirmContext>('getReadyToIngredients')
+
+const allReadyChecked = computed(() => {
+  const values = Object.values(getReadyChecks.value)
+  return values.length === 0 || values.every(Boolean)
+})
+const allIngredientsChecked = computed(() => {
+  const values = Object.values(ingredientChecks.value)
+  return values.length === 0 || values.every(Boolean)
+})
+
+const checklistConfirmTitle = computed(() => 'Not everything is checked')
+const checklistConfirmBody = computed(() =>
+  checklistConfirmContext.value === 'getReadyToIngredients'
+    ? "You haven't checked all equipment items. You can go back to finish, or proceed anyway."
+    : "You haven't checked all ingredients. You can go back to finish, or proceed anyway.",
+)
+
 const timerState = ref<TimerState>('idle')
 const remaining = ref<number | null>(null)
 const totalSeconds = ref<number | null>(null)
@@ -570,6 +590,35 @@ function enterIngredientsPhase() {
   journeyPhase.value = 'ingredients'
 }
 
+function closeChecklistConfirm() {
+  checklistConfirmOpen.value = false
+}
+
+function proceedChecklistConfirm() {
+  const ctx = checklistConfirmContext.value
+  checklistConfirmOpen.value = false
+  if (ctx === 'getReadyToIngredients') enterIngredientsPhase()
+  else enterRoadmapPhase()
+}
+
+function requestEnterIngredientsPhase() {
+  if (allReadyChecked.value) {
+    enterIngredientsPhase()
+    return
+  }
+  checklistConfirmContext.value = 'getReadyToIngredients'
+  checklistConfirmOpen.value = true
+}
+
+function requestEnterRoadmapPhase() {
+  if (allIngredientsChecked.value) {
+    enterRoadmapPhase()
+    return
+  }
+  checklistConfirmContext.value = 'ingredientsToSteps'
+  checklistConfirmOpen.value = true
+}
+
 function backFromGetReady() {
   void router.push({
     name: 'guidedFlavors',
@@ -806,6 +855,24 @@ async function markStepDoneAndNext() {
       </div>
     </div>
     <template v-else-if="graph && current">
+      <div
+        v-if="checklistConfirmOpen"
+        class="checklist-confirm-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Checklist warning"
+        @click="closeChecklistConfirm"
+      >
+        <aside class="checklist-confirm" @click.stop>
+          <h3 class="checklist-confirm__title">{{ checklistConfirmTitle }}</h3>
+          <p class="checklist-confirm__body">{{ checklistConfirmBody }}</p>
+          <div class="checklist-confirm__actions">
+            <button type="button" class="bb-btn bb-btn--secondary" @click="closeChecklistConfirm">Go back</button>
+            <button type="button" class="bb-btn bb-btn--primary" @click="proceedChecklistConfirm">Proceed anyway</button>
+          </div>
+        </aside>
+      </div>
+
       <section v-if="journeyPhase === 'getReady'" class="ready-shell">
         <aside class="ready-rail">
           <h2>{{ graph.title }}</h2>
@@ -829,7 +896,7 @@ async function markStepDoneAndNext() {
           </ul>
           <div class="ready-actions">
             <button type="button" class="bb-btn bb-btn--primary guided-btn ready-back-btn" @click="backFromGetReady">Back</button>
-            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-main-btn" @click="enterIngredientsPhase">
+            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-main-btn" @click="requestEnterIngredientsPhase">
               Next: Ingredients
             </button>
           </div>
@@ -881,7 +948,7 @@ async function markStepDoneAndNext() {
           </ul>
           <div class="ready-actions">
             <button type="button" class="bb-btn bb-btn--primary guided-btn ready-back-btn" @click="enterGetReadyPhase">Back</button>
-            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-main-btn" @click="enterRoadmapPhase">
+            <button type="button" class="bb-btn bb-btn--primary guided-btn ready-main-btn" @click="requestEnterRoadmapPhase">
               Cooking Steps
             </button>
           </div>
@@ -930,10 +997,10 @@ async function markStepDoneAndNext() {
           </button>
           <button type="button" class="bb-btn bb-btn--primary guided-btn timer-pill-btn" @click="skipStepFromTimer">
             <span class="timer-pill-ico" aria-hidden="true">⏭</span>
-            Skip Without Completing
+            Done, let's go to the next step
           </button>
         </nav>
-        <button type="button" class="timer-back-link" @click="enterStepPhase(index)">Return to Step</button>
+        <button type="button" class="timer-back-link" @click="enterStepPhase(index)">Return to the Step list</button>
       </section>
 
       <div v-else class="journey journey--focus">
@@ -1006,6 +1073,48 @@ async function markStepDoneAndNext() {
   max-width: 70rem;
   margin: 0 auto;
   padding: 1rem 1.25rem 2rem;
+}
+.checklist-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: color-mix(in srgb, var(--bb-bg) 78%, #000 22%);
+  backdrop-filter: blur(6px);
+}
+.checklist-confirm {
+  width: min(26rem, 100%);
+  background: var(--bb-surface-low);
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 14%, transparent);
+  border-radius: 18px;
+  padding: 1.05rem 1.05rem 0.95rem;
+  box-shadow: 0 20px 50px rgba(26, 28, 25, 0.12);
+}
+.checklist-confirm__title {
+  margin: 0;
+  font-family: var(--bb-font-headline);
+  font-size: 1.05rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--bb-text);
+}
+.checklist-confirm__body {
+  margin: 0.5rem 0 0;
+  color: var(--bb-muted);
+  line-height: 1.55;
+  font-size: 0.92rem;
+}
+.checklist-confirm__actions {
+  margin-top: 0.85rem;
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.checklist-confirm__actions .bb-btn {
+  min-width: 9.5rem;
 }
 .err {
   color: #b91c1c;
