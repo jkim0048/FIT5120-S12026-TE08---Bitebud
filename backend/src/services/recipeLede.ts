@@ -3,18 +3,22 @@ import { requireEnv } from "../env.js";
 import { isGeminiBusyError } from "./gemini.js";
 
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
+/**
+ * Keep this list to models that are commonly available on the Gemini API.
+ * (Preview/retired IDs can hard-fail with 404 for many keys.)
+ */
 const FALLBACK_GEMINI_MODELS = [
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
   "gemini-flash-latest",
-  "gemini-3-flash-preview",
-  "gemini-3-flash-lite-preview",
   "gemini-2.0-flash",
 ] as const;
 
 /** Build an ordered list of Gemini models to try for lede generation (env override first, then fallbacks). */
 function geminiModelCandidates(): string[] {
-  const preferred = process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
+  const preferredRaw = process.env.GEMINI_MODEL?.trim();
+  const allow = new Set<string>([DEFAULT_GEMINI_MODEL, ...FALLBACK_GEMINI_MODELS]);
+  const preferred = preferredRaw && allow.has(preferredRaw) ? preferredRaw : DEFAULT_GEMINI_MODEL;
   const out = [preferred, ...FALLBACK_GEMINI_MODELS.filter((m) => m !== preferred)];
   return [...new Set(out)];
 }
