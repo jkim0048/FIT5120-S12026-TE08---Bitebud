@@ -88,8 +88,8 @@ const selectedUnsafeTextures = ref<string[]>([])
 const selectedDietary = ref<string[]>([])
 const selectedCultural = ref<string[]>([])
 const foodInputWickedIconId = ref('')
-const foodInputStatus = ref<SensoryFoodStatus>('UNSURE')
 const foodQuery = ref('')
+const foodPickerOpen = ref(false)
 const pickerItems = ref<WickedPickerItem[]>([])
 const pickerLoading = ref(false)
 const pickerError = ref('')
@@ -104,8 +104,8 @@ function resetLocalState() {
   selectedDietary.value = []
   selectedCultural.value = []
   foodInputWickedIconId.value = ''
-  foodInputStatus.value = 'UNSURE'
   foodQuery.value = ''
+  foodPickerOpen.value = false
   addFoodError.value = ''
   editingFood.value = null
   saveError.value = ''
@@ -117,7 +117,44 @@ export function useSensorySetupForm() {
 
   const decodedUnsafeTextures = computed(() => decodeUnsafeTexturePrefs(profile.value?.texturePrefs ?? []))
   const realFoodItems = computed(() => profile.value?.foodItems ?? [])
-  const foodsForDisplay = computed<SensoryFoodItemDTO[]>(() => realFoodItems.value)
+  const foodsForDisplay = computed<SensoryFoodItemDTO[]>(() => {
+    return realFoodItems.value.map((it) => {
+      const baseName = (it.name ?? '').trim()
+      if (baseName) return it
+      const wid = it.notes?.wickedIconId?.trim()
+      const match = wid ? pickerItems.value.find((p) => p.wickedIconId === wid) : null
+      const label = match?.label?.trim() || (wid ? wid.replace(/[-_]/g, ' ').trim() : '')
+      const parts = label.replace(/\s+/g, ' ').split(' ').filter(Boolean)
+      const short = parts.length <= 4 ? parts.join(' ') : `${parts.slice(0, 4).join(' ')}…`
+      return { ...it, name: short || 'Food item' }
+    })
+  })
+
+  function shortPickerLabel(item: WickedPickerItem): string {
+    const raw = (item.label || '').trim()
+    const base = raw || item.wickedIconId.replace(/[-_]/g, ' ').trim()
+    // Keep the label compact in the suggestion list.
+    // Examples:
+    // - "apple cider vinegar" -> "apple cider vinegar"
+    // - "chicken thighs boneless" -> "chicken thighs boneless"
+    // - very long labels -> first 4 words + "…"
+    const cleaned = base.replace(/\s+/g, ' ')
+    const parts = cleaned.split(' ').filter(Boolean)
+    if (parts.length <= 4) return cleaned
+    return `${parts.slice(0, 4).join(' ')}…`
+  }
+
+  function foodDisplayName(it: SensoryFoodItemDTO): string {
+    const baseName = (it.name ?? '').trim()
+    if (baseName) return baseName
+    const wid = it.notes?.wickedIconId?.trim()
+    const match = wid ? pickerItems.value.find((p) => p.wickedIconId === wid) : null
+    const label = (match?.label ?? '').trim() || (wid ? wid.replace(/[-_]/g, ' ').trim() : '')
+    const parts = label.replace(/\s+/g, ' ').split(' ').filter(Boolean)
+    if (!parts.length) return 'Food item'
+    return parts.length <= 4 ? parts.join(' ') : `${parts.slice(0, 4).join(' ')}…`
+  }
+
   const filteredPickerItems = computed(() => {
     const q = foodQuery.value.trim().toLowerCase()
     if (!q) return pickerItems.value.slice(0, 15)
@@ -176,18 +213,6 @@ export function useSensorySetupForm() {
       : uniq([...selectedCultural.value, label])
   }
 
-  function statusPillClasses(status: SensoryFoodStatus): string {
-    if (status === 'SAFE') return 'pill pill--safe'
-    if (status === 'UNSAFE') return 'pill pill--unsafe'
-    return 'pill pill--sometimes'
-  }
-
-  function statusLabel(status: SensoryFoodStatus): string {
-    if (status === 'SAFE') return 'SAFE'
-    if (status === 'UNSAFE') return 'UNSAFE'
-    return 'SOMETIMES'
-  }
-
   const editFoodError = ref('')
   const editFoodBusy = ref(false)
 
@@ -233,7 +258,20 @@ export function useSensorySetupForm() {
   function choosePickerItem(item: WickedPickerItem) {
     foodInputWickedIconId.value = item.wickedIconId
     foodQuery.value = item.label
+    foodPickerOpen.value = false
     addFoodError.value = ''
+    void addFood()
+  }
+
+  function openFoodPicker() {
+    foodPickerOpen.value = true
+  }
+
+  function closeFoodPickerSoon() {
+    // Defer close slightly so clicks on picker items can register after input blur.
+    window.setTimeout(() => {
+      foodPickerOpen.value = false
+    }, 120)
   }
 
   function resolveWickedImage(iconId: string | undefined | null): string | null {
@@ -273,7 +311,7 @@ export function useSensorySetupForm() {
 
     const wickedIconId = foodInputWickedIconId.value.trim()
     if (!wickedIconId) {
-      addFoodError.value = 'Search and choose a food tag, then tap Add.'
+      addFoodError.value = 'Search and choose a food tag.'
       return
     }
     addFoodBusy.value = true
@@ -282,11 +320,10 @@ export function useSensorySetupForm() {
       const data = await apiFetch<{ item: unknown }>('/api/sensory/items', {
         method: 'POST',
         headers: { 'X-User-Id': currentUserId() },
-        body: JSON.stringify({ wickedIconId, status: foodInputStatus.value }),
+        body: JSON.stringify({ wickedIconId, status: 'UNSAFE' satisfies SensoryFoodStatus }),
       })
       foodInputWickedIconId.value = ''
       foodQuery.value = ''
-      foodInputStatus.value = 'UNSURE'
       try {
         await refresh()
       } catch {
@@ -414,12 +451,14 @@ export function useSensorySetupForm() {
     selectedDietary,
     selectedCultural,
     foodInputWickedIconId,
-    foodInputStatus,
     foodQuery,
+    foodPickerOpen,
     selectedPickerItem,
     pickerLoading,
     pickerError,
     filteredPickerItems,
+    shortPickerLabel,
+    foodDisplayName,
     resolveWickedImage,
     addFoodError,
     addFoodBusy,
@@ -433,11 +472,11 @@ export function useSensorySetupForm() {
     toggleUnsafeTexture,
     toggleDietary,
     toggleCultural,
-    statusPillClasses,
-    statusLabel,
     onFoodRowClick,
     loadFoodPickerItems,
     choosePickerItem,
+    openFoodPicker,
+    closeFoodPickerSoon,
     addFood,
     saveEditingFood,
     deleteEditingFood,
