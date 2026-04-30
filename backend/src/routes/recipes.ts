@@ -220,7 +220,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       where.progress = { some: { userId } };
     } else {
       // For You is user-specific; without user ID we return empty.
-      where.id = "__none__";
+      return reply.send({ results: [] });
     }
 
     const orderBy =
