@@ -7,6 +7,8 @@
     "dev:frontend": "npm run dev --prefix frontend",
     "db:migrate": "npm run prisma:deploy --prefix backend",
     "test:prep": "npm install && npm install --prefix backend && npm install --prefix frontend && npm run db:migrate",
+    "build": "npm run build --prefix backend && npm run build --prefix frontend",
+    "build:backend": "npm run build --prefix backend",
     "build:frontend": "npm run build --prefix frontend",
     "deploy:backend": "powershell -ExecutionPolicy Bypass -File scripts/deploy-backend.ps1",
     "deploy:hosting": "npm run build:frontend && npx firebase deploy --only hosting --project bitesbud-6bb88"

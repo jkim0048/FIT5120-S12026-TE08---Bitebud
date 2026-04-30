@@ -1,6 +1,9 @@
 import { parseRecipeGraph, type RecipeGraph, validateDag } from "../graph/recipeGraph.js";
 import { requireEnv } from "../env.js";
-import { repairIngredientNodesFromRecipeText } from "./graphRepair.js";
+import {
+  repairIngredientNodesFromRecipeText,
+  syncIngredientNodesWithSourceLines,
+} from "./graphRepair.js";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -108,6 +111,7 @@ const TEXT_PARSE_INSTRUCTIONS = `You are a recipe parser. Convert the following 
 Rules:
 - Each ingredient becomes a node with type "ingredient"
 - For ingredient nodes: label is the ingredient name only (e.g. "Eggs", "Smoked salmon"); detail includes quantity/notes (e.g. "4 large eggs")
+- If the Ingredients section lists the same ingredient more than once with different amounts or usage notes (e.g. two soured cream lines: one for filling, one for topping), create a SEPARATE ingredient node for each line. Reuse the same short label when the item is the same (e.g. "Soured cream") but copy the full line into detail each time so each checklist row stays distinct—never merge those into one node.
 - Always include an emoji for ingredients
 - Each instruction step becomes a node with type prep, cook, wait, assemble, or serve
 - Each step gets an action emoji from: knife work, pan cooking, pot cooking, oven/grill, mixing, liquid/pour, seasoning, waiting, steam, serve (use single emoji each)
@@ -182,6 +186,7 @@ ${sourceUrl ? `\nSource URL hint: ${sourceUrl}` : ""}`;
         }
         if (sourceUrl) graph = { ...graph, sourceUrl };
         graph = repairIngredientNodesFromRecipeText(graph, text);
+        graph = syncIngredientNodesWithSourceLines(graph, text);
         validateDag(graph);
         return graph;
       } catch (e) {
