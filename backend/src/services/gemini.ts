@@ -11,7 +11,7 @@ import {
 } from "./graphRepair.js";
 
 /** Override with env `GEMINI_MODEL`. Default matches README; falls back if quota/API rejects. */
-const DEFAULT_MODEL = "gemini-2.5-pro";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 /**
  * Keep this list to models that are commonly available on the Gemini API.
  * (Preview/retired IDs can hard-fail with 404 for many keys.)
@@ -21,6 +21,7 @@ const FALLBACK_MODELS = [
   "gemini-2.5-flash-lite",
   "gemini-flash-latest",
   "gemini-2.0-flash",
+  "gemini-2.5-pro"
 ] as const;
 
 /** Build an ordered list of model names to try (env override first, then known fallbacks; de-duplicated). */

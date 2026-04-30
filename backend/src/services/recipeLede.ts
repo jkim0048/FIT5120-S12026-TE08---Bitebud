@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { requireEnv } from "../env.js";
 import { isGeminiBusyError } from "./gemini.js";
 
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 /**
  * Keep this list to models that are commonly available on the Gemini API.
  * (Preview/retired IDs can hard-fail with 404 for many keys.)
@@ -12,6 +12,7 @@ const FALLBACK_GEMINI_MODELS = [
   "gemini-2.5-flash-lite",
   "gemini-flash-latest",
   "gemini-2.0-flash",
+  "gemini-2.5-pro"
 ] as const;
 
 /** Build an ordered list of Gemini models to try for lede generation (env override first, then fallbacks). */
