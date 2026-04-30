@@ -3,6 +3,8 @@ import HomeView from '../views/HomeView.vue'
 import RecipeSearchView from '../views/RecipeSearchView.vue'
 import RecipeFlowPage from '../views/RecipeFlowPage.vue'
 import GuidedCookView from '../views/GuidedCookView.vue'
+import GuidedServingsView from '../views/GuidedServingsView.vue'
+import GuidedFlavorsView from '../views/GuidedFlavorsView.vue'
 import RecipeCompleteView from '../views/RecipeCompleteView.vue'
 import { getBiteBudUserId } from '../composables/useUserId'
 import SensorySetupView from '../views/SensorySetupView.vue'
@@ -26,6 +28,8 @@ export const router = createRouter({
     { path: '/auth/new-user', name: 'authNewUser', component: AuthNewUserView },
     { path: '/search', name: 'search', component: RecipeSearchView },
     { path: '/recipe/:id', name: 'recipe', component: RecipeFlowPage },
+    { path: '/recipe/:id/servings', name: 'guidedServings', component: GuidedServingsView },
+    { path: '/recipe/:id/flavors', name: 'guidedFlavors', component: GuidedFlavorsView },
     { path: '/recipe/:id/cook', name: 'guided', component: GuidedCookView },
     { path: '/recipe/:id/complete', name: 'recipeComplete', component: RecipeCompleteView },
     {

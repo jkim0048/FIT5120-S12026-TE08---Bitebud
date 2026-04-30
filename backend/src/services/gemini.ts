@@ -5,23 +5,30 @@ import {
   validateDag,
 } from "../graph/recipeGraph.js";
 import { requireEnv } from "../env.js";
-import { repairIngredientNodesFromRecipeText } from "./graphRepair.js";
+import {
+  repairIngredientNodesFromRecipeText,
+  syncIngredientNodesWithSourceLines,
+} from "./graphRepair.js";
 
 /** Override with env `GEMINI_MODEL`. Default matches README; falls back if quota/API rejects. */
-const DEFAULT_MODEL = "gemini-2.5-pro";
-/** 1.5 IDs are retired for many keys (404). Prefer current 2.5 / aliases per https://ai.google.dev/gemini-api/docs/models */
+const DEFAULT_MODEL = "gemini-2.5-flash";
+/**
+ * Keep this list to models that are commonly available on the Gemini API.
+ * (Preview/retired IDs can hard-fail with 404 for many keys.)
+ */
 const FALLBACK_MODELS = [
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
   "gemini-flash-latest",
-  "gemini-3-flash-preview",
-  "gemini-3-flash-lite-preview",
   "gemini-2.0-flash",
+  "gemini-2.5-pro"
 ] as const;
 
 /** Build an ordered list of model names to try (env override first, then known fallbacks; de-duplicated). */
 function modelCandidates(): string[] {
-  const preferred = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
+  const preferredRaw = process.env.GEMINI_MODEL?.trim();
+  const allow = new Set<string>([DEFAULT_MODEL, ...FALLBACK_MODELS]);
+  const preferred = preferredRaw && allow.has(preferredRaw) ? preferredRaw : DEFAULT_MODEL;
   const out = [preferred, ...FALLBACK_MODELS.filter((m) => m !== preferred)];
   return [...new Set(out)];
 }
@@ -72,6 +79,7 @@ const TEXT_PARSE_INSTRUCTIONS = `You are a recipe parser. Convert the following 
 Rules:
 - Each ingredient becomes a node with type "ingredient"
 - For ingredient nodes: label is the ingredient name only (e.g. "Eggs", "Smoked salmon"); detail includes quantity/notes (e.g. "4 large eggs")
+- If the Ingredients section lists the same ingredient more than once with different amounts or usage notes (e.g. two soured cream lines: one for filling, one for topping), create a SEPARATE ingredient node for each line. Reuse the same short label when the item is the same (e.g. "Soured cream") but copy the full line into detail each time so each checklist row stays distinct—never merge those into one node.
 - Always include an emoji for ingredients
 - Each instruction step becomes a node with type prep, cook, wait, assemble, or serve
 - Each step gets an action emoji from: knife work, pan cooking, pot cooking, oven/grill, mixing, liquid/pour, seasoning, waiting, steam, serve (use single emoji each)
@@ -142,6 +150,7 @@ ${sourceUrl ? `\nSource URL hint: ${sourceUrl}` : ""}`;
   }
   if (sourceUrl) graph = { ...graph, sourceUrl };
   graph = repairIngredientNodesFromRecipeText(graph, text);
+  graph = syncIngredientNodesWithSourceLines(graph, text);
   validateDag(graph);
   return graph;
 }

@@ -21,13 +21,14 @@ const {
   selectedUnsafeTextures,
   selectedDietary,
   selectedCultural,
-  foodInputStatus,
   foodQuery,
+  foodPickerOpen,
   pickerLoading,
   pickerError,
   filteredPickerItems,
+  shortPickerLabel,
+  foodDisplayName,
   addFoodError,
-  addFoodBusy,
   foodsForDisplay,
   textureDone,
   dietaryDone,
@@ -37,8 +38,9 @@ const {
   toggleCultural,
   loadFoodPickerItems,
   choosePickerItem,
+  openFoodPicker,
+  closeFoodPickerSoon,
   resolveWickedImage,
-  addFood,
   saveAndViewSummary,
   saveTexturesSection,
   saveDietaryCulturalSection,
@@ -207,9 +209,10 @@ function onFoodEditThumbError(e: Event) {
                 v-model="foodQuery"
                 class="food-input"
                 placeholder="Search a food tag..."
-                @focus="loadFoodPickerItems"
+                @focus="openFoodPicker(); loadFoodPickerItems()"
+                @blur="closeFoodPickerSoon"
               />
-              <ul v-if="foodQuery && filteredPickerItems.length" class="picker-list">
+              <ul v-if="foodPickerOpen && foodQuery && filteredPickerItems.length" class="picker-list">
                 <li v-for="item in filteredPickerItems" :key="item.wickedIconId">
                   <button type="button" class="picker-item" @click="choosePickerItem(item)">
                     <img
@@ -219,22 +222,12 @@ function onFoodEditThumbError(e: Event) {
                       @error="onSuggestionImageError($event, item.imageUrl)"
                     />
                     <span class="picker-copy">
-                      <span>{{ item.label }}</span>
-                      <small>{{ item.hint }}</small>
+                      <span>{{ shortPickerLabel(item) }}</span>
+                      <small v-if="item.hint">{{ item.hint }}</small>
                     </span>
                   </button>
                 </li>
               </ul>
-            </div>
-            <div class="food-actions">
-              <select v-model="foodInputStatus" class="food-status-select" aria-label="Food safety status">
-                <option value="UNSURE">Sometimes</option>
-                <option value="SAFE">Safe</option>
-                <option value="UNSAFE">Unsafe</option>
-              </select>
-              <button type="button" class="food-add-btn" :disabled="addFoodBusy" @click="addFood">
-                {{ addFoodBusy ? 'Adding…' : 'Add' }}
-              </button>
             </div>
           </div>
           <div v-if="pickerLoading" class="muted">Loading food tags…</div>
@@ -250,12 +243,9 @@ function onFoodEditThumbError(e: Event) {
                   alt=""
                 />
                 <span class="food-name-wrap">
-                  <span class="food-name">{{ item.name }}</span>
+                  <span class="food-name">{{ foodDisplayName(item) }}</span>
                   <small class="food-note">Tap to edit or remove</small>
                 </span>
-                <strong class="food-status" :class="`food-status--${item.status.toLowerCase()}`">
-                  {{ item.status === 'UNSURE' ? 'SOMETIMES' : item.status }}
-                </strong>
               </button>
             </li>
           </ul>
@@ -292,12 +282,6 @@ function onFoodEditThumbError(e: Event) {
               <span v-else class="food-edit-preview-ph">🍽</span>
               <div class="food-edit-preview-text">
                 <span class="food-edit-preview-name">{{ editingFood.name }}</span>
-                <span
-                  class="food-edit-preview-pill"
-                  :class="`food-status--${editingFood.status.toLowerCase()}`"
-                >
-                  {{ editingFood.status === 'UNSURE' ? 'SOMETIMES' : editingFood.status }}
-                </span>
               </div>
             </div>
 
@@ -311,13 +295,6 @@ function onFoodEditThumbError(e: Event) {
               tabindex="-1"
               aria-readonly="true"
             />
-
-            <label class="food-edit-label" for="food-edit-status">Status</label>
-            <select id="food-edit-status" v-model="editingFood.status" class="food-edit-input">
-              <option value="SAFE">Safe</option>
-              <option value="UNSURE">Sometimes OK</option>
-              <option value="UNSAFE">Unsafe</option>
-            </select>
 
             <p v-if="editFoodError" class="food-edit-err" role="alert">{{ editFoodError }}</p>
           </div>
@@ -550,9 +527,19 @@ function onFoodEditThumbError(e: Event) {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+  color: var(--bb-text);
 }
 .picker-copy {
   display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.picker-copy > span {
+  color: var(--bb-text);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .picker-copy small {
   color: var(--bb-muted);
@@ -574,7 +561,7 @@ function onFoodEditThumbError(e: Event) {
 }
 .food-item {
   display: grid;
-  grid-template-columns: 28px 1fr auto;
+  grid-template-columns: 28px 1fr;
   align-items: center;
   gap: 0.55rem;
   background: #fff;
@@ -601,9 +588,17 @@ function onFoodEditThumbError(e: Event) {
 }
 .food-name {
   min-width: 0;
+  display: block;
+  color: var(--bb-text);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .food-name-wrap {
   display: grid;
+  min-width: 0;
+  width: 100%;
 }
 .food-note {
   color: var(--bb-muted);

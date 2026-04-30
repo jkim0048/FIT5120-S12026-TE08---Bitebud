@@ -59,6 +59,10 @@ const recipeOpenOverlayHint = computed(() =>
     ? 'Turning your paste into steps, ingredients, and flow…'
     : 'Loading the full recipe view…',
 )
+const recipeOpenOverlayDisclaimer = computed(
+  () =>
+    'We use AI to simplify this recipe, and we cache it in our database so it loads faster next time.',
+)
 const results = ref<BrowseCard[]>([])
 
 const pasteTextareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -656,6 +660,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
         <div class="recipe-open-overlay__spinner" aria-hidden="true" />
         <p class="recipe-open-overlay__title">{{ recipeOpenOverlayTitle }}</p>
         <p class="recipe-open-overlay__hint">{{ recipeOpenOverlayHint }}</p>
+        <p class="recipe-open-overlay__disclaimer">{{ recipeOpenOverlayDisclaimer }}</p>
       </div>
     </div>
 
@@ -1031,6 +1036,12 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   font-size: 0.95rem;
   line-height: 1.55;
   color: var(--bb-muted);
+}
+.recipe-open-overlay__disclaimer {
+  margin: 0.65rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--bb-muted) 80%, transparent);
 }
 .page-hero {
   margin-bottom: 1.5rem;

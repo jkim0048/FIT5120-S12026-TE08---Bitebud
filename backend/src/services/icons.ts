@@ -330,6 +330,15 @@ function iconIdFromUrl(url: string): string {
   return base.replace(/\.[a-z0-9]+$/i, "").replace(/[^a-z0-9_-]/gi, "-");
 }
 
+function isGenericWickedAltLabel(alt: string): boolean {
+  const a = alt.trim().toLowerCase();
+  if (!a) return true;
+  // The Wicked landing page often uses a generic `alt` for all icons.
+  if (a === "wicked food icon") return true;
+  if (/\bwicked\b/.test(a) && /\bicon\b/.test(a) && a.length <= 40) return true;
+  return false;
+}
+
 /**
  * Ingest icons from the Wicked source page by scraping `<img>` tags and upserting rows into Prisma.
  *
@@ -353,7 +362,8 @@ export async function ingestWickedIcons(opts?: {
   let withAssets = 0;
   for (const item of imgs) {
     const id = iconIdFromUrl(item.src);
-    const name = item.alt || id.replace(/[-_]/g, " ");
+    const alt = (item.alt ?? "").trim();
+    const name = !isGenericWickedAltLabel(alt) ? alt : id.replace(/[-_]/g, " ");
     let asset: Buffer | null = null;
     if (includeAssets) {
       try {
