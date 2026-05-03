@@ -103,7 +103,7 @@ watchEffect(() => {
         </div>
         <nav class="primary-nav" aria-label="Primary">
           <RouterLink to="/">Home</RouterLink>
-          <RouterLink to="/search">Let's Start Cooking</RouterLink>
+          <RouterLink to="/search">Let's start cooking</RouterLink>
           <RouterLink v-if="!isSignedIn" to="/restaurants">Let's dine out</RouterLink>
           <div
             v-else
