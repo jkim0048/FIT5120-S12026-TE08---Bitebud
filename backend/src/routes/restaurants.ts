@@ -804,10 +804,22 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     }
 
     if (!localResults.length && !nominatimResults.length) {
-      warnings.push({
-        code: "NO_NEARBY_RESULTS",
-        error: "No nearby places found yet. Try Use area or type a place name.",
-      });
+      const nominatimWarningCodes = new Set([
+        "NOMINATIM_HTTP_ERROR",
+        "NOMINATIM_ERROR",
+        "NOMINATIM_TIMEOUT",
+      ]);
+      const hadNominatimIssue = warnings.some((w) => nominatimWarningCodes.has(w.code));
+      if (hadNominatimIssue) {
+        const kept = warnings.filter((w) => !nominatimWarningCodes.has(w.code));
+        warnings.length = 0;
+        warnings.push(...kept, { code: "LOCATION_INVALID", error: "Location invalid" });
+      } else {
+        warnings.push({
+          code: "NO_NEARBY_RESULTS",
+          error: "No nearby places found yet. Try Use area or type a place name.",
+        });
+      }
     }
 
     const dedupedLocal = Array.from(

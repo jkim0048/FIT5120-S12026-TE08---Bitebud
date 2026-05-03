@@ -17,9 +17,9 @@ import 'leaflet/dist/leaflet.css'
 const RASTER_BASEMAP_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
 
 const comfortLegendColors = {
-  great: '#4d585f',
-  good: '#7a7a7a',
-  mixed: '#b0b0b0',
+  great: '#22c55e',
+  good: '#3b82f6',
+  mixed: '#eab308',
 } as const
 
 /** Static prop for vue-leaflet; pan/zoom are driven only by syncMapAfterReveal so results updates are not overwritten. */
@@ -31,6 +31,8 @@ const fallbackSuburb = ref('')
 /** When set, area search uses this token (suburb/postcode) even if the input shows a longer formatted label. */
 const areaSuburbForApi = ref<string | null>(null)
 const loading = ref(false)
+/** True after any restaurant search has finished (success or error). Hides empty-state copy on first visit. */
+const hasCompletedSearch = ref(false)
 const error = ref('')
 const areaContext = ref<string | null>(null)
 const results = ref<RestaurantSearchResult[]>([])
@@ -173,6 +175,7 @@ async function syncMapAfterReveal() {
 }
 
 const summaryText = computed(() => {
+  if (!hasCompletedSearch.value) return 'Search an area or use Near me to see places'
   if (!results.value.length) return 'No places shown yet'
   return `Reviewed ${reviewedResults.value.length} · Nearby ${freshResults.value.length} · ${mapPoints.value.length} pins on map`
 })
@@ -267,6 +270,7 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
     return null
   } finally {
     loading.value = false
+    hasCompletedSearch.value = true
   }
 }
 
@@ -391,7 +395,7 @@ function onLocationInput() {
   locationSuggestTimer = setTimeout(() => {
     locationSuggestTimer = undefined
     void fetchLocationSuggestions()
-  }, 320)
+  }, 150)
 }
 
 function onLocationFocus() {
@@ -475,37 +479,44 @@ async function attemptAreaSearch() {
     locationSuggestOpen.value = true
     return
   }
-  // Validate against suggestions, but only show the error if the search also returns 0 results.
-  let suggestionCount: number | null = null
+  // Location-suggest and restaurant search run in parallel — sequential was ~2× slower before invalid hint.
   locationSuggestLoading.value = true
   try {
-    const res = await suggestRestaurantLocations(q, 8)
-    locationSuggestions.value = res.suggestions
-    locationSuggestOpen.value = true
-    locationSuggestActiveIndex.value = res.suggestions.length ? 0 : -1
-    suggestionCount = res.suggestions.length
-  } catch (e) {
-    suggestionCount = null
-    if (e instanceof ApiError) {
-      if (e.status === 404) {
-        const msg = e.message ?? ''
-        const looksLikeFastifyMissingRoute =
-          msg.includes('Route GET:') && msg.includes('not found')
-        error.value = looksLikeFastifyMissingRoute
-          ? 'Restaurant API on port 3001 is out of date (route missing). From the backend folder run npm run build, restart the server, or use npm run dev instead of npm start.'
-          : 'Restaurant API returned 404. Check that the backend is running on port 3001 with a current build.'
-      } else if (e.status === 502 || e.status === 503) {
-        error.value =
-          'Cannot reach the restaurant API. Start the backend (port 3001) so location search can load suggestions.'
-      }
+    const suggestPromise = suggestRestaurantLocations(q, 8)
+      .then((res) => {
+        locationSuggestions.value = res.suggestions
+        locationSuggestOpen.value = true
+        locationSuggestActiveIndex.value = res.suggestions.length ? 0 : -1
+        return res.suggestions.length
+      })
+      .catch((e: unknown) => {
+        locationSuggestions.value = []
+        locationSuggestOpen.value = true
+        locationSuggestActiveIndex.value = -1
+        if (e instanceof ApiError) {
+          if (e.status === 404) {
+            const msg = e.message ?? ''
+            const looksLikeFastifyMissingRoute =
+              msg.includes('Route GET:') && msg.includes('not found')
+            error.value = looksLikeFastifyMissingRoute
+              ? 'Restaurant API on port 3001 is out of date (route missing). From the backend folder run npm run build, restart the server, or use npm run dev instead of npm start.'
+              : 'Restaurant API returned 404. Check that the backend is running on port 3001 with a current build.'
+          } else if (e.status === 502 || e.status === 503) {
+            error.value =
+              'Cannot reach the restaurant API. Start the backend (port 3001) so location search can load suggestions.'
+          }
+        }
+        return null
+      })
+
+    const [count, data] = await Promise.all([suggestPromise, runSearch({ suburb: q })])
+
+    if (count === 0 && (data?.results?.length ?? 0) === 0) {
+      locationInvalid.value = true
+      locationHint.value = 'No matching suburb/postcode found. Please enter a valid suburb name or postcode.'
     }
   } finally {
     locationSuggestLoading.value = false
-  }
-  const data = await runSearch({ suburb: q })
-  if (suggestionCount === 0 && (data?.results?.length ?? 0) === 0) {
-    locationInvalid.value = true
-    locationHint.value = 'No matching suburb/postcode found. Please enter a valid suburb name or postcode.'
   }
 }
 
@@ -708,7 +719,9 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-show="showReviewedSection">
-            <p v-if="!loading && reviewedResults.length === 0" class="hint section-hint">No reviewed places for this search yet.</p>
+            <p v-if="!loading && hasCompletedSearch && reviewedResults.length === 0" class="hint section-hint">
+              No reviewed places for this search yet.
+            </p>
             <ul class="result-list">
               <li
                 v-for="r in reviewedResults"
@@ -736,8 +749,7 @@ onBeforeUnmount(() => {
 
         <section class="section-card section-card--tight">
           <h2>Found nearby</h2>
-          <p v-if="!loading && freshResults.length === 0" class="hint section-hint">No unrated matches in this list. Adjust area or filters.</p>
-          <ul class="result-list">
+          <ul v-if="freshResults.length" class="result-list">
             <li
               v-for="r in freshResults"
               :id="`restaurant-card-${r.id}`"
@@ -762,14 +774,15 @@ onBeforeUnmount(() => {
               </button>
             </li>
           </ul>
-        </section>
-
-        <section v-if="!loading && !hasAnyResult" class="empty-state empty-state--tight">
-          <h2>No places in this list</h2>
-          <p class="hint">Try another suburb or use Near me.</p>
-          <div class="empty-actions">
-            <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="useAreaContext">Use area context</button>
-            <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="runSearch()">Typed search</button>
+          <div
+            v-else-if="!loading && hasCompletedSearch && !hasAnyResult"
+            class="nearby-empty"
+          >
+            <p class="hint">Try another suburb or use Near me.</p>
+            <div class="empty-actions">
+              <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="useAreaContext">Use area context</button>
+              <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="runSearch()">Typed search</button>
+            </div>
           </div>
         </section>
 
@@ -1214,24 +1227,6 @@ input {
   color: var(--bb-primary);
 }
 
-.empty-state {
-  border: 1px solid color-mix(in srgb, var(--bb-accent) 35%, var(--bb-border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bb-accent) 8%, var(--bb-surface-low));
-  padding: 0.5rem 0.55rem;
-}
-.empty-state--tight {
-  padding: 0.45rem 0.5rem;
-}
-.empty-state h2 {
-  margin: 0;
-  font-size: 0.82rem;
-  font-family: var(--bb-font-headline);
-  color: var(--bb-primary);
-}
-.empty-state p {
-  margin: 0.25rem 0 0;
-}
 .empty-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
