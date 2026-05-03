@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   createRestaurantFromNominatim,
@@ -8,8 +8,19 @@ import {
   type LocationSuggestion,
   type RestaurantSearchResult,
 } from '../lib/restaurantsApi'
-import { LMap, LTileLayer, LCircleMarker, LPopup, LTooltip } from '@vue-leaflet/vue-leaflet'
+import L from 'leaflet'
+import { LMap, LCircleMarker, LPopup, LTooltip } from '@vue-leaflet/vue-leaflet'
+import 'maplibre-gl/dist/maplibre-gl.css'
+import '@maplibre/maplibre-gl-leaflet'
 import 'leaflet/dist/leaflet.css'
+
+const GRAYSCALE_BASEMAP_STYLE_URL = 'https://tiles.versatiles.org/assets/styles/graybeard/style.json'
+
+const comfortLegendColors = {
+  great: '#4d585f',
+  good: '#7a7a7a',
+  mixed: '#b0b0b0',
+} as const
 
 const route = useRoute()
 const router = useRouter()
@@ -31,6 +42,7 @@ const recommendedIds = ref<string[]>([])
 const activeMapId = ref<string | null>(null)
 const mapZoom = ref(13)
 const mapEl = ref<InstanceType<typeof LMap> | null>(null)
+let grayscaleBasemap: L.MaplibreGL | null = null
 
 const maxResults = ref<number>(15)
 
@@ -102,11 +114,23 @@ const mapCenter = computed<[number, number]>(() => {
   return [chosen.latitude, chosen.longitude]
 })
 
+function ensureGrayscaleBasemap(leafletMap: L.Map): void {
+  if (grayscaleBasemap) return
+  grayscaleBasemap = L.maplibreGL({
+    style: GRAYSCALE_BASEMAP_STYLE_URL,
+    attributionControl: {
+      customAttribution:
+        '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · VersaTiles Graybeard',
+    },
+  }).addTo(leafletMap)
+}
+
 async function syncMapAfterReveal() {
   if (!showMapSection.value) return
   await nextTick()
-  const leafletMap = (mapEl.value as any)?.leafletObject
+  const leafletMap = (mapEl.value as any)?.leafletObject as L.Map | undefined
   if (!leafletMap) return
+  ensureGrayscaleBasemap(leafletMap)
   // If a Leaflet map is mounted while its container is hidden (or animated),
   // it often renders at the wrong size until we invalidate.
   leafletMap.invalidateSize?.()
@@ -451,9 +475,9 @@ function showEasiestThree() {
 }
 
 function markerColor(result: RestaurantSearchResult): string {
-  if (result.comfortBadge === 'Great match') return '#1f9d55'
-  if (result.comfortBadge === 'Good match') return '#e59f2f'
-  return '#7a7a7a'
+  if (result.comfortBadge === 'Great match') return comfortLegendColors.great
+  if (result.comfortBadge === 'Good match') return comfortLegendColors.good
+  return comfortLegendColors.mixed
 }
 
 function selectFromMap(id: string) {
@@ -484,6 +508,14 @@ onMounted(() => {
   }
   if (typeof lat === 'number' && typeof lon === 'number' && Number.isFinite(lat) && Number.isFinite(lon)) {
     void runSearch({ lat, lon })
+  }
+})
+
+onBeforeUnmount(() => {
+  const leafletMap = (mapEl.value as any)?.leafletObject as L.Map | undefined
+  if (leafletMap && grayscaleBasemap) {
+    leafletMap.removeLayer(grayscaleBasemap)
+    grayscaleBasemap = null
   }
 })
 </script>
@@ -693,13 +725,7 @@ onMounted(() => {
           </div>
           <div class="map-body">
             <div class="map-wrap">
-              <LMap ref="mapEl" v-model:zoom="mapZoom" :center="mapCenter" :use-global-leaflet="false" class="restaurant-map">
-                <LTileLayer
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  layer-type="base"
-                  name="OpenStreetMap"
-                  attribution="&copy; OpenStreetMap contributors"
-                />
+              <LMap ref="mapEl" v-model:zoom="mapZoom" :center="mapCenter" class="restaurant-map">
                 <LCircleMarker
                   v-for="point in mapPoints"
                   :key="point.id"
@@ -733,9 +759,9 @@ onMounted(() => {
               </div>
             </div>
             <div class="legend legend--tight">
-              <span><i class="dot dot--great"></i> Great</span>
-              <span><i class="dot dot--good"></i> Good</span>
-              <span><i class="dot dot--mixed"></i> Mixed</span>
+              <span><i class="dot" :style="{ background: comfortLegendColors.great }"></i> Great</span>
+              <span><i class="dot" :style="{ background: comfortLegendColors.good }"></i> Good</span>
+              <span><i class="dot" :style="{ background: comfortLegendColors.mixed }"></i> Mixed</span>
             </div>
           </div>
         </div>
@@ -873,7 +899,6 @@ onMounted(() => {
   gap: 0.65rem;
   order: 2;
 }
-
 
 .controls-column {
   min-width: 0;
@@ -1089,15 +1114,6 @@ input {
   display: inline-block;
   margin-right: 0.2rem;
 }
-.dot--great {
-  background: #1f9d55;
-}
-.dot--good {
-  background: #e59f2f;
-}
-.dot--mixed {
-  background: #7a7a7a;
-}
 .popup p {
   margin: 0.15rem 0 0;
   font-size: 0.78rem;
@@ -1107,7 +1123,7 @@ input {
   gap: 0.1rem;
 }
 .tip-sub {
-  color: #475467;
+  color: #6b7280;
   font-size: 0.74rem;
 }
 
