@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ApiError } from '../lib/api'
 import {
   createRestaurantFromNominatim,
   searchRestaurants,
@@ -10,17 +11,19 @@ import {
 } from '../lib/restaurantsApi'
 import L from 'leaflet'
 import { LMap, LCircleMarker, LPopup, LTooltip } from '@vue-leaflet/vue-leaflet'
-import 'maplibre-gl/dist/maplibre-gl.css'
-import '@maplibre/maplibre-gl-leaflet'
 import 'leaflet/dist/leaflet.css'
 
-const GRAYSCALE_BASEMAP_STYLE_URL = 'https://tiles.versatiles.org/assets/styles/graybeard/style.json'
+/** Carto light raster tiles — loads much faster than a remote MapLibre style bundle. */
+const RASTER_BASEMAP_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
 
 const comfortLegendColors = {
   great: '#4d585f',
   good: '#7a7a7a',
   mixed: '#b0b0b0',
 } as const
+
+/** Static prop for vue-leaflet; pan/zoom are driven only by syncMapAfterReveal so results updates are not overwritten. */
+const INITIAL_MAP_CENTER = [-37.8136, 144.9631] as [number, number]
 
 const route = useRoute()
 const router = useRouter()
@@ -36,13 +39,16 @@ const locationDistanceLabel = ref('No distance context yet')
 const modeLabel = ref('Search not started')
 const sourceSummary = ref('Reviewed 0 · Nearby 0')
 const showReviewedSection = ref(false)
-const showMapSection = ref(false)
+const showMapSection = ref(true)
 
 const recommendedIds = ref<string[]>([])
 const activeMapId = ref<string | null>(null)
 const mapZoom = ref(13)
 const mapEl = ref<InstanceType<typeof LMap> | null>(null)
-let grayscaleBasemap: L.MaplibreGL | null = null
+/** Last place the user aimed the search (suggestion pick, GPS, or first result) — pans the map even with zero pins. */
+const searchFocusLat = ref<number | null>(null)
+const searchFocusLon = ref<number | null>(null)
+let baseRasterLayer: L.TileLayer | null = null
 
 const maxResults = ref<number>(15)
 
@@ -69,31 +75,15 @@ const filteredResults = computed(() => {
     .slice(0, limit)
 })
 
-const currentPage = ref(1)
-const pageSize = computed(() => Math.min(30, Math.max(3, Number(maxResults.value) || 15)))
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredResults.value.length / pageSize.value)))
-const pagedResults = computed(() => {
-  const size = pageSize.value
-  const start = (currentPage.value - 1) * size
-  return filteredResults.value.slice(start, start + size)
-})
-
-watch(
-  () => [pageSize.value, filteredResults.value.length],
-  () => {
-    currentPage.value = Math.min(Math.max(1, currentPage.value), totalPages.value)
-    if (currentPage.value > totalPages.value) currentPage.value = 1
-  },
-)
-
-const reviewedResults = computed(() => pagedResults.value.filter((r) => r.source === 'bitebud' && r.reviewCount > 0))
+/** Full shortlist split by type — do not use a page slice here: API merges locals first then Nominatim, so paging hid all "nearby" rows on page 1. */
+const reviewedResults = computed(() => filteredResults.value.filter((r) => r.source === 'bitebud' && r.reviewCount > 0))
 const freshResults = computed(() =>
-  pagedResults.value.filter((r) => r.source === 'nominatim' || (r.source === 'bitebud' && r.reviewCount === 0)),
+  filteredResults.value.filter((r) => r.source === 'nominatim' || (r.source === 'bitebud' && r.reviewCount === 0)),
 )
 const hasAnyResult = computed(() => reviewedResults.value.length + freshResults.value.length > 0)
 
 const closestDistanceText = computed(() => {
-  const distances = pagedResults.value
+  const distances = filteredResults.value
     .map((r) => r.distanceKm)
     .filter((d): d is number => typeof d === 'number')
     .sort((a, b) => a - b)
@@ -102,51 +92,89 @@ const closestDistanceText = computed(() => {
 })
 
 const mapPoints = computed(() =>
-  pagedResults.value
-    .filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
-    .slice(0, Math.min(30, Math.max(3, Number(maxResults.value) || 15))),
+  filteredResults.value.filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude)),
 )
 
 const mapCenter = computed<[number, number]>(() => {
-  if (!mapPoints.value.length) return [-37.8136, 144.9631]
-  const active = mapPoints.value.find((r) => r.id === activeMapId.value)
-  const chosen = active ?? mapPoints.value[0]
-  return [chosen.latitude, chosen.longitude]
+  if (mapPoints.value.length) {
+    const active = mapPoints.value.find((r) => r.id === activeMapId.value)
+    const chosen = active ?? mapPoints.value[0]
+    return [chosen.latitude, chosen.longitude]
+  }
+  if (
+    searchFocusLat.value != null &&
+    searchFocusLon.value != null &&
+    Number.isFinite(searchFocusLat.value) &&
+    Number.isFinite(searchFocusLon.value)
+  ) {
+    return [searchFocusLat.value, searchFocusLon.value]
+  }
+  return INITIAL_MAP_CENTER
 })
 
-function ensureGrayscaleBasemap(leafletMap: L.Map): void {
-  if (grayscaleBasemap) return
-  grayscaleBasemap = L.maplibreGL({
-    style: GRAYSCALE_BASEMAP_STYLE_URL,
-    attributionControl: {
-      customAttribution:
-        '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · VersaTiles Graybeard',
-    },
+function ensureRasterBasemap(leafletMap: L.Map): void {
+  if (baseRasterLayer) return
+  baseRasterLayer = L.tileLayer(RASTER_BASEMAP_URL, {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © CARTO',
+    subdomains: 'abcd',
+    maxZoom: 20,
   }).addTo(leafletMap)
 }
 
+/** Fit all pins or fall back to mapCenter (Melbourne when empty). */
+function applySearchResultsToMap(leafletMap: L.Map): void {
+  const pts = mapPoints.value.filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
+  if (pts.length >= 2) {
+    const bounds = L.latLngBounds(pts.map((r) => [r.latitude, r.longitude] as [number, number]))
+    if (bounds.isValid()) {
+      leafletMap.fitBounds(bounds, { padding: [44, 44], maxZoom: 16, animate: false })
+      return
+    }
+  }
+  if (pts.length === 1) {
+    leafletMap.setView([pts[0].latitude, pts[0].longitude], Math.min(16, Math.max(mapZoom.value, 13)), {
+      animate: false,
+    })
+    return
+  }
+  if (
+    searchFocusLat.value != null &&
+    searchFocusLon.value != null &&
+    Number.isFinite(searchFocusLat.value) &&
+    Number.isFinite(searchFocusLon.value)
+  ) {
+    leafletMap.setView([searchFocusLat.value, searchFocusLon.value], Math.min(15, Math.max(mapZoom.value, 12)), {
+      animate: false,
+    })
+    return
+  }
+  leafletMap.setView(mapCenter.value, mapZoom.value, { animate: false })
+}
+
 async function syncMapAfterReveal() {
-  if (!showMapSection.value) return
   await nextTick()
   const leafletMap = (mapEl.value as any)?.leafletObject as L.Map | undefined
   if (!leafletMap) return
-  ensureGrayscaleBasemap(leafletMap)
-  // If a Leaflet map is mounted while its container is hidden (or animated),
-  // it often renders at the wrong size until we invalidate.
-  leafletMap.invalidateSize?.()
-  leafletMap.setView?.(mapCenter.value, mapZoom.value, { animate: false })
-  // Run once more after the slide-in transition completes.
+  ensureRasterBasemap(leafletMap)
+
+  if (showMapSection.value) {
+    leafletMap.invalidateSize?.()
+  }
+  applySearchResultsToMap(leafletMap)
+
+  if (!showMapSection.value) return
+
   setTimeout(() => {
-    const m = (mapEl.value as any)?.leafletObject
+    const m = (mapEl.value as any)?.leafletObject as L.Map | undefined
     if (!m) return
     m.invalidateSize?.()
-    m.setView?.(mapCenter.value, mapZoom.value, { animate: false })
-  }, 240)
+    applySearchResultsToMap(m)
+  }, 80)
 }
 
 const summaryText = computed(() => {
   if (!results.value.length) return 'No places shown yet'
-  return `Reviewed ${reviewedResults.value.length} · Nearby ${freshResults.value.length} · Showing ${mapPoints.value.length} on map`
+  return `Reviewed ${reviewedResults.value.length} · Nearby ${freshResults.value.length} · ${mapPoints.value.length} pins on map`
 })
 
 watch(
@@ -179,10 +207,12 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
       fallbackSuburb.value = data.areaContext
       areaSuburbForApi.value = null
     }
-    results.value = data.results
-    currentPage.value = 1
+    results.value = Array.isArray(data.results) ? data.results : []
     // Active marker will be synced to filteredResults via watcher.
-    warningText.value = data.warnings?.[0]?.error ?? ''
+    warningText.value =
+      Array.isArray(data.warnings) && data.warnings.length
+        ? data.warnings.map((w) => w.error).filter(Boolean).join(' · ')
+        : ''
     modeLabel.value = data.modeUsed === 'near_me' ? 'Using your location' : data.modeUsed === 'area' ? 'Using area fallback' : 'Using typed search'
     sourceSummary.value = `Reviewed ${data.sourceCounts?.bitebud ?? reviewedResults.value.length} · Nearby ${data.sourceCounts?.nominatim ?? freshResults.value.length}`
     const near = data.results.find((r) => r.distanceKm !== null)
@@ -190,6 +220,17 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
     locationDistanceLabel.value = typeof distance === 'number' ? `${distance.toFixed(1)} km to nearby places` : 'No distance context yet'
 
     showEasiestThree()
+
+    if (typeof params?.lat === 'number' && typeof params?.lon === 'number' && Number.isFinite(params.lat) && Number.isFinite(params.lon)) {
+      searchFocusLat.value = params.lat
+      searchFocusLon.value = params.lon
+    } else {
+      const firstGeo = data.results.find((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
+      if (firstGeo) {
+        searchFocusLat.value = firstGeo.latitude
+        searchFocusLon.value = firstGeo.longitude
+      }
+    }
 
     // Persist search + filters into the URL so returning Back restores state.
     const nextQuery: Record<string, string> = {}
@@ -205,7 +246,24 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
     void syncMapAfterReveal()
     return data
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Search failed'
+    results.value = []
+    if (e instanceof ApiError) {
+      if (e.status === 404) {
+        const msg = e.message ?? ''
+        const looksLikeFastifyMissingRoute =
+          msg.includes('Route GET:') && msg.includes('not found')
+        error.value = looksLikeFastifyMissingRoute
+          ? 'Restaurant API on port 3001 is out of date (route missing). From the backend folder run npm run build, restart the server, or use npm run dev instead of npm start.'
+          : 'Restaurant API returned 404. Check that the backend is running on port 3001 with a current build.'
+      } else if (e.status === 502 || e.status === 503) {
+        error.value =
+          'Cannot reach the restaurant API. Start the backend (port 3001) and ensure the Vite dev proxy is enabled for /api.'
+      } else {
+        error.value = e.message || `Search failed (${e.status})`
+      }
+    } else {
+      error.value = e instanceof Error ? e.message : 'Search failed'
+    }
     return null
   } finally {
     loading.value = false
@@ -220,6 +278,9 @@ async function useNearMe() {
   navigator.geolocation.getCurrentPosition(
     (position) => {
       locationDistanceLabel.value = 'Using current location'
+      showMapSection.value = true
+      searchFocusLat.value = position.coords.latitude
+      searchFocusLon.value = position.coords.longitude
       void runSearch({
         lat: position.coords.latitude,
         lon: position.coords.longitude,
@@ -398,6 +459,9 @@ function pickLocationSuggestion(s: LocationSuggestion) {
   locationSuggestActiveIndex.value = -1
   locationInvalid.value = false
   locationHint.value = ''
+  searchFocusLat.value = s.latitude
+  searchFocusLon.value = s.longitude
+  showMapSection.value = true
   void runSearch({ lat: s.latitude, lon: s.longitude, suburb: s.areaSearch })
 }
 
@@ -420,8 +484,21 @@ async function attemptAreaSearch() {
     locationSuggestOpen.value = true
     locationSuggestActiveIndex.value = res.suggestions.length ? 0 : -1
     suggestionCount = res.suggestions.length
-  } catch {
+  } catch (e) {
     suggestionCount = null
+    if (e instanceof ApiError) {
+      if (e.status === 404) {
+        const msg = e.message ?? ''
+        const looksLikeFastifyMissingRoute =
+          msg.includes('Route GET:') && msg.includes('not found')
+        error.value = looksLikeFastifyMissingRoute
+          ? 'Restaurant API on port 3001 is out of date (route missing). From the backend folder run npm run build, restart the server, or use npm run dev instead of npm start.'
+          : 'Restaurant API returned 404. Check that the backend is running on port 3001 with a current build.'
+      } else if (e.status === 502 || e.status === 503) {
+        error.value =
+          'Cannot reach the restaurant API. Start the backend (port 3001) so location search can load suggestions.'
+      }
+    }
   } finally {
     locationSuggestLoading.value = false
   }
@@ -448,6 +525,14 @@ watch(
   },
 )
 
+watch(
+  () =>
+    `${mapPoints.value.map((p) => p.id).join(',')}|${searchFocusLat.value ?? ''}:${searchFocusLon.value ?? ''}`,
+  () => {
+    void syncMapAfterReveal()
+  },
+)
+
 function resultMeta(r: RestaurantSearchResult): string {
   const cuisine = r.cuisine ?? 'Restaurant'
   const reviews = `${r.reviewCount} reviews`
@@ -463,7 +548,7 @@ function comfortRank(badge: string): number {
 }
 
 function showEasiestThree() {
-  const ranked = [...pagedResults.value].sort((a, b) => {
+  const ranked = [...filteredResults.value].sort((a, b) => {
     const badgeDelta = comfortRank(a.comfortBadge) - comfortRank(b.comfortBadge)
     if (badgeDelta !== 0) return badgeDelta
     const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.MAX_SAFE_INTEGER
@@ -513,9 +598,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   const leafletMap = (mapEl.value as any)?.leafletObject as L.Map | undefined
-  if (leafletMap && grayscaleBasemap) {
-    leafletMap.removeLayer(grayscaleBasemap)
-    grayscaleBasemap = null
+  if (leafletMap && baseRasterLayer) {
+    leafletMap.removeLayer(baseRasterLayer)
+    baseRasterLayer = null
   }
 })
 </script>
@@ -679,31 +764,6 @@ onBeforeUnmount(() => {
           </ul>
         </section>
 
-        <nav v-if="totalPages > 1" class="pagination" aria-label="Restaurant results pages">
-          <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" :disabled="currentPage <= 1" @click="currentPage -= 1">
-            Prev
-          </button>
-          <button
-            v-for="p in totalPages"
-            :key="p"
-            class="bb-btn bb-btn--secondary bb-btn--compact"
-            type="button"
-            :aria-current="p === currentPage ? 'page' : undefined"
-            :class="{ 'pagination__btn--active': p === currentPage }"
-            @click="currentPage = p"
-          >
-            {{ p }}
-          </button>
-          <button
-            class="bb-btn bb-btn--secondary bb-btn--compact"
-            type="button"
-            :disabled="currentPage >= totalPages"
-            @click="currentPage += 1"
-          >
-            Next
-          </button>
-        </nav>
-
         <section v-if="!loading && !hasAnyResult" class="empty-state empty-state--tight">
           <h2>No places in this list</h2>
           <p class="hint">Try another suburb or use Near me.</p>
@@ -725,15 +785,15 @@ onBeforeUnmount(() => {
           </div>
           <div class="map-body">
             <div class="map-wrap">
-              <LMap ref="mapEl" v-model:zoom="mapZoom" :center="mapCenter" class="restaurant-map">
+              <LMap ref="mapEl" v-model:zoom="mapZoom" :center="INITIAL_MAP_CENTER" class="restaurant-map">
                 <LCircleMarker
                   v-for="point in mapPoints"
                   :key="point.id"
                   :lat-lng="[point.latitude, point.longitude]"
-                  :radius="activeMapId === point.id ? 10 : 7"
+                  :radius="activeMapId === point.id ? 12 : 9"
                   :color="markerColor(point)"
                   :fill-color="markerColor(point)"
-                  :fill-opacity="0.86"
+                  :fill-opacity="0.92"
                   :weight="2"
                   @click="selectFromMap(point.id)"
                 >
@@ -755,7 +815,7 @@ onBeforeUnmount(() => {
                 </LCircleMarker>
               </LMap>
               <div v-if="!mapPoints.length" class="map-empty map-empty--overlay">
-                <p>No pins yet — search an area.</p>
+                <p>{{ searchFocusLat != null ? 'No pins in this view — try widening the area or another search.' : 'No pins yet — search an area.' }}</p>
               </div>
             </div>
             <div class="legend legend--tight">
@@ -1228,20 +1288,6 @@ input {
   line-height: 1.3;
 }
 
-.pagination {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  padding: 0.25rem 0 0.05rem;
-}
-.pagination__btn--active {
-  border-color: color-mix(in srgb, var(--bb-primary) 35%, var(--bb-border));
-  background: color-mix(in srgb, var(--bb-primary) 10%, var(--bb-surface-lowest));
-  color: var(--bb-primary);
-  font-weight: 700;
-}
 .recommended {
   border-color: color-mix(in srgb, var(--bb-accent) 45%, var(--bb-border));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--bb-accent) 16%, transparent);
