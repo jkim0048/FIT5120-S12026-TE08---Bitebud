@@ -22,7 +22,7 @@ function scrollToTop() {
         </p>
         <div class="ctas">
           <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Let's Start Cooking</RouterLink>
-          <RouterLink to="/restaurants" class="bb-btn bb-btn--secondary cta">Let's Dine Out</RouterLink>
+          <RouterLink to="/restaurants" class="bb-btn bb-btn--secondary cta">Let's dine out</RouterLink>
           <RouterLink v-if="!isSignedIn" to="/auth" class="bb-btn bb-btn--secondary cta">Customise sensory profile</RouterLink>
           <RouterLink v-else to="/sensory/setup" class="bb-btn bb-btn--secondary cta">Customise sensory profile</RouterLink>
         </div>
@@ -80,7 +80,7 @@ function scrollToTop() {
 
         <details class="tile tile-softblue">
           <summary class="tile-summary">
-            <h3 class="h3">Find Sensory‑Friendly Restaurants</h3>
+            <h3 class="h3">Find sensory‑friendly restaurants</h3>
             <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
           </summary>
           <p class="tile-copy">
