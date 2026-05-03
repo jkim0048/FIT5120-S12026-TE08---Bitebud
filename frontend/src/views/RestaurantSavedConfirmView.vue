@@ -8,6 +8,13 @@ const router = useRouter()
 const favSaved = ref(false)
 const saveError = ref('')
 
+function formatTagsFromQuery(key: string) {
+  const raw = route.query[key]
+  const s = Array.isArray(raw) ? raw.join(',') : raw == null ? '' : String(raw)
+  const parts = s.split(',').map((t) => t.trim()).filter(Boolean)
+  return parts.length ? parts.join(', ') : 'N/A'
+}
+
 function navToReview() {
   void router.push({ name: 'restaurantReviewDetail', params: { id: String(route.params.id) } })
 }
@@ -46,9 +53,9 @@ onMounted(() => {
     <p class="hint">We'll help you and others choose calmer restaurants in less time.</p>
     <div class="card">
       <p class="ok">✅ Saved place and tags</p>
-      <p><strong>Meal block:</strong> {{ route.query.mealBlock || 'N/A' }}</p>
-      <p><strong>Time of day:</strong> {{ route.query.timeOfDay || 'N/A' }}</p>
-      <p><strong>Day of week:</strong> {{ route.query.dayOfWeek || 'N/A' }}</p>
+      <p><strong>Meal block:</strong> {{ formatTagsFromQuery('mealBlock') }}</p>
+      <p><strong>Time of day:</strong> {{ formatTagsFromQuery('timeOfDay') }}</p>
+      <p><strong>Day of week:</strong> {{ formatTagsFromQuery('dayOfWeek') }}</p>
       <p :class="favSaved ? 'ok' : 'hint'">
         {{ favSaved ? 'Saved to favourite restaurants.' : 'Saving to favourites...' }}
       </p>

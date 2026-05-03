@@ -996,6 +996,51 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     return { ok: true, reviewId: created.id };
   });
 
+  app.get("/api/restaurants/reviews/:reviewId", async (request, reply) => {
+    const params = request.params as { reviewId: string };
+    const userId = (request.headers["x-user-id"] as string | undefined) ?? DEFAULT_USER_ID;
+    let review;
+    try {
+      review = await prisma.restaurantReview.findFirst({
+        where: { id: params.reviewId, userId },
+        select: {
+          id: true,
+          placeId: true,
+          overallRating: true,
+          noiseRating: true,
+          musicRating: true,
+          lightRating: true,
+          crowdsRating: true,
+          smellsRating: true,
+          bestMealBlocks: true,
+          bestTimesOfDay: true,
+          bestDaysOfWeek: true,
+        },
+      });
+    } catch (err) {
+      if (isPrismaSchemaMissingError(err)) {
+        return reply.status(503).send(schemaMissingResponse());
+      }
+      throw err;
+    }
+    if (!review) {
+      return reply.status(404).send({ error: "Review not found" });
+    }
+    return {
+      reviewId: review.id,
+      placeId: review.placeId,
+      overallRating: Number(review.overallRating),
+      noiseRating: review.noiseRating,
+      musicRating: review.musicRating,
+      lightRating: review.lightRating,
+      crowdsRating: review.crowdsRating,
+      smellsRating: review.smellsRating,
+      bestMealBlocks: (review.bestMealBlocks as string[]) ?? [],
+      bestTimesOfDay: (review.bestTimesOfDay as string[]) ?? [],
+      bestDaysOfWeek: (review.bestDaysOfWeek as string[]) ?? [],
+    };
+  });
+
   app.patch("/api/restaurants/reviews/:reviewId/best-time", async (request, reply) => {
     const params = request.params as { reviewId: string };
     const parsed = BEST_TIME_BODY_SCHEMA.safeParse(request.body ?? {});

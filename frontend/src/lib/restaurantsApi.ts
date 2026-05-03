@@ -155,6 +155,22 @@ export async function submitRestaurantRating(
   )
 }
 
+export async function fetchRestaurantReviewRating(reviewId: string): Promise<{
+  reviewId: string
+  placeId: string
+  overallRating: number
+  noiseRating: number
+  musicRating: number
+  lightRating: number
+  crowdsRating: number
+  smellsRating: number
+  bestMealBlocks: string[]
+  bestTimesOfDay: string[]
+  bestDaysOfWeek: string[]
+}> {
+  return apiFetch(`/api/restaurants/reviews/${reviewId}`, withUserHeaders())
+}
+
 export async function patchRestaurantBestTime(
   reviewId: string,
   payload: { bestMealBlocks: string[]; bestTimesOfDay: string[]; bestDaysOfWeek: string[] },

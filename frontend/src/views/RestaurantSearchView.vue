@@ -41,7 +41,7 @@ const locationDistanceLabel = ref('No distance context yet')
 const modeLabel = ref('Search not started')
 const sourceSummary = ref('Reviewed 0 · Nearby 0')
 const showReviewedSection = ref(false)
-const showMapSection = ref(true)
+const showMapSection = ref(false)
 
 const recommendedIds = ref<string[]>([])
 const activeMapId = ref<string | null>(null)
@@ -198,7 +198,15 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
   locationInvalid.value = false
   locationHint.value = ''
   try {
-    const queryText = (params?.q ?? (params?.suburb ? '' : fallbackSuburb.value)).trim()
+    // Near me passes only lat/lon — do not reuse the location field text as `q` or the API stays in "typed" mode for the old suburb.
+    const geoOnly =
+      typeof params?.lat === 'number' &&
+      typeof params?.lon === 'number' &&
+      Number.isFinite(params.lat) &&
+      Number.isFinite(params.lon) &&
+      params?.q == null &&
+      params?.suburb == null
+    const queryText = (params?.q ?? (params?.suburb ? '' : geoOnly ? '' : fallbackSuburb.value)).trim()
     const data = await searchRestaurants({
       q: queryText || undefined,
       lat: params?.lat,
@@ -282,7 +290,7 @@ async function useNearMe() {
   navigator.geolocation.getCurrentPosition(
     (position) => {
       locationDistanceLabel.value = 'Using current location'
-      showMapSection.value = true
+      areaSuburbForApi.value = null
       searchFocusLat.value = position.coords.latitude
       searchFocusLon.value = position.coords.longitude
       void runSearch({
@@ -465,7 +473,6 @@ function pickLocationSuggestion(s: LocationSuggestion) {
   locationHint.value = ''
   searchFocusLat.value = s.latitude
   searchFocusLon.value = s.longitude
-  showMapSection.value = true
   void runSearch({ lat: s.latitude, lon: s.longitude, suburb: s.areaSearch })
 }
 

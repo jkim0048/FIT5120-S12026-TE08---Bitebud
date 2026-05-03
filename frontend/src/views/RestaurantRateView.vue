@@ -1,19 +1,72 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { submitRestaurantRating } from '../lib/restaurantsApi'
+import { fetchRestaurantReviewRating, submitRestaurantRating } from '../lib/restaurantsApi'
 
 const route = useRoute()
 const router = useRouter()
 const saving = ref(false)
 const error = ref('')
+
+const reviewId = typeof route.query.reviewId === 'string' ? route.query.reviewId : ''
+const placeId = String(route.params.id)
+
+function rateStorageKey(id: string) {
+  return `bitebud-rate-draft-${id}`
+}
+
+function readRateDraft(): Partial<{
+  noiseRating: number
+  musicRating: number
+  lightRating: number
+  crowdsRating: number
+  smellsRating: number
+}> | null {
+  if (!reviewId) return null
+  try {
+    const raw = sessionStorage.getItem(rateStorageKey(reviewId))
+    if (!raw) return null
+    return JSON.parse(raw) as Partial<{
+      noiseRating: number
+      musicRating: number
+      lightRating: number
+      crowdsRating: number
+      smellsRating: number
+    }>
+  } catch {
+    return null
+  }
+}
+
+function writeRateDraft() {
+  if (!reviewId) return
+  sessionStorage.setItem(
+    rateStorageKey(reviewId),
+    JSON.stringify({
+      noiseRating: form.noiseRating,
+      musicRating: form.musicRating,
+      lightRating: form.lightRating,
+      crowdsRating: form.crowdsRating,
+      smellsRating: form.smellsRating,
+    }),
+  )
+}
+
+const draft = readRateDraft()
 const form = reactive({
-  noiseRating: 3,
-  musicRating: 3,
-  lightRating: 3,
-  crowdsRating: 3,
-  smellsRating: 3,
+  noiseRating: typeof draft?.noiseRating === 'number' ? draft.noiseRating : 3,
+  musicRating: typeof draft?.musicRating === 'number' ? draft.musicRating : 3,
+  lightRating: typeof draft?.lightRating === 'number' ? draft.lightRating : 3,
+  crowdsRating: typeof draft?.crowdsRating === 'number' ? draft.crowdsRating : 3,
+  smellsRating: typeof draft?.smellsRating === 'number' ? draft.smellsRating : 3,
 })
+
+watch(
+  () => [form.noiseRating, form.musicRating, form.lightRating, form.crowdsRating, form.smellsRating],
+  () => {
+    writeRateDraft()
+  },
+)
 
 function overall() {
   const total = form.noiseRating + form.musicRating + form.lightRating + form.crowdsRating + form.smellsRating
@@ -47,14 +100,27 @@ async function submit() {
   saving.value = true
   error.value = ''
   try {
-    const placeId = String(route.params.id)
     const created = await submitRestaurantRating(placeId, { ...form, overallRating: overall() })
     const returnTo = String(route.query.returnTo || '')
     const returnToPath = String(route.query.returnToPath || '')
+    sessionStorage.setItem(
+      rateStorageKey(created.reviewId),
+      JSON.stringify({
+        noiseRating: form.noiseRating,
+        musicRating: form.musicRating,
+        lightRating: form.lightRating,
+        crowdsRating: form.crowdsRating,
+        smellsRating: form.smellsRating,
+      }),
+    )
     void router.push({
       name: 'restaurantBestTime',
       params: { id: placeId },
-      query: { reviewId: created.reviewId, ...(returnTo ? { returnTo } : {}), ...(returnToPath ? { returnToPath } : {}) },
+      query: {
+        reviewId: created.reviewId,
+        ...(returnTo ? { returnTo } : {}),
+        ...(returnToPath ? { returnToPath } : {}),
+      },
     })
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Could not save rating'
@@ -62,6 +128,22 @@ async function submit() {
     saving.value = false
   }
 }
+
+onMounted(async () => {
+  if (!reviewId) return
+  try {
+    const r = await fetchRestaurantReviewRating(reviewId)
+    if (String(r.placeId) !== placeId) return
+    form.noiseRating = r.noiseRating
+    form.musicRating = r.musicRating
+    form.lightRating = r.lightRating
+    form.crowdsRating = r.crowdsRating
+    form.smellsRating = r.smellsRating
+    writeRateDraft()
+  } catch {
+    /* keep draft from sessionStorage */
+  }
+})
 </script>
 
 <template>
