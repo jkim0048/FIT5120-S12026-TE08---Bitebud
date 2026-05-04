@@ -305,7 +305,15 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       });
     }
     const textToParse = resolvedInput.text;
-    const okRecipe = await isLikelyFoodRecipeResilient(textToParse);
+    let okRecipe = true;
+    try {
+      okRecipe = await isLikelyFoodRecipeResilient(textToParse);
+    } catch {
+      return reply.status(503).send({
+        error: "Recipe check is temporarily unavailable. Please try again in a moment.",
+        code: "RECIPE_CHECK_UNAVAILABLE",
+      });
+    }
     if (!okRecipe) {
       return reply.status(422).send({
         error: "That doesn’t look like a food recipe. Paste ingredients and instructions.",

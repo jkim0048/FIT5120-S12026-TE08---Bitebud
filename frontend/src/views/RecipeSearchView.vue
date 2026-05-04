@@ -555,9 +555,14 @@ async function search() {
     if (e instanceof ApiError && e.code === 'URL_NOT_FETCHABLE') {
       err.value =
         'That link could not be opened automatically—many sites block recipe scraping. Copy the full recipe from the page and paste the text here instead.'
+    } else if (e instanceof ApiError && e.code === 'NOT_RECIPE') {
+      err.value =
+        'That doesn’t look like a food recipe. Paste ingredients and instructions (or a recipe URL).'
     } else if (e instanceof ApiError && e.code === 'PARSE_FAILED') {
       err.value =
         'We opened the page but could not read a clear recipe. Paste the ingredients and instructions here manually for best results.'
+    } else if (e instanceof ApiError && e.code === 'RECIPE_CHECK_UNAVAILABLE') {
+      err.value = 'Recipe check is temporarily unavailable. Please try again in a moment.'
     } else {
       err.value = e instanceof Error ? e.message : 'Search failed'
     }
