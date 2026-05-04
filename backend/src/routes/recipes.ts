@@ -32,6 +32,9 @@ import { resolveVisualiseInput } from "../services/recipeUrlFetch.js";
 import { deriveRecipeMetadata, type RecipeMetadata } from "../services/recipeMetadata.js";
 import { generateRecipeLedeResilient } from "../services/recipeLede.js";
 import { parseBiteBudUserId } from "../biteBudUserId.js";
+import { zSearchQuery, zUserRecipeText } from "../validation/text.js";
+import { enforceRateLimit } from "../services/rateLimit.js";
+import { isLikelyFoodRecipeResilient } from "../services/recipeClassifier.js";
 
 function jsonStringArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
@@ -91,14 +94,12 @@ function graphIngredientLines(graph: RecipeGraph): string[] {
 }
 
 const visualiseBody = z.object({
-  text: z.string().min(1),
+  text: zUserRecipeText,
   sourceUrl: z.string().optional().nullable(),
 });
 
 const importBody = z.object({
   mealDbId: z.string().min(1),
-  /** When true, skip re-fetch/re-parse and return the stored graph if the recipe is already refined. Default false so re-import picks up source ingredients and parser fixes. */
-  useCache: z.boolean().optional(),
 });
 
 const browseQuery = z.object({
@@ -291,6 +292,8 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
   });
 
   app.post("/api/recipes/visualise", async (request, reply) => {
+    enforceRateLimit(request, reply, { keyPrefix: "visualise", limit: 5, windowMs: 60_000 });
+    if (reply.sent) return;
     const body = visualiseBody.parse(request.body);
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
     const resolvedInput = await resolveVisualiseInput(body.text);
@@ -302,6 +305,13 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       });
     }
     const textToParse = resolvedInput.text;
+    const okRecipe = await isLikelyFoodRecipeResilient(textToParse);
+    if (!okRecipe) {
+      return reply.status(422).send({
+        error: "That doesn’t look like a food recipe. Paste ingredients and instructions.",
+        code: "NOT_RECIPE",
+      });
+    }
     const sourceUrl = body.sourceUrl?.trim() || resolvedInput.sourceUrl;
     let parsed: { graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "openrouter" | "basic" };
     try {
@@ -331,7 +341,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
   app.get("/api/recipes/search", async (request, reply) => {
     const q = z
       .object({
-        q: z.string().optional(),
+        q: zSearchQuery.optional(),
         page: z.coerce.number().int().min(0).optional().default(0),
         limit: z.coerce.number().int().min(1).max(100).optional().default(24),
         maxMinutes: z.coerce.number().int().positive().optional(),
@@ -345,7 +355,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       complexity: q.complexity,
       heatLevel: q.heatLevel,
     };
-    const text = q.q?.trim();
+    const text = q.q;
     const meals = text
       ? await searchMealsOrdered(text, filters)
       : await browseMealsOrdered(q.page, q.limit, filters);
@@ -431,7 +441,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const existing = await prisma.recipe.findUnique({
       where: { mealDbId: body.mealDbId },
     });
-    if (existing && existing.refined && body.useCache === true) {
+    if (existing && existing.refined) {
       if (existing.totalTimeMinutes == null && knownTime != null) {
         await prisma.recipe.update({
           where: { id: existing.id },
