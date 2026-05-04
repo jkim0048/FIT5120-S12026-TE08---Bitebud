@@ -38,10 +38,13 @@ const areaContext = ref<string | null>(null)
 const results = ref<RestaurantSearchResult[]>([])
 const warningText = ref('')
 const locationDistanceLabel = ref('No distance context yet')
+const distanceAnchorLabel = ref('Distances from your selected search anchor')
 const modeLabel = ref('Search not started')
 const sourceSummary = ref('Reviewed 0 · Nearby 0')
 const showReviewedSection = ref(false)
 const showMapSection = ref(false)
+const currentDistanceLat = ref<number | null>(null)
+const currentDistanceLon = ref<number | null>(null)
 
 const recommendedIds = ref<string[]>([])
 const activeMapId = ref<string | null>(null)
@@ -229,6 +232,17 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
     const near = data.results.find((r) => r.distanceKm !== null)
     const distance = near?.distanceKm
     locationDistanceLabel.value = typeof distance === 'number' ? `${distance.toFixed(1)} km to nearby places` : 'No distance context yet'
+    if (data.modeUsed === 'near_me') {
+      distanceAnchorLabel.value = 'Distances from your current location'
+    } else if (params?.suburb?.trim()) {
+      distanceAnchorLabel.value = `Distances from ${params.suburb.trim()}`
+    } else if (data.areaContext?.trim()) {
+      distanceAnchorLabel.value = `Distances from ${data.areaContext.trim()}`
+    } else if (queryText) {
+      distanceAnchorLabel.value = `Distances from search: ${queryText}`
+    } else {
+      distanceAnchorLabel.value = 'Distances from your selected search anchor'
+    }
 
     showEasiestThree()
 
@@ -290,6 +304,8 @@ async function useNearMe() {
   navigator.geolocation.getCurrentPosition(
     (position) => {
       locationDistanceLabel.value = 'Using current location'
+      currentDistanceLat.value = position.coords.latitude
+      currentDistanceLon.value = position.coords.longitude
       areaSuburbForApi.value = null
       searchFocusLat.value = position.coords.latitude
       searchFocusLon.value = position.coords.longitude
@@ -365,6 +381,80 @@ function suggestionPrimaryLine(s: LocationSuggestion): string {
 
 function suggestionSecondaryLine(s: LocationSuggestion): string {
   return [s.state?.trim(), s.postcode?.trim()].filter(Boolean).join(' · ')
+}
+
+function normalizeAreaToken(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function distanceKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const r = 6371
+  const dLat = ((bLat - aLat) * Math.PI) / 180
+  const dLon = ((bLon - aLon) * Math.PI) / 180
+  const lat1 = (aLat * Math.PI) / 180
+  const lat2 = (bLat * Math.PI) / 180
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+  return 2 * r * Math.asin(Math.sqrt(h))
+}
+
+function withDistanceFromCurrentLocation(items: RestaurantSearchResult[]): RestaurantSearchResult[] {
+  if (currentDistanceLat.value == null || currentDistanceLon.value == null) return items
+  if (!Number.isFinite(currentDistanceLat.value) || !Number.isFinite(currentDistanceLon.value)) return items
+  return items.map((r) => ({
+    ...r,
+    distanceKm: Number(distanceKm(currentDistanceLat.value!, currentDistanceLon.value!, r.latitude, r.longitude).toFixed(1)),
+  }))
+}
+
+function refreshDistanceSummaryFromResults() {
+  const near = results.value.find((r) => r.distanceKm !== null)
+  const distance = near?.distanceKm
+  locationDistanceLabel.value = typeof distance === 'number' ? `${distance.toFixed(1)} km to nearby places` : 'No distance context yet'
+}
+
+async function captureCurrentLocationForDistance(): Promise<boolean> {
+  if (!navigator.geolocation) return false
+  return new Promise<boolean>((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        currentDistanceLat.value = position.coords.latitude
+        currentDistanceLon.value = position.coords.longitude
+        resolve(true)
+      },
+      () => resolve(false),
+      { timeout: 6000, maximumAge: 60000 },
+    )
+  })
+}
+
+function pickBestSuggestionForArea(query: string, suggestions: LocationSuggestion[]): LocationSuggestion | null {
+  if (!suggestions.length) return null
+  const q = normalizeAreaToken(query)
+  if (!q) return suggestions[0] ?? null
+
+  const scored = suggestions
+    .map((s) => {
+      const suburb = normalizeAreaToken(s.suburb ?? '')
+      const area = normalizeAreaToken(s.areaSearch ?? '')
+      const display = normalizeAreaToken(s.displayName ?? '')
+      const postcode = normalizeAreaToken(s.postcode ?? '')
+
+      let score = 0
+      if (suburb === q || area === q) score += 100
+      if (suburb.startsWith(q) || area.startsWith(q)) score += 70
+      if (suburb.includes(q) || area.includes(q)) score += 45
+      if (display.includes(q)) score += 20
+      if (postcode === q) score += 80
+
+      return { s, score }
+    })
+    .sort((a, b) => b.score - a.score)
+
+  const top = scored[0]
+  if (!top || top.score <= 0) return suggestions[0] ?? null
+  return top.s
 }
 
 async function fetchLocationSuggestions() {
@@ -486,39 +576,52 @@ async function attemptAreaSearch() {
     locationSuggestOpen.value = true
     return
   }
-  // Location-suggest and restaurant search run in parallel — sequential was ~2× slower before invalid hint.
   locationSuggestLoading.value = true
   try {
-    const suggestPromise = suggestRestaurantLocations(q, 8)
-      .then((res) => {
-        locationSuggestions.value = res.suggestions
-        locationSuggestOpen.value = true
-        locationSuggestActiveIndex.value = res.suggestions.length ? 0 : -1
-        return res.suggestions.length
-      })
-      .catch((e: unknown) => {
-        locationSuggestions.value = []
-        locationSuggestOpen.value = true
-        locationSuggestActiveIndex.value = -1
-        if (e instanceof ApiError) {
-          if (e.status === 404) {
-            const msg = e.message ?? ''
-            const looksLikeFastifyMissingRoute =
-              msg.includes('Route GET:') && msg.includes('not found')
-            error.value = looksLikeFastifyMissingRoute
-              ? 'Restaurant API on port 3001 is out of date (route missing). From the backend folder run npm run build, restart the server, or use npm run dev instead of npm start.'
-              : 'Restaurant API returned 404. Check that the backend is running on port 3001 with a current build.'
-          } else if (e.status === 502 || e.status === 503) {
-            error.value =
-              'Cannot reach the restaurant API. Start the backend (port 3001) so location search can load suggestions.'
-          }
+    let suggestions: LocationSuggestion[] = []
+    try {
+      const res = await suggestRestaurantLocations(q, 8)
+      suggestions = res.suggestions
+      locationSuggestions.value = res.suggestions
+      locationSuggestOpen.value = true
+      locationSuggestActiveIndex.value = res.suggestions.length ? 0 : -1
+    } catch (e: unknown) {
+      locationSuggestions.value = []
+      locationSuggestOpen.value = true
+      locationSuggestActiveIndex.value = -1
+      if (e instanceof ApiError) {
+        if (e.status === 404) {
+          const msg = e.message ?? ''
+          const looksLikeFastifyMissingRoute =
+            msg.includes('Route GET:') && msg.includes('not found')
+          error.value = looksLikeFastifyMissingRoute
+            ? 'Restaurant API on port 3001 is out of date (route missing). From the backend folder run npm run build, restart the server, or use npm run dev instead of npm start.'
+            : 'Restaurant API returned 404. Check that the backend is running on port 3001 with a current build.'
+        } else if (e.status === 502 || e.status === 503) {
+          error.value =
+            'Cannot reach the restaurant API. Start the backend (port 3001) so location search can load suggestions.'
         }
-        return null
-      })
+      }
+    }
 
-    const [count, data] = await Promise.all([suggestPromise, runSearch({ suburb: q })])
+    const anchor = pickBestSuggestionForArea(q, suggestions)
+    const data = anchor
+      ? await runSearch({
+          lat: anchor.latitude,
+          lon: anchor.longitude,
+          suburb: anchor.areaSearch,
+        })
+      : await runSearch({ suburb: q })
 
-    if (count === 0 && (data?.results?.length ?? 0) === 0) {
+    const gotCurrentLocation = await captureCurrentLocationForDistance()
+    if (gotCurrentLocation) {
+      results.value = withDistanceFromCurrentLocation(results.value)
+      showEasiestThree()
+      refreshDistanceSummaryFromResults()
+      distanceAnchorLabel.value = 'Distances from your current location'
+    }
+
+    if (!suggestions.length && (data?.results?.length ?? 0) === 0) {
       locationInvalid.value = true
       locationHint.value = 'No matching suburb/postcode found. Please enter a valid suburb name or postcode.'
     }
@@ -557,6 +660,11 @@ function resultMeta(r: RestaurantSearchResult): string {
   const comfort = `${r.comfortBadge} ${r.overallRating.toFixed(1)}/5`
   const distance = r.distanceKm === null ? '' : ` · ${r.distanceKm.toFixed(1)} km`
   return `${cuisine} · ${reviews} · ${comfort}${distance}`
+}
+
+function freshResultMeta(r: RestaurantSearchResult): string {
+  const distance = r.distanceKm === null ? '' : ` · ${r.distanceKm.toFixed(1)} km`
+  return `No BiteBud sensory reviews yet${distance}`
 }
 
 function comfortRank(badge: string): number {
@@ -756,6 +864,7 @@ onBeforeUnmount(() => {
 
         <section class="section-card section-card--tight">
           <h2>Found nearby</h2>
+          <p v-if="hasAnyResult" class="hint section-hint">{{ distanceAnchorLabel }}</p>
           <ul v-if="freshResults.length" class="result-list">
             <li
               v-for="r in freshResults"
@@ -769,7 +878,7 @@ onBeforeUnmount(() => {
                 <h3>{{ r.name }}</h3>
                 <p v-if="recommendedIds.includes(r.id)" class="reco">Recommended</p>
                 <p class="result-card__addr">{{ r.address ?? r.displayName }}</p>
-                <p class="meta">No BiteBud sensory reviews yet</p>
+                <p class="meta">{{ freshResultMeta(r) }}</p>
               </div>
               <button
                 class="bb-btn bb-btn--secondary bb-btn--compact"
