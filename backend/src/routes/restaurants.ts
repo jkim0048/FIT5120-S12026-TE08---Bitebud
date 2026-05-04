@@ -7,7 +7,9 @@ type NominatimSearchItem = {
   place_id?: number;
   osm_type?: string;
   osm_id?: number | string;
+  /** Legacy Nominatim field; jsonv2 uses `category` instead. */
   class?: string;
+  category?: string;
   type?: string;
   lat?: string;
   lon?: string;
@@ -16,6 +18,10 @@ type NominatimSearchItem = {
   extratags?: Record<string, string>;
   address?: Record<string, string>;
 };
+
+function nominatimClass(item: NominatimSearchItem): string {
+  return (item.class ?? item.category ?? "").toLowerCase();
+}
 
 const SEARCH_QUERY_SCHEMA = z.object({
   q: z.string().trim().max(120).optional(),
@@ -60,6 +66,17 @@ const CREATE_FROM_NOMINATIM_SCHEMA = z.object({
 
 const DEFAULT_USER_ID = "demo-user";
 const SCHEMA_MISSING_CODE = "RESTAURANT_SCHEMA_MISSING";
+
+/** Rough mainland AU + Tasmania bbox for Nominatim viewbox (west, north, east, south). Biases free-text search when no GPS. */
+const AUSTRALIA_VIEWBOX = "112.9,-10.3,154.0,-43.8";
+
+/** Drop nominatim hits clearly outside Australia (stray global matches). */
+function isInAustralia(lat: number, lon: number): boolean {
+  return lat <= -9 && lat >= -48 && lon >= 108 && lon <= 162;
+}
+
+/** Max distance (km) from user pin when GPS is used — matches suburb-sized searches in metro areas. */
+const NEARBY_RADIUS_KM = 50;
 
 const SEEDED_PLACES = [
   {
@@ -143,6 +160,20 @@ function isPrismaSchemaMissingError(err: unknown): boolean {
   return code === "P2021" || code === "P2022";
 }
 
+/** DB URL missing, Prisma failed to init, or server unreachable — search can still use Nominatim. */
+function isPrismaUnavailableError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  if (isPrismaSchemaMissingError(err)) return false;
+  const code = "code" in err ? String((err as { code?: unknown }).code ?? "") : "";
+  if (code === "P1001" || code === "P1017") return true;
+  const name = "name" in err ? String((err as { name?: unknown }).name ?? "") : "";
+  if (name === "PrismaClientInitializationError") return true;
+  const msg = "message" in err ? String((err as { message?: unknown }).message ?? "") : "";
+  if (msg.includes("Environment variable not found: DATABASE_URL")) return true;
+  if (msg.includes("Can't reach database server") || msg.includes("Server has closed the connection")) return true;
+  return false;
+}
+
 function schemaMissingResponse() {
   return {
     error: "Restaurant tables are not ready. Run backend prisma migration and restart the API.",
@@ -151,17 +182,23 @@ function schemaMissingResponse() {
 }
 
 function isAllowedNominatimPlace(item: NominatimSearchItem): boolean {
-  const cls = (item.class ?? "").toLowerCase();
+  const cls = nominatimClass(item);
   const type = (item.type ?? "").toLowerCase();
-  if (type === "bar") return false;
-  return (
-    type === "restaurant" ||
-    type === "cafe" ||
-    type === "food_court" ||
-    type === "bakery" ||
-    type === "fast_food" ||
-    (cls === "shop" && type === "bakery")
-  );
+  if (type === "fuel" || type === "charging_station" || type === "car_wash") return false;
+  const foodLike = new Set([
+    "restaurant",
+    "cafe",
+    "food_court",
+    "bakery",
+    "fast_food",
+    "ice_cream",
+    "pub",
+    "biergarten",
+    "meal_takeaway",
+    "bar",
+  ]);
+  if (foodLike.has(type)) return true;
+  return cls === "shop" && type === "bakery";
 }
 
 async function ensureSeedData(): Promise<void> {
@@ -234,7 +271,7 @@ async function searchNominatim(
     limit: String(options?.limit ?? 8),
   });
   if (typeof options?.lat === "number" && typeof options?.lon === "number") {
-    const delta = 0.08;
+    const delta = 0.14;
     const left = options.lon - delta;
     const right = options.lon + delta;
     const top = options.lat + delta;
@@ -243,6 +280,8 @@ async function searchNominatim(
     if (options?.bounded ?? true) {
       params.set("bounded", "1");
     }
+  } else {
+    params.set("viewbox", AUSTRALIA_VIEWBOX);
   }
   const timeoutMs = options?.timeoutMs ?? 6500;
   const controller = new AbortController();
@@ -250,7 +289,7 @@ async function searchNominatim(
   try {
     const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
       headers: {
-        "User-Agent": "BiteBud/1.0 (sensory restaurant search)",
+        "User-Agent": "BiteBud/1.0 (https://github.com/jkim0048/FIT5120-S12026-TE08---Bitebud; sensory restaurant search; AU-only)",
         Accept: "application/json",
       },
       signal: controller.signal,
@@ -264,8 +303,23 @@ async function searchNominatim(
         },
       };
     }
-    const data = (await res.json()) as NominatimSearchItem[];
-    return { items: Array.isArray(data) ? data : [] };
+    const data = (await res.json()) as unknown;
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const errMsg =
+        "error" in data && typeof (data as { error?: unknown }).error === "string"
+          ? (data as { error: string }).error
+          : "Nominatim returned an error.";
+      return {
+        items: [],
+        warning: { code: "NOMINATIM_ERROR", error: errMsg },
+      };
+    }
+    const items = Array.isArray(data) ? (data as NominatimSearchItem[]) : [];
+    return { items: items.filter((it) => {
+      const la = Number(it.lat ?? "");
+      const lo = Number(it.lon ?? "");
+      return Number.isFinite(la) && Number.isFinite(lo) && isInAustralia(la, lo);
+    }) };
   } catch {
     return {
       items: [],
@@ -298,10 +352,20 @@ async function reverseNominatim(lat: number, lon: number): Promise<{ suburb?: st
 }
 
 function isUsefulLocationSuggestItem(item: NominatimSearchItem): boolean {
-  const cls = (item.class ?? "").toLowerCase();
+  const cls = nominatimClass(item);
   const type = (item.type ?? "").toLowerCase();
   if (cls === "highway" || cls === "shop" || cls === "amenity" || cls === "building") return false;
   if (type === "state" || type === "country" || type === "region" || type === "continent") return false;
+  const addr = item.address;
+  if (type === "administrative") {
+    return Boolean(
+      maybeString(addr?.suburb) ||
+        maybeString(addr?.city) ||
+        maybeString(addr?.town) ||
+        maybeString(addr?.municipality) ||
+        maybeString(addr?.postcode),
+    );
+  }
   const goodTypes = new Set([
     "suburb",
     "neighbourhood",
@@ -464,6 +528,13 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
       if (isPrismaSchemaMissingError(err)) {
         dbAvailable = false;
         warnings.push(schemaMissingResponse());
+      } else if (isPrismaUnavailableError(err)) {
+        dbAvailable = false;
+        warnings.push({
+          code: "DB_UNAVAILABLE",
+          error:
+            "Restaurant database is not configured or unreachable (set DATABASE_URL in the repo root .env). Showing OpenStreetMap results only.",
+        });
       } else {
         throw err;
       }
@@ -473,10 +544,27 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
       return reply.status(400).send({ error: "Invalid search parameters" });
     }
     const { q, lat, lon, suburb } = parsed.data;
+    let searchLat: number | undefined =
+      typeof lat === "number" && Number.isFinite(lat) ? lat : undefined;
+    let searchLon: number | undefined =
+      typeof lon === "number" && Number.isFinite(lon) ? lon : undefined;
+    if (
+      searchLat !== undefined &&
+      searchLon !== undefined &&
+      !isInAustralia(searchLat, searchLon)
+    ) {
+      warnings.push({
+        code: "LOCATION_OUTSIDE_AU",
+        error:
+          "Search is limited to Australia. GPS outside Australia was ignored — enter an Australian suburb or place name.",
+      });
+      searchLat = undefined;
+      searchLon = undefined;
+    }
     const userId = (request.headers["x-user-id"] as string | undefined) ?? DEFAULT_USER_ID;
     let localContextSuburb = suburb;
-    if (!localContextSuburb && typeof lat === "number" && typeof lon === "number") {
-      const reverse = await reverseNominatim(lat, lon);
+    if (!localContextSuburb && typeof searchLat === "number" && typeof searchLon === "number") {
+      const reverse = await reverseNominatim(searchLat, searchLon);
       localContextSuburb = reverse.suburb;
     }
 
@@ -541,8 +629,8 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
             ? place.reviews.reduce((sum, r) => sum + r.overallRating, 0) / reviewCount
             : 0;
         const km =
-          typeof lat === "number" && typeof lon === "number"
-            ? distanceKm(lat, lon, place.latitude, place.longitude)
+          typeof searchLat === "number" && typeof searchLon === "number"
+            ? distanceKm(searchLat, searchLon, place.latitude, place.longitude)
             : null;
         return {
           source: "bitebud",
@@ -562,10 +650,13 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
           canRateNow: true,
         };
       })
-      .filter((item) => item.distanceKm === null || item.distanceKm <= 25);
+      .filter((item) => {
+        if (!isInAustralia(item.latitude, item.longitude)) return false;
+        return item.distanceKm === null || item.distanceKm <= NEARBY_RADIUS_KM;
+      });
 
     let nominatimResults: Array<Record<string, unknown>> = [];
-    const hasCoords = typeof lat === "number" && typeof lon === "number";
+    const hasCoords = typeof searchLat === "number" && typeof searchLon === "number";
     const modeUsed = q?.trim() ? "typed" : hasCoords ? "near_me" : localContextSuburb ? "area" : "typed";
     let fallbackStageUsed: "none" | "expanded" | "relaxed" = "none";
     const localResultKeys = new Set(
@@ -625,7 +716,12 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
 
     for (const stage of nominatimQueryStages) {
       if (!stage.query) continue;
-      const remote = await searchNominatim(stage.query, { lat, lon, bounded: stage.bounded, limit: stage.limit });
+      const remote = await searchNominatim(stage.query, {
+        lat: searchLat,
+        lon: searchLon,
+        bounded: stage.bounded,
+        limit: stage.limit,
+      });
       if (remote.warning && !warnings.some((w) => w.code === remote.warning?.code)) {
         warnings.push(remote.warning);
       }
@@ -651,8 +747,8 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
             canRateNow: true,
             userHasReview: false,
             distanceKm:
-              hasCoords && lat !== undefined && lon !== undefined
-                ? Number(distanceKm(lat, lon, latNum, lonNum).toFixed(1))
+              hasCoords && typeof searchLat === "number" && typeof searchLon === "number"
+                ? Number(distanceKm(searchLat, searchLon, latNum, lonNum).toFixed(1))
                 : null,
             extratags: item.extratags ?? {},
             osmType: item.osm_type ?? null,
@@ -686,8 +782,8 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
               comfortBadge: reviewCount > 0 ? comfortBadge(overall) : "Mixed",
               canRateNow: true,
               distanceKm:
-                hasCoords && lat !== undefined && lon !== undefined
-                  ? Number(distanceKm(lat, lon, place.latitude, place.longitude).toFixed(1))
+                hasCoords && typeof searchLat === "number" && typeof searchLon === "number"
+                  ? Number(distanceKm(searchLat, searchLon, place.latitude, place.longitude).toFixed(1))
                   : null,
             });
             return false;
@@ -696,7 +792,10 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
           const key = dedupeKey(itemName, Number(item.latitude), Number(item.longitude));
           return !localResultKeys.has(key);
         })
-        .filter((item) => (typeof item.distanceKm === "number" ? item.distanceKm <= 25 : true));
+        .filter((item) =>
+          typeof item.distanceKm === "number" ? item.distanceKm <= NEARBY_RADIUS_KM : true,
+        )
+        .filter((item) => isInAustralia(item.latitude, item.longitude));
       if (stagedResults.length > 0) {
         nominatimResults = stagedResults.slice(0, 8);
         fallbackStageUsed = stage.stage;
@@ -705,10 +804,22 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     }
 
     if (!localResults.length && !nominatimResults.length) {
-      warnings.push({
-        code: "NO_NEARBY_RESULTS",
-        error: "No nearby places found yet. Try Use area or type a place name.",
-      });
+      const nominatimWarningCodes = new Set([
+        "NOMINATIM_HTTP_ERROR",
+        "NOMINATIM_ERROR",
+        "NOMINATIM_TIMEOUT",
+      ]);
+      const hadNominatimIssue = warnings.some((w) => nominatimWarningCodes.has(w.code));
+      if (hadNominatimIssue) {
+        const kept = warnings.filter((w) => !nominatimWarningCodes.has(w.code));
+        warnings.length = 0;
+        warnings.push(...kept, { code: "LOCATION_INVALID", error: "Location invalid" });
+      } else {
+        warnings.push({
+          code: "NO_NEARBY_RESULTS",
+          error: "No nearby places found yet. Try Use area or type a place name.",
+        });
+      }
     }
 
     const dedupedLocal = Array.from(
@@ -883,6 +994,51 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
       throw err;
     }
     return { ok: true, reviewId: created.id };
+  });
+
+  app.get("/api/restaurants/reviews/:reviewId", async (request, reply) => {
+    const params = request.params as { reviewId: string };
+    const userId = (request.headers["x-user-id"] as string | undefined) ?? DEFAULT_USER_ID;
+    let review;
+    try {
+      review = await prisma.restaurantReview.findFirst({
+        where: { id: params.reviewId, userId },
+        select: {
+          id: true,
+          placeId: true,
+          overallRating: true,
+          noiseRating: true,
+          musicRating: true,
+          lightRating: true,
+          crowdsRating: true,
+          smellsRating: true,
+          bestMealBlocks: true,
+          bestTimesOfDay: true,
+          bestDaysOfWeek: true,
+        },
+      });
+    } catch (err) {
+      if (isPrismaSchemaMissingError(err)) {
+        return reply.status(503).send(schemaMissingResponse());
+      }
+      throw err;
+    }
+    if (!review) {
+      return reply.status(404).send({ error: "Review not found" });
+    }
+    return {
+      reviewId: review.id,
+      placeId: review.placeId,
+      overallRating: Number(review.overallRating),
+      noiseRating: review.noiseRating,
+      musicRating: review.musicRating,
+      lightRating: review.lightRating,
+      crowdsRating: review.crowdsRating,
+      smellsRating: review.smellsRating,
+      bestMealBlocks: (review.bestMealBlocks as string[]) ?? [],
+      bestTimesOfDay: (review.bestTimesOfDay as string[]) ?? [],
+      bestDaysOfWeek: (review.bestDaysOfWeek as string[]) ?? [],
+    };
   });
 
   app.patch("/api/restaurants/reviews/:reviewId/best-time", async (request, reply) => {

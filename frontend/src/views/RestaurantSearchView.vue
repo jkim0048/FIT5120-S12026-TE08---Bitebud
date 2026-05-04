@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ApiError } from '../lib/api'
 import {
   createRestaurantFromNominatim,
   searchRestaurants,
@@ -8,8 +9,21 @@ import {
   type LocationSuggestion,
   type RestaurantSearchResult,
 } from '../lib/restaurantsApi'
-import { LMap, LTileLayer, LCircleMarker, LPopup, LTooltip } from '@vue-leaflet/vue-leaflet'
+import L from 'leaflet'
+import { LMap, LCircleMarker, LPopup, LTooltip } from '@vue-leaflet/vue-leaflet'
 import 'leaflet/dist/leaflet.css'
+
+/** Carto light raster tiles — loads much faster than a remote MapLibre style bundle. */
+const RASTER_BASEMAP_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+
+const comfortLegendColors = {
+  great: '#22c55e',
+  good: '#3b82f6',
+  mixed: '#eab308',
+} as const
+
+/** Static prop for vue-leaflet; pan/zoom are driven only by syncMapAfterReveal so results updates are not overwritten. */
+const INITIAL_MAP_CENTER = [-37.8136, 144.9631] as [number, number]
 
 const route = useRoute()
 const router = useRouter()
@@ -17,6 +31,8 @@ const fallbackSuburb = ref('')
 /** When set, area search uses this token (suburb/postcode) even if the input shows a longer formatted label. */
 const areaSuburbForApi = ref<string | null>(null)
 const loading = ref(false)
+/** True after any restaurant search has finished (success or error). Hides empty-state copy on first visit. */
+const hasCompletedSearch = ref(false)
 const error = ref('')
 const areaContext = ref<string | null>(null)
 const results = ref<RestaurantSearchResult[]>([])
@@ -31,6 +47,10 @@ const recommendedIds = ref<string[]>([])
 const activeMapId = ref<string | null>(null)
 const mapZoom = ref(13)
 const mapEl = ref<InstanceType<typeof LMap> | null>(null)
+/** Last place the user aimed the search (suggestion pick, GPS, or first result) — pans the map even with zero pins. */
+const searchFocusLat = ref<number | null>(null)
+const searchFocusLon = ref<number | null>(null)
+let baseRasterLayer: L.TileLayer | null = null
 
 const maxResults = ref<number>(15)
 
@@ -57,31 +77,15 @@ const filteredResults = computed(() => {
     .slice(0, limit)
 })
 
-const currentPage = ref(1)
-const pageSize = computed(() => Math.min(30, Math.max(3, Number(maxResults.value) || 15)))
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredResults.value.length / pageSize.value)))
-const pagedResults = computed(() => {
-  const size = pageSize.value
-  const start = (currentPage.value - 1) * size
-  return filteredResults.value.slice(start, start + size)
-})
-
-watch(
-  () => [pageSize.value, filteredResults.value.length],
-  () => {
-    currentPage.value = Math.min(Math.max(1, currentPage.value), totalPages.value)
-    if (currentPage.value > totalPages.value) currentPage.value = 1
-  },
-)
-
-const reviewedResults = computed(() => pagedResults.value.filter((r) => r.source === 'bitebud' && r.reviewCount > 0))
+/** Full shortlist split by type — do not use a page slice here: API merges locals first then Nominatim, so paging hid all "nearby" rows on page 1. */
+const reviewedResults = computed(() => filteredResults.value.filter((r) => r.source === 'bitebud' && r.reviewCount > 0))
 const freshResults = computed(() =>
-  pagedResults.value.filter((r) => r.source === 'nominatim' || (r.source === 'bitebud' && r.reviewCount === 0)),
+  filteredResults.value.filter((r) => r.source === 'nominatim' || (r.source === 'bitebud' && r.reviewCount === 0)),
 )
 const hasAnyResult = computed(() => reviewedResults.value.length + freshResults.value.length > 0)
 
 const closestDistanceText = computed(() => {
-  const distances = pagedResults.value
+  const distances = filteredResults.value
     .map((r) => r.distanceKm)
     .filter((d): d is number => typeof d === 'number')
     .sort((a, b) => a - b)
@@ -90,39 +94,90 @@ const closestDistanceText = computed(() => {
 })
 
 const mapPoints = computed(() =>
-  pagedResults.value
-    .filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
-    .slice(0, Math.min(30, Math.max(3, Number(maxResults.value) || 15))),
+  filteredResults.value.filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude)),
 )
 
 const mapCenter = computed<[number, number]>(() => {
-  if (!mapPoints.value.length) return [-37.8136, 144.9631]
-  const active = mapPoints.value.find((r) => r.id === activeMapId.value)
-  const chosen = active ?? mapPoints.value[0]
-  return [chosen.latitude, chosen.longitude]
+  if (mapPoints.value.length) {
+    const active = mapPoints.value.find((r) => r.id === activeMapId.value)
+    const chosen = active ?? mapPoints.value[0]
+    return [chosen.latitude, chosen.longitude]
+  }
+  if (
+    searchFocusLat.value != null &&
+    searchFocusLon.value != null &&
+    Number.isFinite(searchFocusLat.value) &&
+    Number.isFinite(searchFocusLon.value)
+  ) {
+    return [searchFocusLat.value, searchFocusLon.value]
+  }
+  return INITIAL_MAP_CENTER
 })
 
+function ensureRasterBasemap(leafletMap: L.Map): void {
+  if (baseRasterLayer) return
+  baseRasterLayer = L.tileLayer(RASTER_BASEMAP_URL, {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © CARTO',
+    subdomains: 'abcd',
+    maxZoom: 20,
+  }).addTo(leafletMap)
+}
+
+/** Fit all pins or fall back to mapCenter (Melbourne when empty). */
+function applySearchResultsToMap(leafletMap: L.Map): void {
+  const pts = mapPoints.value.filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
+  if (pts.length >= 2) {
+    const bounds = L.latLngBounds(pts.map((r) => [r.latitude, r.longitude] as [number, number]))
+    if (bounds.isValid()) {
+      leafletMap.fitBounds(bounds, { padding: [44, 44], maxZoom: 16, animate: false })
+      return
+    }
+  }
+  if (pts.length === 1) {
+    leafletMap.setView([pts[0].latitude, pts[0].longitude], Math.min(16, Math.max(mapZoom.value, 13)), {
+      animate: false,
+    })
+    return
+  }
+  if (
+    searchFocusLat.value != null &&
+    searchFocusLon.value != null &&
+    Number.isFinite(searchFocusLat.value) &&
+    Number.isFinite(searchFocusLon.value)
+  ) {
+    leafletMap.setView([searchFocusLat.value, searchFocusLon.value], Math.min(15, Math.max(mapZoom.value, 12)), {
+      animate: false,
+    })
+    return
+  }
+  leafletMap.setView(mapCenter.value, mapZoom.value, { animate: false })
+}
+
 async function syncMapAfterReveal() {
-  if (!showMapSection.value) return
   await nextTick()
-  const leafletMap = (mapEl.value as any)?.leafletObject
+  const leafletMap = (mapEl.value as any)?.leafletObject as L.Map | undefined
   if (!leafletMap) return
-  // If a Leaflet map is mounted while its container is hidden (or animated),
-  // it often renders at the wrong size until we invalidate.
-  leafletMap.invalidateSize?.()
-  leafletMap.setView?.(mapCenter.value, mapZoom.value, { animate: false })
-  // Run once more after the slide-in transition completes.
+  ensureRasterBasemap(leafletMap)
+
+  if (showMapSection.value) {
+    leafletMap.invalidateSize?.()
+  }
+  applySearchResultsToMap(leafletMap)
+
+  if (!showMapSection.value) return
+
   setTimeout(() => {
-    const m = (mapEl.value as any)?.leafletObject
+    const m = (mapEl.value as any)?.leafletObject as L.Map | undefined
     if (!m) return
     m.invalidateSize?.()
-    m.setView?.(mapCenter.value, mapZoom.value, { animate: false })
-  }, 240)
+    applySearchResultsToMap(m)
+  }, 80)
 }
 
 const summaryText = computed(() => {
+  if (!hasCompletedSearch.value) return 'Search an area or use Near me to see places'
   if (!results.value.length) return 'No places shown yet'
-  return `Reviewed ${reviewedResults.value.length} · Nearby ${freshResults.value.length} · Showing ${mapPoints.value.length} on map`
+  return `Reviewed ${reviewedResults.value.length} · Nearby ${freshResults.value.length} · ${mapPoints.value.length} pins on map`
 })
 
 watch(
@@ -143,7 +198,15 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
   locationInvalid.value = false
   locationHint.value = ''
   try {
-    const queryText = (params?.q ?? (params?.suburb ? '' : fallbackSuburb.value)).trim()
+    // Near me passes only lat/lon — do not reuse the location field text as `q` or the API stays in "typed" mode for the old suburb.
+    const geoOnly =
+      typeof params?.lat === 'number' &&
+      typeof params?.lon === 'number' &&
+      Number.isFinite(params.lat) &&
+      Number.isFinite(params.lon) &&
+      params?.q == null &&
+      params?.suburb == null
+    const queryText = (params?.q ?? (params?.suburb ? '' : geoOnly ? '' : fallbackSuburb.value)).trim()
     const data = await searchRestaurants({
       q: queryText || undefined,
       lat: params?.lat,
@@ -155,10 +218,12 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
       fallbackSuburb.value = data.areaContext
       areaSuburbForApi.value = null
     }
-    results.value = data.results
-    currentPage.value = 1
+    results.value = Array.isArray(data.results) ? data.results : []
     // Active marker will be synced to filteredResults via watcher.
-    warningText.value = data.warnings?.[0]?.error ?? ''
+    warningText.value =
+      Array.isArray(data.warnings) && data.warnings.length
+        ? data.warnings.map((w) => w.error).filter(Boolean).join(' · ')
+        : ''
     modeLabel.value = data.modeUsed === 'near_me' ? 'Using your location' : data.modeUsed === 'area' ? 'Using area fallback' : 'Using typed search'
     sourceSummary.value = `Reviewed ${data.sourceCounts?.bitebud ?? reviewedResults.value.length} · Nearby ${data.sourceCounts?.nominatim ?? freshResults.value.length}`
     const near = data.results.find((r) => r.distanceKm !== null)
@@ -166,6 +231,17 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
     locationDistanceLabel.value = typeof distance === 'number' ? `${distance.toFixed(1)} km to nearby places` : 'No distance context yet'
 
     showEasiestThree()
+
+    if (typeof params?.lat === 'number' && typeof params?.lon === 'number' && Number.isFinite(params.lat) && Number.isFinite(params.lon)) {
+      searchFocusLat.value = params.lat
+      searchFocusLon.value = params.lon
+    } else {
+      const firstGeo = data.results.find((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
+      if (firstGeo) {
+        searchFocusLat.value = firstGeo.latitude
+        searchFocusLon.value = firstGeo.longitude
+      }
+    }
 
     // Persist search + filters into the URL so returning Back restores state.
     const nextQuery: Record<string, string> = {}
@@ -181,10 +257,28 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
     void syncMapAfterReveal()
     return data
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Search failed'
+    results.value = []
+    if (e instanceof ApiError) {
+      if (e.status === 404) {
+        const msg = e.message ?? ''
+        const looksLikeFastifyMissingRoute =
+          msg.includes('Route GET:') && msg.includes('not found')
+        error.value = looksLikeFastifyMissingRoute
+          ? 'Restaurant API on port 3001 is out of date (route missing). From the backend folder run npm run build, restart the server, or use npm run dev instead of npm start.'
+          : 'Restaurant API returned 404. Check that the backend is running on port 3001 with a current build.'
+      } else if (e.status === 502 || e.status === 503) {
+        error.value =
+          'Cannot reach the restaurant API. Start the backend (port 3001) and ensure the Vite dev proxy is enabled for /api.'
+      } else {
+        error.value = e.message || `Search failed (${e.status})`
+      }
+    } else {
+      error.value = e instanceof Error ? e.message : 'Search failed'
+    }
     return null
   } finally {
     loading.value = false
+    hasCompletedSearch.value = true
   }
 }
 
@@ -196,6 +290,9 @@ async function useNearMe() {
   navigator.geolocation.getCurrentPosition(
     (position) => {
       locationDistanceLabel.value = 'Using current location'
+      areaSuburbForApi.value = null
+      searchFocusLat.value = position.coords.latitude
+      searchFocusLon.value = position.coords.longitude
       void runSearch({
         lat: position.coords.latitude,
         lon: position.coords.longitude,
@@ -306,7 +403,7 @@ function onLocationInput() {
   locationSuggestTimer = setTimeout(() => {
     locationSuggestTimer = undefined
     void fetchLocationSuggestions()
-  }, 320)
+  }, 150)
 }
 
 function onLocationFocus() {
@@ -374,6 +471,8 @@ function pickLocationSuggestion(s: LocationSuggestion) {
   locationSuggestActiveIndex.value = -1
   locationInvalid.value = false
   locationHint.value = ''
+  searchFocusLat.value = s.latitude
+  searchFocusLon.value = s.longitude
   void runSearch({ lat: s.latitude, lon: s.longitude, suburb: s.areaSearch })
 }
 
@@ -387,24 +486,44 @@ async function attemptAreaSearch() {
     locationSuggestOpen.value = true
     return
   }
-  // Validate against suggestions, but only show the error if the search also returns 0 results.
-  let suggestionCount: number | null = null
+  // Location-suggest and restaurant search run in parallel — sequential was ~2× slower before invalid hint.
   locationSuggestLoading.value = true
   try {
-    const res = await suggestRestaurantLocations(q, 8)
-    locationSuggestions.value = res.suggestions
-    locationSuggestOpen.value = true
-    locationSuggestActiveIndex.value = res.suggestions.length ? 0 : -1
-    suggestionCount = res.suggestions.length
-  } catch {
-    suggestionCount = null
+    const suggestPromise = suggestRestaurantLocations(q, 8)
+      .then((res) => {
+        locationSuggestions.value = res.suggestions
+        locationSuggestOpen.value = true
+        locationSuggestActiveIndex.value = res.suggestions.length ? 0 : -1
+        return res.suggestions.length
+      })
+      .catch((e: unknown) => {
+        locationSuggestions.value = []
+        locationSuggestOpen.value = true
+        locationSuggestActiveIndex.value = -1
+        if (e instanceof ApiError) {
+          if (e.status === 404) {
+            const msg = e.message ?? ''
+            const looksLikeFastifyMissingRoute =
+              msg.includes('Route GET:') && msg.includes('not found')
+            error.value = looksLikeFastifyMissingRoute
+              ? 'Restaurant API on port 3001 is out of date (route missing). From the backend folder run npm run build, restart the server, or use npm run dev instead of npm start.'
+              : 'Restaurant API returned 404. Check that the backend is running on port 3001 with a current build.'
+          } else if (e.status === 502 || e.status === 503) {
+            error.value =
+              'Cannot reach the restaurant API. Start the backend (port 3001) so location search can load suggestions.'
+          }
+        }
+        return null
+      })
+
+    const [count, data] = await Promise.all([suggestPromise, runSearch({ suburb: q })])
+
+    if (count === 0 && (data?.results?.length ?? 0) === 0) {
+      locationInvalid.value = true
+      locationHint.value = 'No matching suburb/postcode found. Please enter a valid suburb name or postcode.'
+    }
   } finally {
     locationSuggestLoading.value = false
-  }
-  const data = await runSearch({ suburb: q })
-  if (suggestionCount === 0 && (data?.results?.length ?? 0) === 0) {
-    locationInvalid.value = true
-    locationHint.value = 'No matching suburb/postcode found. Please enter a valid suburb name or postcode.'
   }
 }
 
@@ -424,6 +543,14 @@ watch(
   },
 )
 
+watch(
+  () =>
+    `${mapPoints.value.map((p) => p.id).join(',')}|${searchFocusLat.value ?? ''}:${searchFocusLon.value ?? ''}`,
+  () => {
+    void syncMapAfterReveal()
+  },
+)
+
 function resultMeta(r: RestaurantSearchResult): string {
   const cuisine = r.cuisine ?? 'Restaurant'
   const reviews = `${r.reviewCount} reviews`
@@ -439,7 +566,7 @@ function comfortRank(badge: string): number {
 }
 
 function showEasiestThree() {
-  const ranked = [...pagedResults.value].sort((a, b) => {
+  const ranked = [...filteredResults.value].sort((a, b) => {
     const badgeDelta = comfortRank(a.comfortBadge) - comfortRank(b.comfortBadge)
     if (badgeDelta !== 0) return badgeDelta
     const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.MAX_SAFE_INTEGER
@@ -451,9 +578,9 @@ function showEasiestThree() {
 }
 
 function markerColor(result: RestaurantSearchResult): string {
-  if (result.comfortBadge === 'Great match') return '#1f9d55'
-  if (result.comfortBadge === 'Good match') return '#e59f2f'
-  return '#7a7a7a'
+  if (result.comfortBadge === 'Great match') return comfortLegendColors.great
+  if (result.comfortBadge === 'Good match') return comfortLegendColors.good
+  return comfortLegendColors.mixed
 }
 
 function selectFromMap(id: string) {
@@ -484,6 +611,14 @@ onMounted(() => {
   }
   if (typeof lat === 'number' && typeof lon === 'number' && Number.isFinite(lat) && Number.isFinite(lon)) {
     void runSearch({ lat, lon })
+  }
+})
+
+onBeforeUnmount(() => {
+  const leafletMap = (mapEl.value as any)?.leafletObject as L.Map | undefined
+  if (leafletMap && baseRasterLayer) {
+    leafletMap.removeLayer(baseRasterLayer)
+    baseRasterLayer = null
   }
 })
 </script>
@@ -591,7 +726,9 @@ onMounted(() => {
           </div>
 
           <div v-show="showReviewedSection">
-            <p v-if="!loading && reviewedResults.length === 0" class="hint section-hint">No reviewed places for this search yet.</p>
+            <p v-if="!loading && hasCompletedSearch && reviewedResults.length === 0" class="hint section-hint">
+              No reviewed places for this search yet.
+            </p>
             <ul class="result-list">
               <li
                 v-for="r in reviewedResults"
@@ -619,8 +756,7 @@ onMounted(() => {
 
         <section class="section-card section-card--tight">
           <h2>Found nearby</h2>
-          <p v-if="!loading && freshResults.length === 0" class="hint section-hint">No unrated matches in this list. Adjust area or filters.</p>
-          <ul class="result-list">
+          <ul v-if="freshResults.length" class="result-list">
             <li
               v-for="r in freshResults"
               :id="`restaurant-card-${r.id}`"
@@ -645,39 +781,15 @@ onMounted(() => {
               </button>
             </li>
           </ul>
-        </section>
-
-        <nav v-if="totalPages > 1" class="pagination" aria-label="Restaurant results pages">
-          <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" :disabled="currentPage <= 1" @click="currentPage -= 1">
-            Prev
-          </button>
-          <button
-            v-for="p in totalPages"
-            :key="p"
-            class="bb-btn bb-btn--secondary bb-btn--compact"
-            type="button"
-            :aria-current="p === currentPage ? 'page' : undefined"
-            :class="{ 'pagination__btn--active': p === currentPage }"
-            @click="currentPage = p"
+          <div
+            v-else-if="!loading && hasCompletedSearch && !hasAnyResult"
+            class="nearby-empty"
           >
-            {{ p }}
-          </button>
-          <button
-            class="bb-btn bb-btn--secondary bb-btn--compact"
-            type="button"
-            :disabled="currentPage >= totalPages"
-            @click="currentPage += 1"
-          >
-            Next
-          </button>
-        </nav>
-
-        <section v-if="!loading && !hasAnyResult" class="empty-state empty-state--tight">
-          <h2>No places in this list</h2>
-          <p class="hint">Try another suburb or use Near me.</p>
-          <div class="empty-actions">
-            <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="useAreaContext">Use area context</button>
-            <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="runSearch()">Typed search</button>
+            <p class="hint">Try another suburb or use Near me.</p>
+            <div class="empty-actions">
+              <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="useAreaContext">Use area context</button>
+              <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="runSearch()">Typed search</button>
+            </div>
           </div>
         </section>
 
@@ -693,21 +805,15 @@ onMounted(() => {
           </div>
           <div class="map-body">
             <div class="map-wrap">
-              <LMap ref="mapEl" v-model:zoom="mapZoom" :center="mapCenter" :use-global-leaflet="false" class="restaurant-map">
-                <LTileLayer
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  layer-type="base"
-                  name="OpenStreetMap"
-                  attribution="&copy; OpenStreetMap contributors"
-                />
+              <LMap ref="mapEl" v-model:zoom="mapZoom" :center="INITIAL_MAP_CENTER" class="restaurant-map">
                 <LCircleMarker
                   v-for="point in mapPoints"
                   :key="point.id"
                   :lat-lng="[point.latitude, point.longitude]"
-                  :radius="activeMapId === point.id ? 10 : 7"
+                  :radius="activeMapId === point.id ? 12 : 9"
                   :color="markerColor(point)"
                   :fill-color="markerColor(point)"
-                  :fill-opacity="0.86"
+                  :fill-opacity="0.92"
                   :weight="2"
                   @click="selectFromMap(point.id)"
                 >
@@ -729,13 +835,13 @@ onMounted(() => {
                 </LCircleMarker>
               </LMap>
               <div v-if="!mapPoints.length" class="map-empty map-empty--overlay">
-                <p>No pins yet — search an area.</p>
+                <p>{{ searchFocusLat != null ? 'No pins in this view — try widening the area or another search.' : 'No pins yet — search an area.' }}</p>
               </div>
             </div>
             <div class="legend legend--tight">
-              <span><i class="dot dot--great"></i> Great</span>
-              <span><i class="dot dot--good"></i> Good</span>
-              <span><i class="dot dot--mixed"></i> Mixed</span>
+              <span><i class="dot" :style="{ background: comfortLegendColors.great }"></i> Great</span>
+              <span><i class="dot" :style="{ background: comfortLegendColors.good }"></i> Good</span>
+              <span><i class="dot" :style="{ background: comfortLegendColors.mixed }"></i> Mixed</span>
             </div>
           </div>
         </div>
@@ -873,7 +979,6 @@ onMounted(() => {
   gap: 0.65rem;
   order: 2;
 }
-
 
 .controls-column {
   min-width: 0;
@@ -1089,15 +1194,6 @@ input {
   display: inline-block;
   margin-right: 0.2rem;
 }
-.dot--great {
-  background: #1f9d55;
-}
-.dot--good {
-  background: #e59f2f;
-}
-.dot--mixed {
-  background: #7a7a7a;
-}
 .popup p {
   margin: 0.15rem 0 0;
   font-size: 0.78rem;
@@ -1107,7 +1203,7 @@ input {
   gap: 0.1rem;
 }
 .tip-sub {
-  color: #475467;
+  color: #6b7280;
   font-size: 0.74rem;
 }
 
@@ -1138,24 +1234,6 @@ input {
   color: var(--bb-primary);
 }
 
-.empty-state {
-  border: 1px solid color-mix(in srgb, var(--bb-accent) 35%, var(--bb-border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bb-accent) 8%, var(--bb-surface-low));
-  padding: 0.5rem 0.55rem;
-}
-.empty-state--tight {
-  padding: 0.45rem 0.5rem;
-}
-.empty-state h2 {
-  margin: 0;
-  font-size: 0.82rem;
-  font-family: var(--bb-font-headline);
-  color: var(--bb-primary);
-}
-.empty-state p {
-  margin: 0.25rem 0 0;
-}
 .empty-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1212,20 +1290,6 @@ input {
   line-height: 1.3;
 }
 
-.pagination {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  padding: 0.25rem 0 0.05rem;
-}
-.pagination__btn--active {
-  border-color: color-mix(in srgb, var(--bb-primary) 35%, var(--bb-border));
-  background: color-mix(in srgb, var(--bb-primary) 10%, var(--bb-surface-lowest));
-  color: var(--bb-primary);
-  font-weight: 700;
-}
 .recommended {
   border-color: color-mix(in srgb, var(--bb-accent) 45%, var(--bb-border));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--bb-accent) 16%, transparent);
