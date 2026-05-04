@@ -18,7 +18,6 @@ import {
 } from "../services/themealdb.js";
 import { applyIconMappings } from "../services/icons.js";
 import { basicRecipeTextToGraph } from "../services/basicRecipeParser.js";
-import { parseRecipeTextToGraphViaOpenRouter } from "../services/openrouter.js";
 import { inferFlavorProfile } from "../services/flavorProfile.js";
 import {
   computeSensoryConflicts,
@@ -34,7 +33,7 @@ import { generateRecipeLedeResilient } from "../services/recipeLede.js";
 import { parseBiteBudUserId } from "../biteBudUserId.js";
 import { zSearchQuery, zUserRecipeText } from "../validation/text.js";
 import { enforceRateLimit } from "../services/rateLimit.js";
-import { isLikelyFoodRecipeResilient } from "../services/recipeClassifier.js";
+import { looksLikeFoodRecipe } from "../services/recipePasteChecker.js";
 
 function jsonStringArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
@@ -179,21 +178,12 @@ async function linkRecipeToUser(recipeId: string, userId: string | null): Promis
 async function parseRecipeTextToGraphResilient(
   text: string,
   sourceUrl?: string | null,
-): Promise<{ graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "openrouter" | "basic" }> {
+): Promise<{ graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "basic" }> {
   try {
     const graph = await parseRecipeTextToGraph(text, sourceUrl);
     return { graph, refined: true, parserSource: "gemini" };
   } catch (e) {
     if (!isGeminiBusyError(e)) throw e;
-    // If OpenRouter is configured, try it before falling back to basic parsing.
-    if (process.env.OPENROUTER_API_KEY?.trim()) {
-      try {
-        const graph = await parseRecipeTextToGraphViaOpenRouter(text, sourceUrl);
-        return { graph, refined: true, parserSource: "openrouter" };
-      } catch {
-        // fall through to local basic parsing
-      }
-    }
     const graph = basicRecipeTextToGraph({ text, sourceUrl: sourceUrl ?? null });
     return { graph, refined: false, parserSource: "basic" };
   }
@@ -305,23 +295,14 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       });
     }
     const textToParse = resolvedInput.text;
-    let okRecipe = true;
-    try {
-      okRecipe = await isLikelyFoodRecipeResilient(textToParse);
-    } catch {
-      return reply.status(503).send({
-        error: "Recipe check is temporarily unavailable. Please try again in a moment.",
-        code: "RECIPE_CHECK_UNAVAILABLE",
-      });
-    }
-    if (!okRecipe) {
+    if (!looksLikeFoodRecipe(textToParse)) {
       return reply.status(422).send({
         error: "That doesn’t look like a food recipe. Paste ingredients and instructions.",
         code: "NOT_RECIPE",
       });
     }
     const sourceUrl = body.sourceUrl?.trim() || resolvedInput.sourceUrl;
-    let parsed: { graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "openrouter" | "basic" };
+    let parsed: { graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "basic" };
     try {
       parsed = await parseRecipeTextToGraphResilient(textToParse, sourceUrl);
     } catch (e) {

@@ -561,8 +561,6 @@ async function search() {
     } else if (e instanceof ApiError && e.code === 'PARSE_FAILED') {
       err.value =
         'We opened the page but could not read a clear recipe. Paste the ingredients and instructions here manually for best results.'
-    } else if (e instanceof ApiError && e.code === 'RECIPE_CHECK_UNAVAILABLE') {
-      err.value = 'Recipe check is temporarily unavailable. Please try again in a moment.'
     } else {
       err.value = e instanceof Error ? e.message : 'Search failed'
     }
