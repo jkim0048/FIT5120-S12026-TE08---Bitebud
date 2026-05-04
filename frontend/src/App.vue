@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watchEffect } from 'vue'
+import { watchEffect } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useSettings } from './composables/useSettings'
 import { useSession } from './composables/useSession'
@@ -9,65 +9,11 @@ const { settings } = useSettings()
 const router = useRouter()
 const { userId, isSignedIn, logout } = useSession()
 const { hasProfile } = useSensoryProfile()
-const restaurantMenuOpen = ref(false)
-const restaurantDropdownEl = ref<HTMLElement | null>(null)
-let restaurantMenuCloseTimer: ReturnType<typeof setTimeout> | undefined
 
 function onSignOut() {
   logout()
   void router.push({ name: 'home' })
 }
-
-function toggleRestaurantMenu() {
-  restaurantMenuOpen.value = !restaurantMenuOpen.value
-}
-
-function closeRestaurantMenu() {
-  restaurantMenuOpen.value = false
-  // Prevent `:focus-within` from keeping the menu visible.
-  const el = restaurantDropdownEl.value
-  const active = document.activeElement as HTMLElement | null
-  if (el && active && el.contains(active)) active.blur()
-}
-
-function openRestaurantMenu() {
-  if (restaurantMenuCloseTimer) {
-    clearTimeout(restaurantMenuCloseTimer)
-    restaurantMenuCloseTimer = undefined
-  }
-  restaurantMenuOpen.value = true
-}
-
-function scheduleCloseRestaurantMenu() {
-  if (restaurantMenuCloseTimer) clearTimeout(restaurantMenuCloseTimer)
-  restaurantMenuCloseTimer = setTimeout(() => {
-    restaurantMenuCloseTimer = undefined
-    closeRestaurantMenu()
-  }, 140)
-}
-
-function onDocumentPointerDown(e: PointerEvent) {
-  if (!restaurantMenuOpen.value) return
-  const el = restaurantDropdownEl.value
-  if (!el) return
-  const target = e.target as Node | null
-  if (target && el.contains(target)) return
-  closeRestaurantMenu()
-}
-
-const stopAfterEach = router.afterEach(() => {
-  closeRestaurantMenu()
-})
-
-onMounted(() => {
-  document.addEventListener('pointerdown', onDocumentPointerDown)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onDocumentPointerDown)
-  stopAfterEach()
-  if (restaurantMenuCloseTimer) clearTimeout(restaurantMenuCloseTimer)
-})
 
 watchEffect(() => {
   const html = document.documentElement
@@ -104,33 +50,7 @@ watchEffect(() => {
         <nav class="primary-nav" aria-label="Primary">
           <RouterLink to="/">Home</RouterLink>
           <RouterLink to="/search">Let's start cooking</RouterLink>
-          <RouterLink v-if="!isSignedIn" to="/restaurants">Let's dine out</RouterLink>
-          <div
-            v-else
-            class="nav-dropdown"
-            :class="{ 'nav-dropdown--open': restaurantMenuOpen }"
-            ref="restaurantDropdownEl"
-            @mouseenter="openRestaurantMenu"
-            @mouseleave="scheduleCloseRestaurantMenu"
-          >
-            <div class="nav-dropdown-btn" role="group" aria-label="Let's dine out">
-              <RouterLink class="nav-dropdown-link" to="/restaurants">Let's dine out</RouterLink>
-              <button
-                type="button"
-                class="nav-dropdown-caret-btn"
-                :aria-expanded="restaurantMenuOpen"
-                aria-haspopup="menu"
-                aria-label="Open dine out menu"
-                @click="toggleRestaurantMenu"
-                @keydown.escape="closeRestaurantMenu"
-              >
-                <span class="nav-dropdown-caret" aria-hidden="true">▾</span>
-              </button>
-            </div>
-            <div class="nav-dropdown-menu" role="menu" @click="closeRestaurantMenu">
-              <RouterLink role="menuitem" to="/restaurants/my-reviews" @click="closeRestaurantMenu">My reviews</RouterLink>
-            </div>
-          </div>
+          <RouterLink to="/restaurants">Let's dine out</RouterLink>
           <RouterLink v-if="isSignedIn" to="/sensory/setup">Customise sensory profile</RouterLink>
           <RouterLink v-else to="/auth">Customise sensory profile</RouterLink>
           <button v-if="isSignedIn && hasProfile" type="button" class="nav-signout" @click="onSignOut">Sign out</button>
@@ -248,88 +168,6 @@ watchEffect(() => {
   align-items: center;
   gap: 1.15rem;
   flex-wrap: wrap;
-}
-.nav-dropdown {
-  position: relative;
-}
-.nav-dropdown-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  font-size: 0.95rem;
-  color: var(--bb-text);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-.nav-dropdown-link {
-  color: var(--bb-text);
-  text-decoration: none;
-  font-size: 0.95rem;
-}
-.nav-dropdown-link:hover {
-  color: var(--bb-accent);
-}
-.nav-dropdown-caret-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-}
-
-.nav-dropdown-caret {
-  font-size: 0.8em;
-  color: color-mix(in srgb, var(--bb-text) 70%, transparent);
-  transform: translateY(1px);
-  transition: transform 140ms ease, color 140ms ease;
-}
-.nav-dropdown-link:hover + .nav-dropdown-caret-btn .nav-dropdown-caret,
-.nav-dropdown-caret-btn:hover .nav-dropdown-caret,
-.nav-dropdown--open .nav-dropdown-caret {
-  color: var(--bb-accent);
-  transform: translateY(1px) rotate(180deg);
-}
-.nav-dropdown-menu {
-  display: none;
-  position: absolute;
-  top: calc(100% + 0.5rem);
-  left: 0;
-  min-width: 14rem;
-  padding: 0.4rem;
-  border-radius: 12px;
-  border: 1px solid var(--bb-border);
-  background: var(--bb-surface-highest);
-  box-shadow: 0 10px 30px color-mix(in srgb, #101828 18%, transparent);
-  z-index: 60;
-}
-.nav-dropdown-menu::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -0.6rem;
-  height: 0.6rem;
-}
-.nav-dropdown:focus-within .nav-dropdown-menu,
-.nav-dropdown--open .nav-dropdown-menu {
-  display: grid;
-  gap: 0.25rem;
-}
-.nav-dropdown-menu a {
-  padding: 0.45rem 0.6rem;
-  border-radius: 10px;
-  color: var(--bb-text);
-  text-decoration: none;
-  font-size: 0.95rem;
-}
-.nav-dropdown-menu a:hover {
-  background: color-mix(in srgb, var(--bb-primary) 10%, transparent);
-  color: var(--bb-primary);
 }
 .primary-nav a {
   color: var(--bb-text);

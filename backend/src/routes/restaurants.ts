@@ -75,8 +75,8 @@ function isInAustralia(lat: number, lon: number): boolean {
   return lat <= -9 && lat >= -48 && lon >= 108 && lon <= 162;
 }
 
-/** Max distance (km) from user pin when GPS is used — matches suburb-sized searches in metro areas. */
-const NEARBY_RADIUS_KM = 50;
+/** Max distance (km) from user pin when GPS is used — keep shortlist truly local. */
+const NEARBY_RADIUS_KM = 15;
 
 const SEEDED_PLACES = [
   {
