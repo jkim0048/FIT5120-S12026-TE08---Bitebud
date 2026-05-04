@@ -1,5 +1,8 @@
 import type { RecipeEdge, RecipeGraph, RecipeNode } from "../graph/recipeGraph.js";
-import { repairIngredientNodesFromRecipeText } from "./graphRepair.js";
+import {
+  repairIngredientNodesFromRecipeText,
+  syncIngredientNodesWithSourceLines,
+} from "./graphRepair.js";
 
 /** Choose a simple ingredient emoji based on keyword matches (fallback is a generic bowl). */
 function pickEmojiForIngredient(label: string): string {
@@ -155,6 +158,6 @@ export function basicRecipeTextToGraph(input: {
     edges,
   };
 
-  return repairIngredientNodesFromRecipeText(graph, input.text);
+  return syncIngredientNodesWithSourceLines(repairIngredientNodesFromRecipeText(graph, input.text), input.text);
 }
 

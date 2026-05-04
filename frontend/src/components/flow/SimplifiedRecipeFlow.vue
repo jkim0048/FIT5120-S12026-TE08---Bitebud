@@ -75,11 +75,57 @@ const visibleLanes = computed(() => {
   return lanes.value.includes(a) ? [a] : lanes.value
 })
 
+function splitSectionPrefix(text: string): { section: string | null; body: string } {
+  const t = text.trim()
+  const m = t.match(/^((?:for\s+the\s+)[^:]+):\s*(.*)$/i)
+  if (!m) return { section: null, body: t }
+  const body = (m[2] ?? '').trim()
+  return body ? { section: (m[1] ?? '').trim(), body } : { section: null, body: t }
+}
+
+function stripLeadingQtyForName(full: string): string {
+  let s = full.trim()
+  for (let pass = 0; pass < 4; pass++) {
+    const prev = s
+    s = s
+      .replace(/^\s*\d+\s+\d+\/\d+\s+/, '')
+      .replace(/^\s*\d+\/\d+\s+/, '')
+      .replace(/^\s*\d+(?:\.\d+)?\s*(?:ml|cl|l|litres?|liters?|g|grams?|kg)\b\s*/i, '')
+      .replace(/^\s*[\d.]+\s*\-\s*[\d.]+\s*/, '')
+      .replace(/^\s*[\d.]+\s*/, '')
+      .replace(
+        /^\s*(cup|cups|tbsp|tablespoon|tablespoons|tsp|teaspoon|teaspoons|g|kg|mg|ml|l|oz|lb|pound|pounds|clove|cloves|pinch|dash)\b\s*/i,
+        '',
+      )
+      .replace(/^(carton|tub|jar|packet|pack|can|bottle)\s+(?:of\s+)?/i, '')
+      .trim()
+    if (s === prev) break
+  }
+  return s.replace(/^(to serve|for serving|for garnish|to garnish|for dipping|for brushing)\b/i, '').trim()
+}
+
+function ingredientDisplayLabel(ing: RecipeNode): string {
+  const rawLabel = typeof ing.label === 'string' ? ing.label.trim() : ''
+  const cleanLabel = rawLabel.replace(/^((?:for\s+the\s+)[^:]+):\s*/i, '').trim()
+  if (cleanLabel && !/\d/.test(cleanLabel) && cleanLabel.length <= 44) return cleanLabel
+
+  const detailRaw = typeof ing.detail === 'string' ? ing.detail.trim() : ''
+  const { body } = splitSectionPrefix(detailRaw)
+  const fromDetail = stripLeadingQtyForName(body)
+  if (fromDetail && fromDetail.length <= 80) return fromDetail
+
+  if (cleanLabel) return cleanLabel
+  return rawLabel || 'Ingredient'
+}
+
 function ingredientMeasurement(ing: RecipeNode): string | null {
   const raw = typeof ing.detail === 'string' ? ing.detail.trim() : ''
   if (!raw) return null
-  if (raw.toLowerCase() === (ing.label ?? '').trim().toLowerCase()) return null
-  return raw
+  const { body } = splitSectionPrefix(raw)
+  const m = body.trim()
+  if (!m) return null
+  if (m.toLowerCase() === ingredientDisplayLabel(ing).trim().toLowerCase()) return null
+  return m
 }
 
 function ingredientLabelsForStep(step: RecipeNode): string[] {
@@ -137,6 +183,10 @@ const stripStepsHeading = computed(() => {
 function orderedStepsInLane(lane: string): RecipeNode[] {
   return steps.value.filter((s) => (s.lane ?? 'Steps') === lane)
 }
+
+function shouldNumberLaneSteps(laneSteps: RecipeNode[]): boolean {
+  return laneSteps.length > 1
+}
 </script>
 
 <template>
@@ -155,17 +205,17 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
               v-for="ing in prepDisplayIngredients"
               :key="ing.id"
               class="bubble bubble--strip"
-              :title="ing.label"
+              :title="ingredientDisplayLabel(ing)"
             >
               <img
                 v-if="ing.imageUrl || ing.icon"
                 :src="ing.imageUrl || apiUrl(`/api/icons/wicked/${ing.icon}`)"
-                :alt="ing.label"
+                :alt="ingredientDisplayLabel(ing)"
                 class="bubble__icon"
               />
               <span v-else class="bubble__emo" aria-hidden="true">{{ ing.emoji ?? '•' }}</span>
               <div class="bubble__main">
-                <div class="bubble__txt">{{ ing.label }}</div>
+                <div class="bubble__txt">{{ ingredientDisplayLabel(ing) }}</div>
                 <details v-if="ingredientMeasurement(ing)" class="ing-measure">
                   <summary class="ing-measure__summary">View measurement</summary>
                   <div class="ing-measure__body">{{ ingredientMeasurement(ing) }}</div>
@@ -185,17 +235,17 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
               v-for="ing in prepDisplayIngredients"
               :key="ing.id"
               class="bubble bubble--strip"
-              :title="ing.label"
+              :title="ingredientDisplayLabel(ing)"
             >
               <img
                 v-if="ing.imageUrl || ing.icon"
                 :src="ing.imageUrl || apiUrl(`/api/icons/wicked/${ing.icon}`)"
-                :alt="ing.label"
+                :alt="ingredientDisplayLabel(ing)"
                 class="bubble__icon"
               />
               <span v-else class="bubble__emo" aria-hidden="true">{{ ing.emoji ?? '•' }}</span>
               <div class="bubble__main">
-                <div class="bubble__txt">{{ ing.label }}</div>
+                <div class="bubble__txt">{{ ingredientDisplayLabel(ing) }}</div>
                 <details v-if="ingredientMeasurement(ing)" class="ing-measure">
                   <summary class="ing-measure__summary">View measurement</summary>
                   <div class="ing-measure__body">{{ ingredientMeasurement(ing) }}</div>
@@ -222,19 +272,28 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
               </summary>
               <div class="strip-track strip-track--lane" role="list">
                 <article
-                  v-for="s in orderedStepsInLane(lane)"
+                  v-for="(s, idx) in orderedStepsInLane(lane)"
                   :key="s.id"
                   class="step step--strip"
                   role="listitem"
                   :class="{ done: completed.has(s.id) }"
                 >
                   <div class="step-top">
-                    <span class="step-emo" aria-hidden="true">{{ s.emoji ?? '•' }}</span>
+                    <div class="step-top-left">
+                      <span
+                        v-if="shouldNumberLaneSteps(orderedStepsInLane(lane))"
+                        class="step-num"
+                        aria-label="Step number"
+                      >
+                        {{ idx + 1 }}
+                      </span>
+                      <span class="step-emo" aria-hidden="true">{{ s.emoji ?? '•' }}</span>
+                    </div>
                     <div class="step-top-right">
                       <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
                     </div>
                   </div>
-                  <div class="step-title step-title--clamp">{{ s.label }}</div>
+                  <div class="step-title step-title--full">{{ s.label }}</div>
                   <details class="step-details">
                     <summary class="step-view-details">View details</summary>
                     <div class="step-details__body">
@@ -256,19 +315,28 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
         <template v-else>
           <div class="strip-track" role="list">
             <article
-              v-for="s in stripSteps"
+              v-for="(s, idx) in stripSteps"
               :key="s.id"
               class="step step--strip"
               role="listitem"
               :class="{ done: completed.has(s.id) }"
             >
               <div class="step-top">
-                <span class="step-emo" aria-hidden="true">{{ s.emoji ?? '•' }}</span>
+                <div class="step-top-left">
+                  <span
+                    v-if="stripSteps.length > 1"
+                    class="step-num"
+                    aria-label="Step number"
+                  >
+                    {{ idx + 1 }}
+                  </span>
+                  <span class="step-emo" aria-hidden="true">{{ s.emoji ?? '•' }}</span>
+                </div>
                 <div class="step-top-right">
                   <span v-if="timeLabel(s)" class="step-time">{{ timeLabel(s) }}</span>
                 </div>
               </div>
-              <div class="step-title step-title--clamp">{{ s.label }}</div>
+              <div class="step-title step-title--full">{{ s.label }}</div>
               <details class="step-details">
                 <summary class="step-view-details">View details</summary>
                 <div class="step-details__body">
@@ -299,15 +367,15 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
         <div v-for="lane in visibleLanes" :key="lane" class="lane-col">
           <div class="col-section-heading">Ingredients</div>
           <div class="bubbles">
-            <div v-for="ing in ingredientsForLane(lane)" :key="ing.id" class="bubble" :title="ing.label">
+            <div v-for="ing in ingredientsForLane(lane)" :key="ing.id" class="bubble" :title="ingredientDisplayLabel(ing)">
               <img
                 v-if="ing.imageUrl || ing.icon"
                 :src="ing.imageUrl || apiUrl(`/api/icons/wicked/${ing.icon}`)"
-                :alt="ing.label"
+                :alt="ingredientDisplayLabel(ing)"
                 class="bubble__icon"
               />
               <span v-else class="bubble__emo" aria-hidden="true">{{ ing.emoji ?? '•' }}</span>
-              <span class="bubble__txt">{{ ing.label }}</span>
+              <span class="bubble__txt">{{ ingredientDisplayLabel(ing) }}</span>
             </div>
           </div>
 
@@ -494,11 +562,10 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
 }
 
 .strip-track {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: 0.25rem 0 0.35rem;
-  align-items: stretch;
 }
 .strip-track--lane {
   padding-bottom: 0.5rem;
@@ -532,6 +599,13 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
   overflow: hidden;
   line-clamp: 5;
   font-size: 0.82rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.step-title--full {
+  font-size: 0.9rem;
+  line-height: 1.35;
+  white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -723,6 +797,27 @@ function orderedStepsInLane(lane: string): RecipeNode[] {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 0.35rem;
+}
+.step-top-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  font-family: var(--bb-font-label);
+  font-size: 0.72rem;
+  font-weight: 900;
+  color: var(--bb-text);
+  background: color-mix(in srgb, var(--bb-primary) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 22%, transparent);
+  flex-shrink: 0;
 }
 .step-top-right {
   display: flex;

@@ -18,11 +18,11 @@ function scrollToTop() {
           <span class="h1-sub">Made simple.</span>
         </h1>
         <p class="lead">
-          BiteBud reduces culinary friction for neurodiverse minds. No loud prompts, no complex grids just a serene path
-          to a safe meal.
+          BiteBud helps neurodiverse people find and prepare meals in a calm, simple way.
         </p>
         <div class="ctas">
           <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Let's Start Cooking</RouterLink>
+          <RouterLink to="/restaurants" class="bb-btn bb-btn--secondary cta">Let's dine out</RouterLink>
           <RouterLink v-if="!isSignedIn" to="/auth" class="bb-btn bb-btn--secondary cta">Customise sensory profile</RouterLink>
           <RouterLink v-else to="/sensory/setup" class="bb-btn bb-btn--secondary cta">Customise sensory profile</RouterLink>
         </div>
@@ -73,6 +73,82 @@ function scrollToTop() {
               <div class="micro-body">
                 <div class="micro-k">Serve</div>
                 <div class="micro-v">Serve warm</div>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="tile tile-softblue">
+          <summary class="tile-summary">
+            <h3 class="h3">Find sensory‑friendly restaurants</h3>
+            <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <p class="tile-copy">
+            Search nearby places and review sensory signals like noise, lighting, crowds, music, and smells before you go.
+          </p>
+          <div class="tile-demo tile-demo--compact" aria-hidden="true">
+            <div class="demo-k">Example shortlist</div>
+            <div class="rest-demo">
+              <div class="rest-card rest-card--great">
+                <div class="rest-emo">📍</div>
+                <div class="rest-body">
+                  <div class="rest-name">Higher Ground</div>
+                  <div class="rest-meta">Great match · 4.2/5</div>
+                </div>
+              </div>
+              <div class="rest-card rest-card--good">
+                <div class="rest-emo">🗺️</div>
+                <div class="rest-body">
+                  <div class="rest-name">Cafe nearby</div>
+                  <div class="rest-meta">Good match · quiet morning</div>
+                </div>
+              </div>
+              <div class="rest-badges">
+                <span class="rest-badge">Noise</span>
+                <span class="rest-badge">Light</span>
+                <span class="rest-badge">Crowds</span>
+                <span class="rest-badge">Smells</span>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="tile tile-peach">
+          <summary class="tile-summary">
+            <h3 class="h3">Adjust your recipe to your sensory preferences</h3>
+            <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <p class="tile-copy">
+            Nudge flavours to match what feels comfortable—dial down bitter, lift sweet, or balance sour with simple swaps.
+          </p>
+          <div class="tile-demo tile-demo--compact" aria-hidden="true">
+            <div class="demo-k">Example flavour tuning</div>
+            <div class="flavor-demo">
+              <div class="flavor-row">
+                <span class="flavor-label">Sweet</span>
+                <div class="flavor-meter">
+                  <span class="flavor-fill flavor-fill--sweet" style="width: 72%"></span>
+                </div>
+                <span class="flavor-tip">↑ honey</span>
+              </div>
+              <div class="flavor-row">
+                <span class="flavor-label">Sour</span>
+                <div class="flavor-meter">
+                  <span class="flavor-fill flavor-fill--sour" style="width: 38%"></span>
+                </div>
+                <span class="flavor-tip">≈ lemon</span>
+              </div>
+              <div class="flavor-row">
+                <span class="flavor-label">Bitter</span>
+                <div class="flavor-meter">
+                  <span class="flavor-fill flavor-fill--bitter" style="width: 18%"></span>
+                </div>
+                <span class="flavor-tip">↓ cocoa</span>
+              </div>
+              <div class="flavor-chips">
+                <span class="flavor-chip">Add sweetness</span>
+                <span class="flavor-chip">Soften acidity</span>
+                <span class="flavor-chip">Reduce bitterness</span>
               </div>
             </div>
           </div>
@@ -238,6 +314,7 @@ function scrollToTop() {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.45rem;
   padding: 0;
+  align-items: start;
 }
 .tile {
   background: var(--bb-surface-lowest);
@@ -247,7 +324,7 @@ function scrollToTop() {
   min-height: 84px;
   display: flex;
   flex-direction: column;
-  align-self: stretch;
+  align-self: start;
 }
 .tile:not([open]) .tile-copy,
 .tile:not([open]) .tile-demo,
@@ -262,6 +339,12 @@ function scrollToTop() {
 }
 .tile-green {
   background: var(--bb-secondary-container);
+}
+.tile-softblue {
+  background: color-mix(in srgb, var(--bb-primary-container) 28%, var(--bb-surface-lowest));
+}
+.tile-peach {
+  background: color-mix(in srgb, var(--bb-accent) 18%, var(--bb-surface-lowest));
 }
 .tile:not(.tile-wide):not(.tile-green):not(.tile-dark) {
   /* default tile */
@@ -323,6 +406,149 @@ function scrollToTop() {
   font-weight: 900;
   font-size: 0.62rem;
   color: color-mix(in srgb, var(--bb-muted) 80%, transparent);
+}
+
+/* Restaurant search demo */
+.rest-demo {
+  display: grid;
+  gap: 0.55rem;
+}
+.rest-card {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.65rem 0.7rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+.tile-dark .rest-card {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.rest-card--great {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, #1f9d55 35%, transparent);
+}
+.rest-card--good {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, #e59f2f 35%, transparent);
+}
+.rest-emo {
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.7);
+}
+.tile-dark .rest-emo {
+  background: rgba(255, 255, 255, 0.14);
+}
+.rest-name {
+  font-weight: 900;
+  font-family: var(--bb-font-headline);
+  color: var(--bb-primary);
+  font-size: 0.92rem;
+}
+.tile-dark .rest-name {
+  color: #fff;
+}
+.rest-meta {
+  margin-top: 0.1rem;
+  color: color-mix(in srgb, var(--bb-muted) 85%, transparent);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.tile-dark .rest-meta {
+  color: rgba(255, 255, 255, 0.75);
+}
+.rest-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.rest-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.26rem 0.5rem;
+  border-radius: 999px;
+  font-family: var(--bb-font-label);
+  font-weight: 850;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 14%, transparent);
+  background: rgba(255, 255, 255, 0.4);
+  color: color-mix(in srgb, var(--bb-primary) 80%, var(--bb-muted));
+}
+
+/* Flavour tuning demo */
+.flavor-demo {
+  display: grid;
+  gap: 0.5rem;
+}
+.flavor-row {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+.flavor-label {
+  font-family: var(--bb-font-label);
+  font-weight: 900;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--bb-muted) 80%, transparent);
+}
+.flavor-meter {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+}
+.flavor-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+.flavor-fill--sweet {
+  background: color-mix(in srgb, #fb7185 55%, #fbbf24);
+}
+.flavor-fill--sour {
+  background: color-mix(in srgb, #fde047 60%, #22c55e);
+}
+.flavor-fill--bitter {
+  background: color-mix(in srgb, #334155 55%, #a3a3a3);
+}
+.flavor-tip {
+  font-size: 0.78rem;
+  font-weight: 750;
+  color: color-mix(in srgb, var(--bb-primary) 75%, var(--bb-muted));
+  white-space: nowrap;
+}
+.flavor-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding-top: 0.2rem;
+}
+.flavor-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.26rem 0.5rem;
+  border-radius: 999px;
+  font-family: var(--bb-font-label);
+  font-weight: 850;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 14%, transparent);
+  background: rgba(255, 255, 255, 0.4);
+  color: color-mix(in srgb, var(--bb-primary) 80%, var(--bb-muted));
 }
 
 /* Sensory profiling demo */
@@ -505,6 +731,16 @@ function scrollToTop() {
   .hero {
     grid-template-columns: 1fr;
     gap: 1.75rem;
+  }
+  .ctas {
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+  }
+  .ctas .bb-btn {
+    width: min(60%, 22rem);
+    justify-content: center;
+    text-align: center;
   }
   .bento {
     grid-template-columns: 1fr;

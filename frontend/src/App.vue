@@ -49,7 +49,8 @@ watchEffect(() => {
         </div>
         <nav class="primary-nav" aria-label="Primary">
           <RouterLink to="/">Home</RouterLink>
-          <RouterLink to="/search">Let's Start Cooking</RouterLink>
+          <RouterLink to="/search">Let's start cooking</RouterLink>
+          <RouterLink to="/restaurants">Let's dine out</RouterLink>
           <RouterLink v-if="isSignedIn" to="/sensory/setup">Customise sensory profile</RouterLink>
           <RouterLink v-else to="/auth">Customise sensory profile</RouterLink>
           <button v-if="isSignedIn && hasProfile" type="button" class="nav-signout" @click="onSignOut">Sign out</button>

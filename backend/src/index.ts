@@ -4,6 +4,7 @@ import cors from "@fastify/cors";
 import { registerRecipeRoutes } from "./routes/recipes.js";
 import { registerIconRoutes } from "./routes/icons.js";
 import { registerSensoryRoutes } from "./routes/sensory.js";
+import { registerRestaurantRoutes } from "./routes/restaurants.js";
 
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -26,6 +27,7 @@ app.get("/api/health", async () => ({ ok: true }));
 await registerRecipeRoutes(app);
 await registerIconRoutes(app);
 await registerSensoryRoutes(app);
+await registerRestaurantRoutes(app);
 
 try {
   await app.listen({ port: PORT, host: HOST });
