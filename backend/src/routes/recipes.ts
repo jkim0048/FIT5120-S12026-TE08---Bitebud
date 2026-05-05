@@ -11,14 +11,13 @@ import {
   browseMealsOrdered,
   enrichGraphWithMealDbImages,
   lookupMealById,
+  mealToRecipeText,
   mealIngredientLines,
   mealSearchHitFields,
   searchMealsOrdered,
 } from "../services/themealdb.js";
-import { mealToRecipeTextPreferSource } from "../services/mealdbSourceIngredients.js";
 import { applyIconMappings } from "../services/icons.js";
 import { basicRecipeTextToGraph } from "../services/basicRecipeParser.js";
-import { parseRecipeTextToGraphViaOpenRouter } from "../services/openrouter.js";
 import { inferFlavorProfile } from "../services/flavorProfile.js";
 import {
   computeSensoryConflicts,
@@ -32,6 +31,9 @@ import { resolveVisualiseInput } from "../services/recipeUrlFetch.js";
 import { deriveRecipeMetadata, type RecipeMetadata } from "../services/recipeMetadata.js";
 import { generateRecipeLedeResilient } from "../services/recipeLede.js";
 import { parseBiteBudUserId } from "../biteBudUserId.js";
+import { zSearchQuery, zUserRecipeText } from "../validation/text.js";
+import { enforceRateLimit } from "../services/rateLimit.js";
+import { looksLikeFoodRecipe } from "../services/recipePasteChecker.js";
 
 function jsonStringArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
@@ -91,14 +93,12 @@ function graphIngredientLines(graph: RecipeGraph): string[] {
 }
 
 const visualiseBody = z.object({
-  text: z.string().min(1),
+  text: zUserRecipeText,
   sourceUrl: z.string().optional().nullable(),
 });
 
 const importBody = z.object({
   mealDbId: z.string().min(1),
-  /** When true, skip re-fetch/re-parse and return the stored graph if the recipe is already refined. Default false so re-import picks up source ingredients and parser fixes. */
-  useCache: z.boolean().optional(),
 });
 
 const browseQuery = z.object({
@@ -178,21 +178,12 @@ async function linkRecipeToUser(recipeId: string, userId: string | null): Promis
 async function parseRecipeTextToGraphResilient(
   text: string,
   sourceUrl?: string | null,
-): Promise<{ graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "openrouter" | "basic" }> {
+): Promise<{ graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "basic" }> {
   try {
     const graph = await parseRecipeTextToGraph(text, sourceUrl);
     return { graph, refined: true, parserSource: "gemini" };
   } catch (e) {
     if (!isGeminiBusyError(e)) throw e;
-    // If OpenRouter is configured, try it before falling back to basic parsing.
-    if (process.env.OPENROUTER_API_KEY?.trim()) {
-      try {
-        const graph = await parseRecipeTextToGraphViaOpenRouter(text, sourceUrl);
-        return { graph, refined: true, parserSource: "openrouter" };
-      } catch {
-        // fall through to local basic parsing
-      }
-    }
     const graph = basicRecipeTextToGraph({ text, sourceUrl: sourceUrl ?? null });
     return { graph, refined: false, parserSource: "basic" };
   }
@@ -291,6 +282,8 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
   });
 
   app.post("/api/recipes/visualise", async (request, reply) => {
+    enforceRateLimit(request, reply, { keyPrefix: "visualise", limit: 5, windowMs: 60_000 });
+    if (reply.sent) return;
     const body = visualiseBody.parse(request.body);
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
     const resolvedInput = await resolveVisualiseInput(body.text);
@@ -302,8 +295,14 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       });
     }
     const textToParse = resolvedInput.text;
+    if (!looksLikeFoodRecipe(textToParse)) {
+      return reply.status(422).send({
+        error: "That doesn’t look like a food recipe. Paste ingredients and instructions.",
+        code: "NOT_RECIPE",
+      });
+    }
     const sourceUrl = body.sourceUrl?.trim() || resolvedInput.sourceUrl;
-    let parsed: { graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "openrouter" | "basic" };
+    let parsed: { graph: RecipeGraph; refined: boolean; parserSource: "gemini" | "basic" };
     try {
       parsed = await parseRecipeTextToGraphResilient(textToParse, sourceUrl);
     } catch (e) {
@@ -331,7 +330,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
   app.get("/api/recipes/search", async (request, reply) => {
     const q = z
       .object({
-        q: z.string().optional(),
+        q: zSearchQuery.optional(),
         page: z.coerce.number().int().min(0).optional().default(0),
         limit: z.coerce.number().int().min(1).max(100).optional().default(24),
         maxMinutes: z.coerce.number().int().positive().optional(),
@@ -345,7 +344,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       complexity: q.complexity,
       heatLevel: q.heatLevel,
     };
-    const text = q.q?.trim();
+    const text = q.q;
     const meals = text
       ? await searchMealsOrdered(text, filters)
       : await browseMealsOrdered(q.page, q.limit, filters);
@@ -431,7 +430,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const existing = await prisma.recipe.findUnique({
       where: { mealDbId: body.mealDbId },
     });
-    if (existing && existing.refined && body.useCache === true) {
+    if (existing && existing.refined) {
       if (existing.totalTimeMinutes == null && knownTime != null) {
         await prisma.recipe.update({
           where: { id: existing.id },
@@ -476,7 +475,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       });
     }
     const meal = await lookupMealById(body.mealDbId);
-    const { text, sourceUrl, imageUrl } = await mealToRecipeTextPreferSource(meal);
+    const { text, sourceUrl, imageUrl } = mealToRecipeText(meal);
     const parsed = await parseRecipeTextToGraphResilient(text, sourceUrl);
     const graph = enrichGraphWithMealDbImages(meal, parsed.graph);
     const refined = parsed.refined;
@@ -643,7 +642,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         const knownTime = mealDbMinutes.get(recipe.mealDbId) ?? null;
         const knownServings = mealDbServings.get(recipe.mealDbId) ?? null;
         const meal = await lookupMealById(recipe.mealDbId);
-        const { text, sourceUrl, imageUrl } = await mealToRecipeTextPreferSource(meal);
+        const { text, sourceUrl, imageUrl } = mealToRecipeText(meal);
         const parsed = await parseRecipeTextToGraphResilient(text, sourceUrl);
         const graph = enrichGraphWithMealDbImages(meal, parsed.graph);
         const refined = parsed.refined;

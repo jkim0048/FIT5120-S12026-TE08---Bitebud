@@ -69,71 +69,10 @@ ${opts.rawText.slice(0, 10_000)}`;
   throw lastErr;
 }
 
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-
-/** Classify transient OpenRouter failures worth treating as “try a different provider / return null”. */
-function isRetryableOpenRouterError(e: unknown): boolean {
-  const s = String(e);
-  return (
-    s.includes("429") ||
-    s.includes("503") ||
-    s.toLowerCase().includes("rate limit") ||
-    s.toLowerCase().includes("overloaded") ||
-    s.toLowerCase().includes("timeout")
-  );
-}
-
 /**
- * Generate a one-sentence dish “lede” via OpenRouter chat completions.
+ * Generate a recipe lede via Gemini with graceful fallback across Gemini models.
  *
- * Uses a strict plain-text system prompt; throws on non-2xx and validates that `choices[0].message.content` exists.
- */
-async function generateLedeViaOpenRouter(opts: { title: string; rawText: string }): Promise<string> {
-  const apiKey = requireEnv("OPENROUTER_API_KEY");
-  const model = process.env.OPENROUTER_MODEL?.trim() || "google/gemma-4-26b-a4b-it:free";
-
-  const res = await fetch(OPENROUTER_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "http://localhost",
-      "X-Title": process.env.OPENROUTER_APP_NAME ?? "BiteBud",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.4,
-      max_tokens: 70,
-      messages: [
-        {
-          role: "system",
-          content:
-            'Return ONLY one sentence of plain text. No quotes, no markdown, no emojis.',
-        },
-        {
-          role: "user",
-          content: `Write ONE sentence describing the dish "${opts.title}" for a calm cooking app. Max 25 words. Food-focused.\n\nRecipe text:\n${opts.rawText.slice(0, 10_000)}`,
-        },
-      ],
-    }),
-  });
-
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`OpenRouter request failed: ${res.status} ${text}`);
-  }
-  const data = JSON.parse(text) as any;
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content || typeof content !== "string") {
-    throw new Error(`OpenRouter response missing content: ${text.slice(0, 500)}`);
-  }
-  return normalizeOneSentence(content);
-}
-
-/**
- * Generate a recipe lede with graceful fallbacks: Gemini first, then OpenRouter if configured.
- *
- * Returns `null` when input text is empty or both providers fail in a retryable/transient way; rethrows
+ * Returns `null` when input text is empty or Gemini is transiently busy; rethrows
  * non-busy Gemini errors to surface genuine configuration issues.
  */
 export async function generateRecipeLedeResilient(opts: {
@@ -147,15 +86,6 @@ export async function generateRecipeLedeResilient(opts: {
     return await generateLedeViaGemini({ title: opts.title, rawText: text });
   } catch (e) {
     if (!isGeminiBusyError(e)) throw e;
-  }
-
-  if (process.env.OPENROUTER_API_KEY?.trim()) {
-    try {
-      return await generateLedeViaOpenRouter({ title: opts.title, rawText: text });
-    } catch (e) {
-      if (!isRetryableOpenRouterError(e)) return null;
-      return null;
-    }
   }
 
   return null;
