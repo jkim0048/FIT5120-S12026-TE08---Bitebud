@@ -1111,10 +1111,12 @@ async function markStepDoneAndNext() {
   display: flex;
   gap: 0.6rem;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 .checklist-confirm__actions .bb-btn {
-  min-width: 9.5rem;
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
 }
 .err {
   color: #b91c1c;
