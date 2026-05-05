@@ -956,4 +956,26 @@ function shouldNumberLaneSteps(laneSteps: RecipeNode[]): boolean {
     display: none;
   }
 }
+@media (max-width: 640px) {
+  .strip-ing-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .bubble--strip {
+    min-height: 0;
+    padding: 0.45rem;
+    gap: 0.4rem;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .bubble--strip .bubble__icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+  }
+  .bubble--strip .bubble__txt {
+    text-align: center;
+    font-size: 0.64rem;
+  }
+}
 </style>

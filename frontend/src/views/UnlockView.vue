@@ -15,6 +15,7 @@ const password = ref('')
 const showPassword = ref(false)
 const busy = ref(false)
 const formError = ref('')
+const MAX_UNLOCK_CHARS = 128
 
 const configured = computed(() => isSitePasswordConfigured())
 
@@ -26,7 +27,20 @@ function onSubmit(): void {
     return
   }
   const expected = getSiteAccessPassword()
-  if (password.value.trim() !== expected) {
+  const candidate = password.value.trim()
+  if (!candidate) {
+    formError.value = 'Enter an access code.'
+    return
+  }
+  if (candidate.length > MAX_UNLOCK_CHARS) {
+    formError.value = 'Access code is too long.'
+    return
+  }
+  if (/[\u0000-\u001F\u007F]/.test(candidate)) {
+    formError.value = 'Access code contains invalid characters.'
+    return
+  }
+  if (candidate !== expected) {
     formError.value = 'Incorrect access code. Try again.'
     return
   }

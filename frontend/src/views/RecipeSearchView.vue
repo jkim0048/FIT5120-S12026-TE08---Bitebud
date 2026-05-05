@@ -10,13 +10,27 @@ const route = useRoute()
 const router = useRouter()
 const { hasProfile, profile, loading: profileLoading } = useSensoryProfile()
 
-const query = ref('')
+const searchQuery = ref('')
+const pasteQuery = ref('')
+
+const query = computed({
+  get: () => (activeTab.value === 'describe' ? pasteQuery.value : searchQuery.value),
+  set: (v: string) => {
+    if (activeTab.value === 'describe') pasteQuery.value = v
+    else searchQuery.value = v
+  },
+})
 const searchComboRef = ref<HTMLElement | null>(null)
 const loadingSearch = ref(false)
 const loadingImport = ref(false)
 const err = ref<string | null>(null)
 const activeTab = ref<'forYou' | 'explore' | 'describe'>('explore')
 const hasSearched = ref(false)
+
+const MAX_SEARCH_CHARS = 120
+const MIN_SEARCH_CHARS = 2
+const MIN_RECIPE_PASTE_CHARS = 40
+const MAX_RECIPE_PASTE_CHARS = 40_000
 
 const catalogPage = ref(0)
 const browseSkip = ref(0)
@@ -343,7 +357,7 @@ function onSearchInputFocus() {
 
 async function selectSuggestion(item: SuggestionItem) {
   closeSuggestions()
-  query.value = item.title
+  searchQuery.value = item.title
   await openRecipeWithConfirm(item)
 }
 
@@ -416,14 +430,14 @@ watch(
   () => hasProfile.value,
   (ok) => {
     if (!ok) closeFilters()
-    queueSuggestionFetch(query.value)
+    queueSuggestionFetch(searchQuery.value)
   },
 )
 
 watch(
   () => filterMode.value,
   () => {
-    queueSuggestionFetch(query.value)
+    queueSuggestionFetch(searchQuery.value)
   },
 )
 
@@ -451,11 +465,39 @@ async function search() {
     results.value = []
     return
   }
+
+  const qTrimmed = query.value.trim()
+  if ((activeTab.value === 'explore' || activeTab.value === 'forYou') && qTrimmed) {
+    if (qTrimmed.length < MIN_SEARCH_CHARS) {
+      err.value = `Search must be at least ${MIN_SEARCH_CHARS} characters.`
+      results.value = []
+      return
+    }
+    if (qTrimmed.length > MAX_SEARCH_CHARS) {
+      err.value = `Search is too long (max ${MAX_SEARCH_CHARS} characters).`
+      results.value = []
+      return
+    }
+  }
+  if (activeTab.value === 'describe') {
+    const normalizedPaste = query.value.replace(/\r\n?/g, '\n').trim()
+    if (normalizedPaste.length < MIN_RECIPE_PASTE_CHARS) {
+      err.value = 'Paste the full recipe text (ingredients + instructions).'
+      results.value = []
+      return
+    }
+    if (normalizedPaste.length > MAX_RECIPE_PASTE_CHARS) {
+      err.value = `Recipe text is too long (max ${MAX_RECIPE_PASTE_CHARS.toLocaleString()} characters).`
+      results.value = []
+      return
+    }
+  }
+
   loadingSearch.value = true
   try {
     if (activeTab.value === 'forYou') {
       const params = new URLSearchParams()
-      if (query.value.trim()) params.set('q', query.value.trim())
+      if (qTrimmed) params.set('q', qTrimmed)
       params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
       params.set('limit', String(pageSize))
       params.set('skip', String(browseSkip.value))
@@ -471,8 +513,7 @@ async function search() {
       }))
     } else if (activeTab.value === 'explore') {
       const params = new URLSearchParams()
-      const q = query.value.trim()
-      if (q) params.set('q', q)
+      if (qTrimmed) params.set('q', qTrimmed)
       params.set('page', String(catalogPage.value))
       params.set('limit', String(pageSize))
       params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
@@ -498,7 +539,7 @@ async function search() {
         tags: [],
       }))
     } else {
-      const text = query.value.trim()
+      const text = query.value.replace(/\r\n?/g, '\n').trim()
       const data = await apiFetch<{ recipeId: string }>(
         '/api/recipes/visualise',
         {
@@ -514,6 +555,9 @@ async function search() {
     if (e instanceof ApiError && e.code === 'URL_NOT_FETCHABLE') {
       err.value =
         'That link could not be opened automatically—many sites block recipe scraping. Copy the full recipe from the page and paste the text here instead.'
+    } else if (e instanceof ApiError && e.code === 'NOT_RECIPE') {
+      err.value =
+        'That doesn’t look like a food recipe. Paste ingredients and instructions (or a recipe URL).'
     } else if (e instanceof ApiError && e.code === 'PARSE_FAILED') {
       err.value =
         'We opened the page but could not read a clear recipe. Paste the ingredients and instructions here manually for best results.'
