@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { prisma } from "../prisma.js";
+import { iconCatalogRepository } from "../repositories/iconCatalogRepository.js";
 import {
   DEFAULT_WICKED_SOURCE,
   formatIngredientDisplayLabel,
@@ -65,7 +65,7 @@ export async function registerIconRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get("/api/icons/wicked-picker", async (_request, reply) => {
     try {
-      let count = await prisma.wickedIcon.count();
+      let count = await iconCatalogRepository.wickedIconCount();
       const stale = Date.now() - lastWickedCatalogIngestAt >= WICKED_CATALOG_RESYNC_MS;
       if (count === 0 || stale) {
         await ingestWickedIcons({
@@ -74,7 +74,7 @@ export async function registerIconRoutes(app: FastifyInstance): Promise<void> {
           includeAssets: false,
         });
         lastWickedCatalogIngestAt = Date.now();
-        count = await prisma.wickedIcon.count();
+        count = await iconCatalogRepository.wickedIconCount();
       }
       if (count === 0) {
         return reply.status(503).send({
@@ -82,7 +82,7 @@ export async function registerIconRoutes(app: FastifyInstance): Promise<void> {
             "No Wicked icons in the database and ingest returned nothing. Check network access to food.getwicked.app.",
         });
       }
-      const rows = await prisma.wickedIcon.findMany({
+      const rows = await iconCatalogRepository.wickedIconFindMany({
         orderBy: [{ name: "asc" }, { id: "asc" }],
         take: 2500,
         select: { id: true, name: true, category: true, imageUrl: true },
@@ -108,7 +108,7 @@ export async function registerIconRoutes(app: FastifyInstance): Promise<void> {
 
   /** Legacy: ingredient → icon map (optional display for older sensory items). */
   app.get("/api/icons/ingredient-map", async () => {
-    const rows = await prisma.ingredientIconMap.findMany({
+    const rows = await iconCatalogRepository.ingredientIconMapFindMany({
       orderBy: { ingredientKey: "asc" },
       select: {
         ingredientKey: true,
@@ -141,7 +141,7 @@ export async function registerIconRoutes(app: FastifyInstance): Promise<void> {
           ],
         }
       : undefined;
-    const rows = await prisma.wickedIcon.findMany({
+    const rows = await iconCatalogRepository.wickedIconFindMany({
       where,
       orderBy: { name: "asc" },
       take: q.limit ?? 30,
@@ -171,12 +171,12 @@ export async function registerIconRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(400).send({ error: "ingredientKey cannot be empty" });
     }
     if (body.wickedIconId) {
-      const icon = await prisma.wickedIcon.findUnique({
+      const icon = await iconCatalogRepository.wickedIconFindUnique({
         where: { id: body.wickedIconId },
       });
       if (!icon) return reply.status(404).send({ error: "Icon not found" });
     }
-    await prisma.userIconOverride.upsert({
+    await iconCatalogRepository.userIconOverrideUpsert({
       where: { userId_ingredientKey: { userId, ingredientKey } },
       create: {
         userId,
@@ -199,7 +199,7 @@ export async function registerIconRoutes(app: FastifyInstance): Promise<void> {
     }
     const { ingredient } = request.params as { ingredient: string };
     const ingredientKey = normalizeIngredientKey(ingredient);
-    const row = await prisma.userIconOverride.findUnique({
+    const row = await iconCatalogRepository.userIconOverrideFindUnique({
       where: { userId_ingredientKey: { userId, ingredientKey } },
       select: { wickedIconId: true, emojiFallback: true },
     });
@@ -208,7 +208,7 @@ export async function registerIconRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/icons/wicked/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const row = await prisma.wickedIcon.findUnique({
+    const row = await iconCatalogRepository.wickedIconFindUnique({
       where: { id },
       select: { asset: true, imageUrl: true },
     });

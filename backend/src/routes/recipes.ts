@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { readFile } from "node:fs/promises";
-import { prisma } from "../prisma.js";
+import { recipeRepository } from "../repositories/recipeRepository.js";
+import { sensoryProfileRepository } from "../repositories/sensoryProfileRepository.js";
 import {
   parseRecipeGraph,
   type RecipeGraph,
@@ -128,7 +129,7 @@ async function persistGraph(
 ): Promise<{ recipeId: string; graph: RecipeGraph }> {
   const derived = deriveRecipeMetadata(graph);
   const metadata = opts.metadata ?? {};
-  const recipe = await prisma.recipe.create({
+  const recipe = await recipeRepository.recipeCreate({
     data: {
       title: graph.title,
       lede: opts.lede ?? null,
@@ -146,7 +147,7 @@ async function persistGraph(
     } as any,
   });
   const fullGraph: RecipeGraph = { ...graph, id: recipe.id };
-  await prisma.recipe.update({
+  await recipeRepository.recipeUpdate({
     where: { id: recipe.id },
     data: { graph: fullGraph as object },
   });
@@ -162,7 +163,7 @@ async function withIcons(
 
 async function linkRecipeToUser(recipeId: string, userId: string | null): Promise<void> {
   if (!userId) return;
-  await prisma.recipeProgress.upsert({
+  await recipeRepository.recipeProgressUpsert({
     where: {
       recipeId_userId: { recipeId, userId },
     },
@@ -216,7 +217,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
 
     const orderBy =
       q.sort === "newest" ? ({ createdAt: "desc" } as const) : ({ updatedAt: "desc" } as const);
-    const recipes = await prisma.recipe.findMany({
+    const recipes = await recipeRepository.recipeFindMany({
       where,
       orderBy,
       skip: q.skip,
@@ -228,7 +229,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     let culturalRequirements: string[] = [];
     let hasSensoryProfile = false;
     if (userId) {
-      const profile = await prisma.sensoryProfile.findUnique({
+      const profile = await sensoryProfileRepository.sensoryProfileFindUnique({
         where: { userId },
         include: { foodItems: true },
       });
@@ -356,7 +357,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     let unsafeTextures: ReturnType<typeof decodeUnsafeTexturePrefs> = [];
     let hasSensoryProfile = false;
     if (userId) {
-      const profile = await prisma.sensoryProfile.findUnique({
+      const profile = await sensoryProfileRepository.sensoryProfileFindUnique({
         where: { userId },
         include: { foodItems: true },
       });
@@ -427,12 +428,12 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const mealDbServings = await getMealDbServings();
     const knownTime = mealDbMinutes.get(body.mealDbId) ?? null;
     const knownServings = mealDbServings.get(body.mealDbId) ?? null;
-    const existing = await prisma.recipe.findUnique({
+    const existing = await recipeRepository.recipeFindUnique({
       where: { mealDbId: body.mealDbId },
     });
     if (existing && existing.refined) {
       if (existing.totalTimeMinutes == null && knownTime != null) {
-        await prisma.recipe.update({
+        await recipeRepository.recipeUpdate({
           where: { id: existing.id },
           data: { totalTimeMinutes: knownTime },
         });
@@ -440,7 +441,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       }
       if (existing.servings == null && knownServings != null) {
         const g0 = parseRecipeGraph(existing.graph);
-        await prisma.recipe.update({
+        await recipeRepository.recipeUpdate({
           where: { id: existing.id },
           data: {
             servings: knownServings,
@@ -454,7 +455,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
           const meal = await lookupMealById(body.mealDbId);
           const thumb = typeof meal.strMealThumb === "string" ? meal.strMealThumb.trim() : "";
           if (thumb) {
-            await prisma.recipe.update({
+            await recipeRepository.recipeUpdate({
               where: { id: existing.id },
               data: { imageUrl: thumb },
             });
@@ -497,7 +498,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
           ? knownTime
           : (resolvedWithTime.totalTimeMinutes ?? null);
       const fullGraph: RecipeGraph = { ...resolvedWithTime, id: existing.id, totalTimeMinutes: totalTimeMinutesOut };
-      await prisma.recipe.update({
+      await recipeRepository.recipeUpdate({
         where: { id: existing.id },
         data: {
           title: fullGraph.title,
@@ -543,7 +544,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         dataPatch.servings = knownServings;
         saved.graph.servings = knownServings;
       }
-      await prisma.recipe.update({
+      await recipeRepository.recipeUpdate({
         where: { id: saved.recipeId },
         data: {
           ...(dataPatch as object),
@@ -561,10 +562,10 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     if (!userId) {
       return reply.status(400).send({ error: "Missing or invalid X-User-Id" });
     }
-    const recipe = await prisma.recipe.findUnique({ where: { id } });
+    const recipe = await recipeRepository.recipeFindUnique({ where: { id } });
     if (!recipe) return reply.status(404).send({ error: "Not found" });
     const graph = parseRecipeGraph(recipe.graph);
-    const profile = await prisma.sensoryProfile.findUnique({
+    const profile = await sensoryProfileRepository.sensoryProfileFindUnique({
       where: { userId },
       include: { foodItems: true },
     });
@@ -606,7 +607,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
 
   app.get("/api/recipes/:id/flavors", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const recipe = await prisma.recipe.findUnique({ where: { id } });
+    const recipe = await recipeRepository.recipeFindUnique({ where: { id } });
     if (!recipe) return reply.status(404).send({ error: "Not found" });
     const g = parseRecipeGraph(recipe.graph);
     const ingredients = (g.nodes ?? [])
@@ -632,7 +633,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
   app.get("/api/recipes/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
-    let recipe = await prisma.recipe.findUnique({ where: { id } });
+    let recipe = await recipeRepository.recipeFindUnique({ where: { id } });
     if (!recipe) return reply.status(404).send({ error: "Not found" });
 
     if (recipe.mealDbId && !recipe.refined) {
@@ -663,7 +664,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
           servings: servingsOut,
         };
 
-        await prisma.recipe.update({
+        await recipeRepository.recipeUpdate({
           where: { id: recipe.id },
           data: {
             title: fullGraph.title,
@@ -680,7 +681,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
           },
         });
 
-        const refreshed = await prisma.recipe.findUnique({ where: { id } });
+        const refreshed = await recipeRepository.recipeFindUnique({ where: { id } });
         if (!refreshed) return reply.status(404).send({ error: "Not found" });
         recipe = refreshed;
       } catch {
@@ -694,7 +695,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
         const meal = await lookupMealById(recipe.mealDbId);
         const thumb = typeof meal.strMealThumb === "string" ? meal.strMealThumb.trim() : "";
         if (thumb) {
-          await prisma.recipe.update({
+          await recipeRepository.recipeUpdate({
             where: { id: recipe.id },
             data: { imageUrl: thumb },
           });
@@ -726,7 +727,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
   app.post("/api/recipes/:id/refine", async (request, reply) => {
     const { id } = request.params as { id: string };
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
-    const recipe = await prisma.recipe.findUnique({ where: { id } });
+    const recipe = await recipeRepository.recipeFindUnique({ where: { id } });
     if (!recipe) return reply.status(404).send({ error: "Not found" });
     if (!recipe.rawText) {
       return reply.status(400).send({ error: "Recipe cannot be refined (missing source text)" });
@@ -748,7 +749,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     const fullGraph: RecipeGraph = { ...resolved, id: recipe.id };
     const meta = deriveRecipeMetadata(graphAfterParse);
     const lede = await generateRecipeLedeResilient({ title: fullGraph.title, rawText: recipe.rawText });
-    await prisma.recipe.update({
+    await recipeRepository.recipeUpdate({
       where: { id: recipe.id },
       data: {
         graph: fullGraph as object,
@@ -770,9 +771,9 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       return reply.status(400).send({ error: "Missing or invalid X-User-Id" });
     }
     const body = progressBody.parse(request.body);
-    const recipe = await prisma.recipe.findUnique({ where: { id } });
+    const recipe = await recipeRepository.recipeFindUnique({ where: { id } });
     if (!recipe) return reply.status(404).send({ error: "Not found" });
-    await prisma.recipeProgress.upsert({
+    await recipeRepository.recipeProgressUpsert({
       where: {
         recipeId_userId: { recipeId: id, userId },
       },
@@ -794,7 +795,7 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
     if (!userId) {
       return reply.status(400).send({ error: "Missing or invalid X-User-Id" });
     }
-    const row = await prisma.recipeProgress.findUnique({
+    const row = await recipeRepository.recipeProgressFindUnique({
       where: { recipeId_userId: { recipeId: id, userId } },
     });
     const ids = (row?.completedNodeIds as string[]) ?? [];

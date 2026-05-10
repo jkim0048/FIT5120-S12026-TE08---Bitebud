@@ -3,7 +3,8 @@ import crypto from "crypto";
 import { z } from "zod";
 import type { SensoryFoodStatus } from "@prisma/client";
 import { parseBiteBudUserId } from "../biteBudUserId.js";
-import { prisma } from "../prisma.js";
+import { iconCatalogRepository } from "../repositories/iconCatalogRepository.js";
+import { sensoryProfileRepository } from "../repositories/sensoryProfileRepository.js";
 import { formatIngredientDisplayLabel } from "../services/icons.js";
 
 const saveBody = z
@@ -62,7 +63,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
     if (!userId) {
       return reply.status(400).send({ error: "Missing or invalid X-User-Id" });
     }
-    const profile = await prisma.sensoryProfile.findUnique({
+    const profile = await sensoryProfileRepository.sensoryProfileFindUnique({
       where: { userId },
       include: profileInclude,
     });
@@ -77,7 +78,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
     const body = saveBody.parse(request.body);
     const codeHash = hashCode(userId);
 
-    const profile = await prisma.sensoryProfile.upsert({
+    const profile = await sensoryProfileRepository.sensoryProfileUpsert({
       where: { userId },
       create: {
         userId,
@@ -103,7 +104,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
       return reply.status(400).send({ error: "Missing or invalid X-User-Id" });
     }
     const body = createItemBody.parse(request.body);
-    const prof = await prisma.sensoryProfile.findUnique({
+    const prof = await sensoryProfileRepository.sensoryProfileFindUnique({
       where: { userId },
       select: { id: true },
     });
@@ -113,7 +114,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
         .send({ error: "Save your profile (code and settings) before adding foods." });
     }
 
-    const existing = await prisma.sensoryFoodItem.findMany({
+    const existing = await sensoryProfileRepository.sensoryFoodItemFindMany({
       where: { profileId: prof.id },
     });
 
@@ -122,7 +123,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
 
     if (body.wickedIconId) {
       const id = body.wickedIconId.trim();
-      const icon = await prisma.wickedIcon.findUnique({ where: { id } });
+      const icon = await iconCatalogRepository.wickedIconFindUnique({ where: { id } });
       if (!icon) {
         return reply.status(400).send({ error: "Unknown icon — pick from the list." });
       }
@@ -132,7 +133,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
       delete notes.ingredientKey;
     } else if (body.ingredientKey) {
       const key = body.ingredientKey.trim();
-      const mapRow = await prisma.ingredientIconMap.findUnique({
+      const mapRow = await iconCatalogRepository.ingredientIconMapFindUnique({
         where: { ingredientKey: key },
       });
       if (!mapRow) {
@@ -172,7 +173,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
       }
     }
 
-    const item = await prisma.sensoryFoodItem.create({
+    const item = await sensoryProfileRepository.sensoryFoodItemCreate({
       data: {
         profileId: prof.id,
         name,
@@ -194,13 +195,13 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
       return reply.status(400).send({ error: "Invalid item id" });
     }
     const body = patchItemBody.parse(request.body);
-    const existing = await prisma.sensoryFoodItem.findFirst({
+    const existing = await sensoryProfileRepository.sensoryFoodItemFindFirst({
       where: { id: idParse.data, profile: { userId } },
     });
     if (!existing) {
       return reply.status(404).send({ error: "Not found" });
     }
-    const item = await prisma.sensoryFoodItem.update({
+    const item = await sensoryProfileRepository.sensoryFoodItemUpdate({
       where: { id: existing.id },
       data: {
         ...(body.name != null ? { name: body.name } : {}),
@@ -221,20 +222,20 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
     if (!idParse.success) {
       return reply.status(400).send({ error: "Invalid item id" });
     }
-    const existing = await prisma.sensoryFoodItem.findFirst({
+    const existing = await sensoryProfileRepository.sensoryFoodItemFindFirst({
       where: { id: idParse.data, profile: { userId } },
     });
     if (!existing) {
       return reply.status(404).send({ error: "Not found" });
     }
-    await prisma.sensoryFoodItem.delete({ where: { id: existing.id } });
+    await sensoryProfileRepository.sensoryFoodItemDelete({ where: { id: existing.id } });
     return reply.send({ ok: true });
   });
 
   app.post("/api/sensory/retrieve", async (request, reply) => {
     const body = retrieveBody.parse(request.body);
     const codeHash = hashCode(body.code);
-    const attempt = await prisma.sensoryCodeAttempt.findUnique({
+    const attempt = await sensoryProfileRepository.sensoryCodeAttemptFindUnique({
       where: { codeHash },
     });
     const now = new Date();
@@ -247,7 +248,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
         .send({ error: "Code temporarily locked", retrySeconds });
     }
 
-    const profile = await prisma.sensoryProfile.findUnique({
+    const profile = await sensoryProfileRepository.sensoryProfileFindUnique({
       where: { codeHash },
       include: profileInclude,
     });
@@ -257,7 +258,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
         nextCount >= 10
           ? new Date(Date.now() + 10 * 60 * 1000)
           : new Date(Date.now() + Math.min(nextCount * 5, 60) * 1000);
-      await prisma.sensoryCodeAttempt.upsert({
+      await sensoryProfileRepository.sensoryCodeAttemptUpsert({
         where: { codeHash },
         create: {
           codeHash,
@@ -275,7 +276,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
     }
 
     if (attempt) {
-      await prisma.sensoryCodeAttempt.delete({ where: { codeHash } });
+      await sensoryProfileRepository.sensoryCodeAttemptDelete({ where: { codeHash } });
     }
     return { ok: true, profile };
   });
