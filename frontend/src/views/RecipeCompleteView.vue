@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { getBiteBudUserId } from '../composables/useUserId'
+import { apiFetch } from '../lib/api'
 import { localCalendarYmd, recordMotivationActivity } from '../lib/motivationApi'
 import { motivationToastText } from '../lib/motivationCopy'
 import MotivationToast from '../components/MotivationToast.vue'
@@ -20,6 +21,16 @@ onMounted(() => {
   if (!uid || !recipeId) return
   void (async () => {
     try {
+      // Ensure “My recipes” can show this completion even if the last-step hook failed or the user completed on an older build.
+      try {
+        await apiFetch(`/api/recipes/${recipeId}/complete`, {
+          method: 'POST',
+          headers: { 'X-User-Id': uid },
+        })
+      } catch {
+        /* ignore */
+      }
+
       const res = await recordMotivationActivity({
         type: 'recipe_completed',
         localDate: localCalendarYmd(new Date()),

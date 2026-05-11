@@ -14,7 +14,6 @@ import AuthView from '../views/AuthView.vue'
 import AuthNewUserView from '../views/AuthNewUserView.vue'
 import UnlockView from '../views/UnlockView.vue'
 import { isSiteUnlocked, safeUnlockRedirect } from '../lib/siteUnlock'
-import RestaurantEntryView from '../views/RestaurantEntryView.vue'
 import RestaurantSearchView from '../views/RestaurantSearchView.vue'
 import RestaurantReviewDetailView from '../views/RestaurantReviewDetailView.vue'
 import RestaurantRateView from '../views/RestaurantRateView.vue'
@@ -23,6 +22,19 @@ import RestaurantSavedConfirmView from '../views/RestaurantSavedConfirmView.vue'
 import RestaurantMyReviewsView from '../views/RestaurantMyReviewsView.vue'
 import MyProgressView from '../views/MyProgressView.vue'
 import MyInsightsView from '../views/MyInsightsView.vue'
+import CookingDecisionView from '../views/CookingDecisionView.vue'
+
+const AUTH_REQUIRED_NAMES = new Set([
+  'search',
+  'recipe',
+  'guidedServings',
+  'guidedFlavors',
+  'guided',
+  'recipeComplete',
+  'myProgress',
+  'myInsights',
+  'cookingStart',
+])
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -35,6 +47,7 @@ export const router = createRouter({
     { path: '/', name: 'home', component: HomeView },
     { path: '/auth', name: 'auth', component: AuthView },
     { path: '/auth/new-user', name: 'authNewUser', component: AuthNewUserView },
+    { path: '/start', name: 'cookingStart', component: CookingDecisionView },
     { path: '/search', name: 'search', component: RecipeSearchView },
     { path: '/recipe/:id', name: 'recipe', component: RecipeFlowPage },
     { path: '/recipe/:id/servings', name: 'guidedServings', component: GuidedServingsView },
@@ -61,7 +74,6 @@ export const router = createRouter({
       name: 'settings',
       component: SettingsView,
     },
-    { path: '/restaurants', name: 'restaurantEntry', component: RestaurantEntryView },
     { path: '/restaurants/search', name: 'restaurantSearch', component: RestaurantSearchView },
     { path: '/restaurants/my-reviews', name: 'restaurantMyReviews', component: RestaurantMyReviewsView },
     { path: '/restaurants/:id', name: 'restaurantReviewDetail', component: RestaurantReviewDetailView },
@@ -83,6 +95,14 @@ router.beforeEach((to) => {
   }
   if (!isSiteUnlocked()) {
     return { name: 'unlock', query: { redirect: to.fullPath } }
+  }
+  const routeName = to.name
+  if (
+    routeName != null &&
+    AUTH_REQUIRED_NAMES.has(String(routeName)) &&
+    !getBiteBudUserId()
+  ) {
+    return { name: 'auth', query: { redirect: to.fullPath } }
   }
   return true
 })

@@ -344,7 +344,7 @@ function closeShoppingList() {
   shoppingListOpen.value = false
 }
 
-function exportShoppingListPdf() {
+async function exportShoppingListPdf() {
   if (!graph.value) return
   if (uncheckedIngredientCount.value === 0) return
   const checkedIngredientChecklistGroups = ingredientChecklistGroups.value
@@ -355,7 +355,7 @@ function exportShoppingListPdf() {
     }))
     .filter((g) => g.items.length > 0)
 
-  downloadShoppingListPdf({
+  await downloadShoppingListPdf({
     recipeTitle: graph.value.title,
     servingsLabel:
       selectedServings.value != null && baseServings.value != null
@@ -747,6 +747,19 @@ async function saveProgress(next: string[]) {
   })
 }
 
+async function markRecipeCompleted(): Promise<void> {
+  const uid = getBiteBudUserId()
+  if (!uid) return
+  try {
+    await apiFetch(`/api/recipes/${recipeId.value}/complete`, {
+      method: 'POST',
+      headers: { 'X-User-Id': uid },
+    })
+  } catch {
+    // Completion should never block the user finishing the flow.
+  }
+}
+
 async function loadRecipe() {
   pageLoading.value = true
   err.value = null
@@ -896,6 +909,7 @@ async function markStepDoneAndNext() {
     const atLastStep = index.value >= steps.value.length - 1
     if (atLastStep) {
       const elapsedMin = Math.max(1, Math.round((Date.now() - sessionStartMs.value) / 60000))
+      await markRecipeCompleted()
       await router.push({
         name: 'recipeComplete',
         params: { id: recipeId.value },

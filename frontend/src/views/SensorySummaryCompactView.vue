@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { apiFetch, apiUrl } from '../lib/api'
 import { persistSensoryProfileSnapshot } from '../lib/sensorySnapshot'
+import { downloadSensoryProfilePdf } from '../lib/sensoryProfilePdf'
 import { refreshSensoryProfile, useSensoryProfile } from '../composables/useSensoryProfile'
 import { getBiteBudUserId } from '../composables/useUserId'
 import type { SensoryFoodStatus } from '../types/sensory'
@@ -18,6 +19,8 @@ const { profile, loading: profileLoading, hasProfile } = useSensoryProfile()
 
 const submitBusy = ref(false)
 const submitError = ref('')
+const exportBusy = ref(false)
+const exportError = ref('')
 
 onMounted(() => {
   void refreshSensoryProfile()
@@ -55,6 +58,10 @@ const dietaryCulturalCount = computed(() => dietaryCulturalCards.value.length)
 
 const foodItems = computed(() => profile.value?.foodItems ?? [])
 
+const hasExportableProfile = computed(() => {
+  return unsafeTextures.value.length + dietaryCulturalCount.value + foodItems.value.length > 0
+})
+
 function statusLabel(status: SensoryFoodStatus): string {
   if (status === 'SAFE') return 'SAFE'
   if (status === 'UNSAFE') return 'UNSAFE'
@@ -75,6 +82,38 @@ function resolveWickedImage(iconId: string | undefined | null): string | null {
 function onFoodImageError(ev: Event) {
   const el = ev.target as HTMLImageElement | null
   if (el) el.style.display = 'none'
+}
+
+async function exportProfilePdf(): Promise<void> {
+  exportError.value = ''
+  const uid = getBiteBudUserId()
+  const p = profile.value
+  if (!uid || !p) {
+    exportError.value = 'Sign in and load your profile first.'
+    return
+  }
+
+  exportBusy.value = true
+  try {
+    const now = new Date()
+    const generatedAtLabel = `Generated ${now.toLocaleString()}`
+
+    await downloadSensoryProfilePdf({
+      userId: uid,
+      generatedAtLabel,
+      unsafeTextures: unsafeTextures.value,
+      dietaryNeeds: p.dietaryNeeds ?? [],
+      culturalRequirements: p.culturalRequirements ?? [],
+      foodItems: (p.foodItems ?? []).map((it) => ({
+        name: it.name,
+        status: it.status === 'UNSURE' ? 'SOMETIMES' : it.status,
+      })),
+    })
+  } catch (e) {
+    exportError.value = e instanceof Error ? e.message : 'Could not export PDF. Please try again.'
+  } finally {
+    exportBusy.value = false
+  }
 }
 
 async function submitProfile(): Promise<void> {
@@ -98,7 +137,7 @@ async function submitProfile(): Promise<void> {
       body: JSON.stringify(body),
     })
     persistSensoryProfileSnapshot(body as Record<string, unknown>)
-    await router.push({ name: 'search' })
+    await router.push({ name: 'cookingStart' })
   } catch (e) {
     submitError.value = e instanceof Error ? e.message : 'Could not save. Try again.'
   } finally {
@@ -117,7 +156,7 @@ async function submitProfile(): Promise<void> {
     <div class="title-row">
       <h1 class="h1">📋 Your Profile Summary</h1>
     </div>
-    <p class="sub">Review your sensory preferences before you search for recipes.</p>
+    <p class="sub">Review your sensory preferences, then continue to choose cooking or dining out.</p>
 
     <p v-if="profileLoading" class="muted">Loading…</p>
     <div v-else-if="!hasProfile || !profile" class="muted">No profile yet. Please complete setup first.</div>
@@ -200,10 +239,19 @@ async function submitProfile(): Promise<void> {
         <p v-else class="empty-note">No foods tagged yet.</p>
       </section>
 
-      <p v-if="submitError" class="err" role="alert">{{ submitError }}</p>
+      <p v-if="submitError || exportError" class="err" role="alert">{{ exportError || submitError }}</p>
 
       <div class="footer-actions">
         <RouterLink to="/sensory/setup" class="bb-btn bb-btn--secondary footer-btn">Edit profile</RouterLink>
+        <button
+          v-if="hasExportableProfile"
+          type="button"
+          class="bb-btn bb-btn--secondary footer-btn"
+          :disabled="exportBusy || profileLoading"
+          @click="exportProfilePdf"
+        >
+          {{ exportBusy ? 'Exporting…' : 'Export to PDF' }}
+        </button>
         <button type="button" class="bb-btn bb-btn--primary footer-btn" :disabled="submitBusy" @click="submitProfile">
           {{ submitBusy ? 'Saving…' : 'Submit' }}
         </button>

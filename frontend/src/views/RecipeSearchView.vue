@@ -138,6 +138,7 @@ watch(
     results.value = []
     err.value = null
     hasSearched.value = false
+    if (activeTab.value === 'forYou') void search()
   },
   { immediate: true },
 )
@@ -461,7 +462,7 @@ async function search() {
     results.value = []
     return
   }
-  if ((activeTab.value === 'explore' || activeTab.value === 'forYou') && !query.value.trim()) {
+  if (activeTab.value === 'explore' && !query.value.trim()) {
     results.value = []
     return
   }
@@ -710,7 +711,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
 
     <header class="page-hero">
       <h1 class="page-title">Recipes</h1>
-      <p class="page-lede">Search the library, paste a recipe, or revisit recipes you’ve opened before.</p>
+      <p class="page-lede">Search the library, paste a recipe, or revisit recipes you’ve completed before.</p>
     </header>
 
     <div class="layout">
@@ -722,15 +723,19 @@ async function openRecipeWithConfirm(c: BrowseCard) {
           <button type="button" class="tab" :class="{ on: activeTab === 'describe' }" @click="setRouteTab('describe')">
             Paste a recipe
           </button>
+          <button type="button" class="tab" :class="{ on: activeTab === 'forYou' }" @click="setRouteTab('forYou')">
+            My recipes
+          </button>
         </div>
         <p v-if="activeTab === 'forYou' && hasProfile" class="tab-help" role="note">
-          These are dishes you have already opened in BiteBud. Search by name to find one again.
+          These are recipes you have successfully cooked in BiteBud. Search by name to find one again.
         </p>
         <details v-if="hasProfile" class="tab-details">
           <summary>More about these tabs</summary>
           <ul class="tab-details-list">
             <li><strong>Browse library</strong> — Search from our library of recipes</li>
             <li><strong>Paste a recipe</strong> — Visulise your own recipes, paste our intrusctions and ingredients for best results.</li>
+            <li><strong>My recipes</strong> — Your completed recipes</li>
           </ul>
         </details>
 

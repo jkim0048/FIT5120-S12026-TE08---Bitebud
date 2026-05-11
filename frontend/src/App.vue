@@ -47,28 +47,15 @@ watchEffect(() => {
             <span class="brand-text">BiteBud</span>
           </RouterLink>
         </div>
-        <nav class="primary-nav" aria-label="Primary">
+        <nav v-if="isSignedIn" class="primary-nav" aria-label="Primary">
           <RouterLink to="/">Home</RouterLink>
           <RouterLink to="/search">Let's start cooking</RouterLink>
-          <RouterLink to="/restaurants">Let's dine out</RouterLink>
-          <RouterLink v-if="isSignedIn" to="/sensory/setup">Customise sensory profile</RouterLink>
-          <RouterLink v-else to="/auth">Customise sensory profile</RouterLink>
-          <button v-if="isSignedIn && hasProfile" type="button" class="nav-signout" @click="onSignOut">Sign out</button>
+          <RouterLink to="/restaurants/search">Let's dine out</RouterLink>
+          <RouterLink to="/sensory/setup">Customise sensory profile</RouterLink>
+          <button v-if="hasProfile" type="button" class="nav-signout" @click="onSignOut">Sign out</button>
           <RouterLink to="/settings">Settings</RouterLink>
-          <div
-            class="avatar"
-            :class="{ 'avatar--empty': !isSignedIn }"
-            :title="isSignedIn ? `Signed in as ${userId}` : 'Not signed in'"
-            aria-hidden="true"
-          >
-            <span v-if="isSignedIn" class="avatar-text">{{ userId }}</span>
-            <img
-              v-else
-              class="avatar-mark"
-              src="/bitebud-mark.png"
-              alt=""
-              aria-hidden="true"
-            />
+          <div class="avatar" :title="`Signed in as ${userId}`" aria-hidden="true">
+            <span class="avatar-text">{{ userId }}</span>
           </div>
         </nav>
       </div>

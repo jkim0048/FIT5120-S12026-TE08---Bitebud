@@ -41,7 +41,7 @@ const locationDistanceLabel = ref('No distance context yet')
 const distanceAnchorLabel = ref('Distances from your selected search anchor')
 const modeLabel = ref('Search not started')
 const sourceSummary = ref('Reviewed 0 · Nearby 0')
-const showReviewedSection = ref(false)
+const showNearbySection = ref(true)
 const showMapSection = ref(false)
 const currentDistanceLat = ref<number | null>(null)
 const currentDistanceLon = ref<number | null>(null)
@@ -86,6 +86,7 @@ const freshResults = computed(() =>
   filteredResults.value.filter((r) => r.source === 'nominatim' || (r.source === 'bitebud' && r.reviewCount === 0)),
 )
 const hasAnyResult = computed(() => reviewedResults.value.length + freshResults.value.length > 0)
+const showNearbyEffective = computed(() => reviewedResults.value.length === 0 || showNearbySection.value)
 
 const closestDistanceText = computed(() => {
   const distances = filteredResults.value
@@ -819,55 +820,14 @@ onBeforeUnmount(() => {
         <section class="section-card section-card--tight">
           <div class="section-head">
             <h2>Reviewed in BiteBud</h2>
-            <button
-              type="button"
-              class="bb-btn bb-btn--secondary bb-btn--compact"
-              :aria-expanded="showReviewedSection"
-              @click="showReviewedSection = !showReviewedSection"
-            >
-              {{
-                showReviewedSection
-                  ? 'Hide reviewed restaurants'
-                  : `Show reviewed restaurants (${reviewedResults.length})`
-              }}
-            </button>
           </div>
 
-          <div v-show="showReviewedSection">
-            <p v-if="!loading && hasCompletedSearch && reviewedResults.length === 0" class="hint section-hint">
-              No reviewed places for this search yet.
-            </p>
-            <ul class="result-list">
-              <li
-                v-for="r in reviewedResults"
-                :id="`restaurant-card-${r.id}`"
-                :key="r.id"
-                class="result-card"
-                :class="{ recommended: recommendedIds.includes(r.id), selected: activeMapId === r.id }"
-                @click="selectFromMap(r.id)"
-              >
-                <div class="result-card__body">
-                  <h3>{{ r.name }}</h3>
-                  <p v-if="recommendedIds.includes(r.id)" class="reco">Recommended</p>
-                  <p class="result-card__addr">{{ r.address ?? r.displayName }}</p>
-                  <p class="meta">{{ resultMeta(r) }}</p>
-                </div>
-                <div class="result-card__actions">
-                  <button class="bb-btn bb-btn--primary bb-btn--compact" type="button" :disabled="loading" @click.stop="openReviewedAction(r)">
-                    See details
-                  </button>
-                </div>
-              </li>
-            </ul>
-          </div>
-        </section>
-
-        <section class="section-card section-card--tight">
-          <h2>Found nearby</h2>
-          <p v-if="hasAnyResult" class="hint section-hint">{{ distanceAnchorLabel }}</p>
-          <ul v-if="freshResults.length" class="result-list">
+          <p v-if="!loading && hasCompletedSearch && reviewedResults.length === 0" class="hint section-hint">
+            No reviewed places for this search yet.
+          </p>
+          <ul v-if="reviewedResults.length" class="result-list">
             <li
-              v-for="r in freshResults"
+              v-for="r in reviewedResults"
               :id="`restaurant-card-${r.id}`"
               :key="r.id"
               class="result-card"
@@ -878,26 +838,67 @@ onBeforeUnmount(() => {
                 <h3>{{ r.name }}</h3>
                 <p v-if="recommendedIds.includes(r.id)" class="reco">Recommended</p>
                 <p class="result-card__addr">{{ r.address ?? r.displayName }}</p>
-                <p class="meta">{{ freshResultMeta(r) }}</p>
+                <p class="meta">{{ resultMeta(r) }}</p>
               </div>
-              <button
-                class="bb-btn bb-btn--secondary bb-btn--compact"
-                type="button"
-                :disabled="loading || !r.canRateNow"
-                @click.stop="openResult(r)"
-              >
-                {{ r.userHasReview ? 'Edit rating' : 'Rate this place' }}
-              </button>
+              <div class="result-card__actions">
+                <button class="bb-btn bb-btn--primary bb-btn--compact" type="button" :disabled="loading" @click.stop="openReviewedAction(r)">
+                  See details
+                </button>
+              </div>
             </li>
           </ul>
-          <div
-            v-else-if="!loading && hasCompletedSearch && !hasAnyResult"
-            class="nearby-empty"
-          >
-            <p class="hint">Try another suburb or use Near me.</p>
-            <div class="empty-actions">
-              <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="useAreaContext">Use area context</button>
-              <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="runSearch()">Typed search</button>
+        </section>
+
+        <section class="section-card section-card--tight">
+          <div class="section-head">
+            <h2>Found nearby</h2>
+            <button
+              v-if="reviewedResults.length > 0"
+              type="button"
+              class="bb-btn bb-btn--secondary bb-btn--compact"
+              :aria-expanded="showNearbySection"
+              @click="showNearbySection = !showNearbySection"
+            >
+              {{ showNearbySection ? 'Hide nearby results' : `Show nearby results (${freshResults.length})` }}
+            </button>
+          </div>
+
+          <div v-show="showNearbyEffective">
+            <p v-if="hasAnyResult" class="hint section-hint">{{ distanceAnchorLabel }}</p>
+            <ul v-if="freshResults.length" class="result-list">
+              <li
+                v-for="r in freshResults"
+                :id="`restaurant-card-${r.id}`"
+                :key="r.id"
+                class="result-card"
+                :class="{ recommended: recommendedIds.includes(r.id), selected: activeMapId === r.id }"
+                @click="selectFromMap(r.id)"
+              >
+                <div class="result-card__body">
+                  <h3>{{ r.name }}</h3>
+                  <p v-if="recommendedIds.includes(r.id)" class="reco">Recommended</p>
+                  <p class="result-card__addr">{{ r.address ?? r.displayName }}</p>
+                  <p class="meta">{{ freshResultMeta(r) }}</p>
+                </div>
+                <button
+                  class="bb-btn bb-btn--secondary bb-btn--compact"
+                  type="button"
+                  :disabled="loading || !r.canRateNow"
+                  @click.stop="openResult(r)"
+                >
+                  {{ r.userHasReview ? 'Edit rating' : 'Rate this place' }}
+                </button>
+              </li>
+            </ul>
+            <div
+              v-else-if="!loading && hasCompletedSearch && !hasAnyResult"
+              class="nearby-empty"
+            >
+              <p class="hint">Try another suburb or use Near me.</p>
+              <div class="empty-actions">
+                <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="useAreaContext">Use area context</button>
+                <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="runSearch()">Typed search</button>
+              </div>
             </div>
           </div>
         </section>
