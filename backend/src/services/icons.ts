@@ -1,4 +1,4 @@
-import { prisma } from "../prisma.js";
+import { iconCatalogRepository } from "../repositories/iconCatalogRepository.js";
 import type { RecipeGraph } from "../graph/recipeGraph.js";
 
 export const DEFAULT_WICKED_SOURCE = "https://food.getwicked.app/";
@@ -51,7 +51,7 @@ function normalizeForWickedIndex(value: string): string {
 async function getWickedNameIndex(): Promise<WickedNameIndex> {
   if (!wickedNameIndexPromise) {
     wickedNameIndexPromise = (async () => {
-      const rows = await prisma.wickedIcon.findMany({
+      const rows = await iconCatalogRepository.wickedIconFindMany({
         select: { id: true, name: true },
       });
       const byNormalizedName = new Map<string, string>();
@@ -81,7 +81,7 @@ function tokensFromNormalized(value: string): string[] {
 async function getWickedTokenIndex(): Promise<WickedTokenIndex> {
   if (!wickedTokenIndexPromise) {
     wickedTokenIndexPromise = (async () => {
-      const rows = await prisma.wickedIcon.findMany({ select: { id: true, name: true } });
+      const rows = await iconCatalogRepository.wickedIconFindMany({ select: { id: true, name: true } });
       const tokenFreq = new Map<string, number>();
       const tokenUniverse = new Set<string>();
       const icons = rows.map((r) => {
@@ -376,7 +376,7 @@ export async function ingestWickedIcons(opts?: {
         asset = null;
       }
     }
-    await prisma.wickedIcon.upsert({
+    await iconCatalogRepository.wickedIconUpsert({
       where: { id },
       create: {
         id,
@@ -408,7 +408,7 @@ async function fuzzyFindIconIdForKey(key: string): Promise<string | null> {
     .map((t) => t.trim())
     .filter((t) => t.length >= 3);
   for (const t of tries) {
-    const hit = await prisma.wickedIcon.findFirst({
+    const hit = await iconCatalogRepository.wickedIconFindFirst({
       where: {
         OR: [
           { id: { contains: t.replace(/\s+/g, "-"), mode: "insensitive" } },
@@ -686,12 +686,12 @@ export async function applyIconMappings(
   }
   const uniqueKeys = [...new Set(allKeys.filter(Boolean))];
   const [maps, overrides] = await Promise.all([
-    prisma.ingredientIconMap.findMany({
+    iconCatalogRepository.ingredientIconMapFindMany({
       where: { ingredientKey: { in: uniqueKeys } },
       select: { ingredientKey: true, wickedIconId: true, emojiFallback: true },
     }),
     userId
-      ? prisma.userIconOverride.findMany({
+      ? iconCatalogRepository.userIconOverrideFindMany({
           where: { userId, ingredientKey: { in: uniqueKeys } },
           select: { ingredientKey: true, wickedIconId: true, emojiFallback: true },
         })
@@ -712,7 +712,7 @@ export async function applyIconMappings(
         const emojiFallback = emojiFallbackForKey(key);
         inferredByKey.set(key, { wickedIconId: exact, emojiFallback });
         try {
-          await prisma.ingredientIconMap.upsert({
+          await iconCatalogRepository.ingredientIconMapUpsert({
             where: { ingredientKey: key },
             create: { ingredientKey: key, wickedIconId: exact, emojiFallback },
             update: { wickedIconId: exact, emojiFallback },
@@ -746,7 +746,7 @@ export async function applyIconMappings(
         inferredByKey.set(key, { wickedIconId: iconId, emojiFallback });
         // Persist under the meaningful candidate key we actually used.
         try {
-          await prisma.ingredientIconMap.upsert({
+          await iconCatalogRepository.ingredientIconMapUpsert({
             where: { ingredientKey: key },
             create: { ingredientKey: key, wickedIconId: iconId, emojiFallback },
             update: { wickedIconId: iconId, emojiFallback },

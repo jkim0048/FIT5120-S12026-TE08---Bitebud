@@ -21,6 +21,8 @@ import RestaurantRateView from '../views/RestaurantRateView.vue'
 import RestaurantBestTimeView from '../views/RestaurantBestTimeView.vue'
 import RestaurantSavedConfirmView from '../views/RestaurantSavedConfirmView.vue'
 import RestaurantMyReviewsView from '../views/RestaurantMyReviewsView.vue'
+import MyProgressView from '../views/MyProgressView.vue'
+import MyInsightsView from '../views/MyInsightsView.vue'
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -66,6 +68,8 @@ export const router = createRouter({
     { path: '/restaurants/:id/rate', name: 'restaurantRate', component: RestaurantRateView },
     { path: '/restaurants/:id/best-time', name: 'restaurantBestTime', component: RestaurantBestTimeView },
     { path: '/restaurants/:id/saved', name: 'restaurantSavedConfirm', component: RestaurantSavedConfirmView },
+    { path: '/progress', name: 'myProgress', component: MyProgressView },
+    { path: '/insights', name: 'myInsights', component: MyInsightsView },
   ],
 })
 

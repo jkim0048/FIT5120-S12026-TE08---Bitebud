@@ -185,3 +185,44 @@ enum SensoryFoodStatus {
   UNSURE
   UNSAFE
 }
+
+/// Per-user streak and weekly freeze state (Epic 7 motivation).
+model MotivationProfile {
+  userId               String    @id @map("user_id")
+  currentStreak        Int       @default(0) @map("current_streak")
+  longestStreak        Int       @default(0) @map("longest_streak")
+  lastActiveLocalDate  DateTime? @map("last_active_local_date") @db.Date
+  freezeUsedWeekStart  DateTime? @map("freeze_used_week_start") @db.Date
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@map("motivation_profiles")
+}
+
+/// One row per user per calendar day (client localDate) for streak + progress aggregates.
+model MotivationDailyActivity {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id")
+  localDate DateTime @map("local_date") @db.Date
+  counts    Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, localDate])
+  @@index([userId])
+  @@map("motivation_daily_activities")
+}
+
+/// Append-only events for progress/insights and debugging.
+model MotivationEvent {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id")
+  eventType String   @map("event_type")
+  localDate DateTime @map("local_date") @db.Date
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, localDate])
+  @@index([userId, createdAt])
+  @@map("motivation_events")
+}

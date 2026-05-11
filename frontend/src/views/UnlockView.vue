@@ -19,11 +19,25 @@ const MAX_UNLOCK_CHARS = 128
 
 const configured = computed(() => isSitePasswordConfigured())
 
+const isDev = import.meta.env.DEV
+
+function skipUnlockDevOnly(): void {
+  if (!isDev || configured.value) return
+  busy.value = true
+  try {
+    setSiteUnlocked()
+    const dest = safeUnlockRedirect(route.query.redirect)
+    void router.replace(dest)
+  } finally {
+    busy.value = false
+  }
+}
+
 function onSubmit(): void {
   formError.value = ''
   if (!configured.value) {
     formError.value =
-      'Site access password is not configured. Set VITE_SITE_ACCESS_PASSWORD in frontend/.env.'
+      'Site access password is not configured. Set VITE_SITE_ACCESS_PASSWORD in frontend/.env (or use the dev skip below).'
     return
   }
   const expected = getSiteAccessPassword()
@@ -71,17 +85,27 @@ function onSubmit(): void {
           :type="showPassword ? 'text' : 'password'"
           autocomplete="current-password"
           placeholder="Enter access code"
-          :disabled="!configured"
         />
         <label class="check">
           <input v-model="showPassword" type="checkbox" />
           Show password
         </label>
         <p v-if="!configured" class="warn" role="alert">
-          Site access password is not configured. Set VITE_SITE_ACCESS_PASSWORD in frontend/.env.
+          Site access password is not configured at build time. You can still type here once a password is set in
+          <code class="code">frontend/.env</code>
+          and the dev server is restarted. For local testing only:
         </p>
-        <p v-else-if="formError" class="err" role="alert">{{ formError }}</p>
-        <button type="submit" class="bb-btn bb-btn--primary unlock-btn" :disabled="busy || !configured">
+        <button
+          v-if="isDev && !configured"
+          type="button"
+          class="bb-btn bb-btn--secondary unlock-btn dev-skip"
+          :disabled="busy"
+          @click="skipUnlockDevOnly"
+        >
+          Skip preview lock (dev only)
+        </button>
+        <p v-if="formError" class="err" role="alert">{{ formError }}</p>
+        <button type="submit" class="bb-btn bb-btn--primary unlock-btn" :disabled="busy">
           {{ busy ? 'Unlocking…' : 'Unlock BiteBud' }}
         </button>
       </form>
@@ -172,6 +196,16 @@ function onSubmit(): void {
 }
 .warn {
   color: var(--bb-muted);
+}
+.code {
+  font-size: 0.82em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--bb-surface-low);
+  border: 1px solid var(--bb-border);
+}
+.dev-skip {
+  margin-top: 0.25rem;
 }
 .unlock-btn {
   margin-top: 0.75rem;

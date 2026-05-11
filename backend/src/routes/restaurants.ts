@@ -1,7 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
-import { prisma } from "../prisma.js";
+import {
+  ensureRestaurantSeedData,
+  restaurantRepository,
+} from "../repositories/restaurantRepository.js";
 
 type NominatimSearchItem = {
   place_id?: number;
@@ -78,59 +81,6 @@ function isInAustralia(lat: number, lon: number): boolean {
 /** Max distance (km) from user pin when GPS is used — keep shortlist truly local. */
 const NEARBY_RADIUS_KM = 15;
 
-const SEEDED_PLACES = [
-  {
-    name: "Higher Ground",
-    displayName: "Higher Ground, Little Bourke Street, Melbourne VIC",
-    cuisine: "Cafe / Australian",
-    address: "650 Little Bourke St, Melbourne VIC",
-    suburb: "Melbourne",
-    latitude: -37.8155,
-    longitude: 144.9545,
-    extratags: { wheelchair: "yes", outdoor_seating: "yes" },
-  },
-  {
-    name: "Tipo 00",
-    displayName: "Tipo 00, Little Bourke Street, Melbourne VIC",
-    cuisine: "Italian",
-    address: "361 Little Bourke St, Melbourne VIC",
-    suburb: "Melbourne",
-    latitude: -37.8133,
-    longitude: 144.9636,
-    extratags: { reservation: "recommended" },
-  },
-  {
-    name: "Lune Croissanterie",
-    displayName: "Lune Croissanterie, Rose Street, Fitzroy VIC",
-    cuisine: "Bakery",
-    address: "119 Rose St, Fitzroy VIC",
-    suburb: "Fitzroy",
-    latitude: -37.8024,
-    longitude: 144.9783,
-    extratags: { takeaway: "yes" },
-  },
-  {
-    name: "Rice Paper Scissors",
-    displayName: "Rice Paper Scissors, Liverpool Street, Melbourne VIC",
-    cuisine: "Thai / Vietnamese",
-    address: "15 Hardware Ln, Melbourne VIC",
-    suburb: "Melbourne",
-    latitude: -37.8124,
-    longitude: 144.9617,
-    extratags: { outdoor_seating: "yes" },
-  },
-  {
-    name: "Green Man's Arms",
-    displayName: "Green Man's Arms, Lygon Street, Carlton VIC",
-    cuisine: "Vegetarian",
-    address: "418 Lygon St, Carlton VIC",
-    suburb: "Carlton",
-    latitude: -37.7986,
-    longitude: 144.9677,
-    extratags: { vegetarian: "yes", vegan: "yes" },
-  },
-] as const;
-
 function toSuburb(address?: Record<string, string>): string | undefined {
   if (!address) return undefined;
   return address.suburb || address.neighbourhood || address.city_district || address.city || address.town;
@@ -202,46 +152,7 @@ function isAllowedNominatimPlace(item: NominatimSearchItem): boolean {
 }
 
 async function ensureSeedData(): Promise<void> {
-  const existing = await prisma.restaurantPlace.count();
-  if (existing > 0) return;
-  for (const place of SEEDED_PLACES) {
-    const created = await prisma.restaurantPlace.create({
-      data: {
-        ...place,
-        extratags: place.extratags as object,
-      },
-    });
-    await prisma.restaurantReview.createMany({
-      data: [
-        {
-          placeId: created.id,
-          userId: "seed-user-1",
-          overallRating: 4.2,
-          noiseRating: 4,
-          musicRating: 3,
-          lightRating: 4,
-          crowdsRating: 3,
-          smellsRating: 4,
-          bestMealBlocks: ["Brunch"],
-          bestTimesOfDay: ["Morning"],
-          bestDaysOfWeek: ["Monday", "Tuesday"],
-        },
-        {
-          placeId: created.id,
-          userId: "seed-user-2",
-          overallRating: 3.8,
-          noiseRating: 3,
-          musicRating: 3,
-          lightRating: 4,
-          crowdsRating: 2,
-          smellsRating: 4,
-          bestMealBlocks: ["Lunch"],
-          bestTimesOfDay: ["Midday"],
-          bestDaysOfWeek: ["Wednesday", "Thursday"],
-        },
-      ],
-    });
-  }
+  await ensureRestaurantSeedData();
 }
 
 function normalizeName(name: string): string {
@@ -404,7 +315,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
       return reply.status(401).send({ error: "Missing user id", reviews: [] });
     }
     try {
-      const reviews = await prisma.restaurantReview.findMany({
+      const reviews = await restaurantRepository.restaurantReviewFindMany({
         where: { userId },
         include: { place: true },
         orderBy: { updatedAt: "desc" },
@@ -500,7 +411,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
 
   app.get("/api/restaurants/status", async (_request, reply) => {
     try {
-      await prisma.restaurantPlace.count();
+      await restaurantRepository.restaurantPlaceCount();
       return {
         ok: true,
         dbReady: true,
@@ -569,7 +480,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     }
 
     let dbPlaces = dbAvailable
-      ? await prisma.restaurantPlace.findMany({
+      ? await restaurantRepository.restaurantPlaceFindMany({
           where: {
             AND: [
               q
@@ -592,7 +503,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
       : [];
     if (!dbPlaces.length && dbAvailable && q?.trim()) {
       // Relax area filter when text query is present but suburb filtering is too strict.
-      dbPlaces = await prisma.restaurantPlace.findMany({
+      dbPlaces = await restaurantRepository.restaurantPlaceFindMany({
         where: {
           OR: [
             { name: { contains: q.trim(), mode: "insensitive" } },
@@ -607,7 +518,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     if (!dbPlaces.length && dbAvailable && localContextSuburb?.trim()) {
       // Suburb from geocoder often won't exactly match our `suburb` column; widen to address/display.
       const area = localContextSuburb.trim();
-      dbPlaces = await prisma.restaurantPlace.findMany({
+      dbPlaces = await restaurantRepository.restaurantPlaceFindMany({
         where: {
           OR: [
             { suburb: { contains: area, mode: "insensitive" } },
@@ -665,7 +576,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     const localPlaceByNominatimId = dbAvailable
       ? new Map(
           (
-            await prisma.restaurantPlace.findMany({
+            await restaurantRepository.restaurantPlaceFindMany({
               where: {
                 nominatimPlaceId: { not: null },
               },
@@ -846,7 +757,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     }
     try {
       const payload = parsed.data;
-      const place = await prisma.restaurantPlace.upsert({
+      const place = await restaurantRepository.restaurantPlaceUpsert({
         where: { nominatimPlaceId: payload.nominatimPlaceId },
         update: {
           name: payload.name,
@@ -894,7 +805,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     }
     const params = request.params as { placeId: string };
     const userId = (request.headers["x-user-id"] as string | undefined) ?? DEFAULT_USER_ID;
-    const place = await prisma.restaurantPlace.findUnique({
+    const place = await restaurantRepository.restaurantPlaceFindUnique({
       where: { id: params.placeId },
       include: { reviews: true, favorites: { where: { userId } } },
     });
@@ -971,16 +882,16 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     const userId = (request.headers["x-user-id"] as string | undefined) ?? DEFAULT_USER_ID;
     let created;
     try {
-      const existing = await prisma.restaurantReview.findFirst({
+      const existing = await restaurantRepository.restaurantReviewFindFirst({
         where: { placeId: params.placeId, userId },
         orderBy: { createdAt: "desc" },
       });
       created = existing
-        ? await prisma.restaurantReview.update({
+        ? await restaurantRepository.restaurantReviewUpdate({
             where: { id: existing.id },
             data: parsed.data,
           })
-        : await prisma.restaurantReview.create({
+        : await restaurantRepository.restaurantReviewCreate({
             data: {
               placeId: params.placeId,
               userId,
@@ -1001,7 +912,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     const userId = (request.headers["x-user-id"] as string | undefined) ?? DEFAULT_USER_ID;
     let review;
     try {
-      review = await prisma.restaurantReview.findFirst({
+      review = await restaurantRepository.restaurantReviewFindFirst({
         where: { id: params.reviewId, userId },
         select: {
           id: true,
@@ -1049,7 +960,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     }
     let updated;
     try {
-      updated = await prisma.restaurantReview.update({
+      updated = await restaurantRepository.restaurantReviewUpdate({
         where: { id: params.reviewId },
         data: parsed.data,
       });
@@ -1066,7 +977,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     const params = request.params as { placeId: string };
     const userId = (request.headers["x-user-id"] as string | undefined) ?? DEFAULT_USER_ID;
     try {
-      await prisma.restaurantFavorite.upsert({
+      await restaurantRepository.restaurantFavoriteUpsert({
         where: { placeId_userId: { placeId: params.placeId, userId } },
         update: {},
         create: { placeId: params.placeId, userId },
@@ -1084,7 +995,7 @@ export async function registerRestaurantRoutes(app: FastifyInstance): Promise<vo
     const params = request.params as { placeId: string };
     const userId = (request.headers["x-user-id"] as string | undefined) ?? DEFAULT_USER_ID;
     try {
-      await prisma.restaurantFavorite.deleteMany({
+      await restaurantRepository.restaurantFavoriteDeleteMany({
         where: { placeId: params.placeId, userId },
       });
     } catch (err) {

@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
+import { getBiteBudUserId } from '../composables/useUserId'
+import { localCalendarYmd, recordMotivationActivity } from '../lib/motivationApi'
+import { motivationToastText } from '../lib/motivationCopy'
+import MotivationToast from '../components/MotivationToast.vue'
 
 const route = useRoute()
 
@@ -8,6 +12,26 @@ const title = computed(() => String(route.query.title ?? 'Your recipe'))
 const steps = computed(() => Number(route.query.steps ?? 0) || 0)
 const minutes = computed(() => Number(route.query.minutes ?? 0) || 0)
 const rating = ref(4)
+const toastMessage = ref('')
+
+onMounted(() => {
+  const uid = getBiteBudUserId()
+  const recipeId = String(route.params.id ?? '')
+  if (!uid || !recipeId) return
+  void (async () => {
+    try {
+      const res = await recordMotivationActivity({
+        type: 'recipe_completed',
+        localDate: localCalendarYmd(new Date()),
+        recipeId,
+      })
+      const text = motivationToastText(res.toastKey)
+      if (text) toastMessage.value = text
+    } catch {
+      /* offline / API error — do not block completion screen */
+    }
+  })()
+})
 </script>
 
 <template>
@@ -51,6 +75,7 @@ const rating = ref(4)
       <RouterLink class="bb-btn bb-btn--primary" to="/search">Find another recipe</RouterLink>
       <RouterLink class="bb-btn bb-btn--primary" :to="`/recipe/${route.params.id}`">Back to recipe</RouterLink>
     </nav>
+    <MotivationToast :message="toastMessage" @dismiss="toastMessage = ''" />
   </div>
 </template>
 
