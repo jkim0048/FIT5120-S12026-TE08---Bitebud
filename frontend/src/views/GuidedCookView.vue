@@ -5,6 +5,7 @@ import { biteBudUserIdHeader, getBiteBudUserId } from '../composables/useUserId'
 import { useSettings } from '../composables/useSettings'
 import { apiFetch, apiUrl } from '../lib/api'
 import { getOrderedRecipeSteps } from '../lib/recipeSteps'
+import { downloadShoppingListPdf } from '../lib/shoppingListPdf'
 import { findTtsVoiceByName } from '../lib/ttsVoices'
 import type { RecipeGraph } from '../types/recipe'
 import type { SensoryConflictResponse } from '../types/sensory'
@@ -98,12 +99,30 @@ const allIngredientsChecked = computed(() => {
   return values.length === 0 || values.every(Boolean)
 })
 
+function setAllGetReadyChecks(checked: boolean) {
+  const next: Record<string, boolean> = {}
+  for (const k of Object.keys(getReadyChecks.value)) next[k] = checked
+  getReadyChecks.value = next
+}
+
+function setAllIngredientChecks(checked: boolean) {
+  const next: Record<string, boolean> = {}
+  for (const k of Object.keys(ingredientChecks.value)) next[k] = checked
+  ingredientChecks.value = next
+}
+
 const checklistConfirmTitle = computed(() => 'Not everything is checked')
 const checklistConfirmBody = computed(() =>
   checklistConfirmContext.value === 'getReadyToIngredients'
     ? "You haven't checked all equipment items. You can go back to finish, or proceed anyway."
-    : "You haven't checked all ingredients. You can go back to finish, or proceed anyway.",
+    : "You haven't checked all ingredients. Any unchecked items will be added to your shopping list. You can go back to update the checklist, or proceed to cooking steps.",
 )
+
+const checklistConfirmHasShoppingList = computed(
+  () => checklistConfirmContext.value === 'ingredientsToSteps' && uncheckedIngredientCount.value > 0,
+)
+
+const shoppingListOpen = ref(false)
 
 const timerState = ref<TimerState>('idle')
 const remaining = ref<number | null>(null)
@@ -303,6 +322,57 @@ const ingredientChecklistGroups = computed((): IngredientChecklistGroup[] => {
   }
   return groups
 })
+
+const uncheckedIngredientChecklistGroups = computed((): IngredientChecklistGroup[] => {
+  const out: IngredientChecklistGroup[] = []
+  for (const g of ingredientChecklistGroups.value) {
+    const items = g.items.filter((it) => ingredientChecks.value[it.id] !== true)
+    if (!items.length) continue
+    out.push({ sectionKey: g.sectionKey, sectionTitle: g.sectionTitle, items })
+  }
+  return out
+})
+
+const uncheckedIngredientCount = computed(() =>
+  uncheckedIngredientChecklistGroups.value.reduce((sum, g) => sum + g.items.length, 0),
+)
+
+function openShoppingList() {
+  shoppingListOpen.value = true
+}
+function closeShoppingList() {
+  shoppingListOpen.value = false
+}
+
+function exportShoppingListPdf() {
+  if (!graph.value) return
+  if (uncheckedIngredientCount.value === 0) return
+  const checkedIngredientChecklistGroups = ingredientChecklistGroups.value
+    .map((g) => ({
+      sectionKey: g.sectionKey,
+      sectionTitle: g.sectionTitle,
+      items: g.items.filter((it) => ingredientChecks.value[it.id] === true),
+    }))
+    .filter((g) => g.items.length > 0)
+
+  downloadShoppingListPdf({
+    recipeTitle: graph.value.title,
+    servingsLabel:
+      selectedServings.value != null && baseServings.value != null
+        ? `${selectedServings.value} servings`
+        : selectedServings.value != null
+          ? `${selectedServings.value} servings`
+          : null,
+    buyGroups: uncheckedIngredientChecklistGroups.value.map((g) => ({
+      title: g.sectionTitle ? formatSectionHeading(g.sectionTitle) : null,
+      lines: g.items.map((it) => ingredientChecklistSingleLine(it.label, it.detail)),
+    })),
+    pantryGroups: checkedIngredientChecklistGroups.map((g) => ({
+      title: g.sectionTitle ? formatSectionHeading(g.sectionTitle) : null,
+      lines: g.items.map((it) => ingredientChecklistSingleLine(it.label, it.detail)),
+    })),
+  })
+}
 
 const equipmentItems = computed(() => {
   const textBlob = steps.value.map((s) => `${s.label} ${s.detail}`.toLowerCase()).join(' ')
@@ -601,6 +671,11 @@ function proceedChecklistConfirm() {
   else enterRoadmapPhase()
 }
 
+function viewShoppingListFromConfirm() {
+  checklistConfirmOpen.value = false
+  openShoppingList()
+}
+
 function requestEnterIngredientsPhase() {
   if (allReadyChecked.value) {
     enterIngredientsPhase()
@@ -765,7 +840,8 @@ watch(
 watch(
   equipmentItems,
   (items) => {
-    getReadyChecks.value = Object.fromEntries(items.map((item) => [item, false]))
+    const prev = getReadyChecks.value
+    getReadyChecks.value = Object.fromEntries(items.map((item) => [item, prev[item] ?? false]))
   },
   { immediate: true },
 )
@@ -774,7 +850,8 @@ watch(
   ingredientChecklistGroups,
   (groups) => {
     const flat = groups.flatMap((g) => g.items)
-    ingredientChecks.value = Object.fromEntries(flat.map((item) => [item.id, false]))
+    const prev = ingredientChecks.value
+    ingredientChecks.value = Object.fromEntries(flat.map((item) => [item.id, prev[item.id] ?? false]))
   },
   { immediate: true },
 )
@@ -866,9 +943,64 @@ async function markStepDoneAndNext() {
         <aside class="checklist-confirm" @click.stop>
           <h3 class="checklist-confirm__title">{{ checklistConfirmTitle }}</h3>
           <p class="checklist-confirm__body">{{ checklistConfirmBody }}</p>
-          <div class="checklist-confirm__actions">
+          <div class="checklist-confirm__actions" :class="{ 'checklist-confirm__actions--stack': checklistConfirmHasShoppingList }">
             <button type="button" class="bb-btn bb-btn--secondary" @click="closeChecklistConfirm">Go back</button>
+            <button
+              v-if="checklistConfirmHasShoppingList"
+              type="button"
+              class="bb-btn bb-btn--secondary"
+              @click="viewShoppingListFromConfirm"
+            >
+              View shopping list
+            </button>
             <button type="button" class="bb-btn bb-btn--primary" @click="proceedChecklistConfirm">Proceed anyway</button>
+          </div>
+        </aside>
+      </div>
+
+      <div
+        v-if="shoppingListOpen"
+        class="shopping-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Shopping list"
+        @click="closeShoppingList"
+      >
+        <aside class="shopping-modal" @click.stop>
+          <header class="shopping-modal__head">
+            <div>
+              <h3 class="shopping-modal__title">Shopping list</h3>
+              <p class="shopping-modal__sub">
+                <span v-if="uncheckedIngredientCount > 0">
+                  {{ uncheckedIngredientCount }} item{{ uncheckedIngredientCount === 1 ? '' : 's' }} missing
+                </span>
+                <span v-else>All ingredients are checked.</span>
+              </p>
+            </div>
+            <button type="button" class="shopping-modal__close" @click="closeShoppingList" aria-label="Close shopping list">✕</button>
+          </header>
+
+          <div class="shopping-modal__body">
+            <template v-if="uncheckedIngredientCount > 0">
+              <ul class="shopping-list">
+                <template v-for="(group, gi) in uncheckedIngredientChecklistGroups" :key="`${group.sectionKey}-${gi}`">
+                  <li v-if="group.sectionTitle" class="shopping-section" role="presentation">
+                    <span class="shopping-section__title">{{ formatSectionHeading(group.sectionTitle) }}</span>
+                  </li>
+                  <li v-for="item in group.items" :key="item.id" class="shopping-row">
+                    {{ ingredientChecklistSingleLine(item.label, item.detail) }}
+                  </li>
+                </template>
+              </ul>
+            </template>
+            <p v-else class="muted">Nothing to buy for this recipe.</p>
+          </div>
+
+          <div class="shopping-modal__actions">
+            <button type="button" class="bb-btn bb-btn--secondary" @click="closeShoppingList">Close</button>
+            <button type="button" class="bb-btn bb-btn--primary" :disabled="uncheckedIngredientCount === 0" @click="exportShoppingListPdf">
+              Export to PDF
+            </button>
           </div>
         </aside>
       </div>
@@ -883,6 +1015,11 @@ async function markStepDoneAndNext() {
         <article class="card ready">
           <h1 class="ready-title">Get Ready</h1>
           <p class="ready-sub">Gather your tools and equipment before you start cooking. Check each item off when you have it.</p>
+          <div class="ready-controls" aria-label="Equipment checklist controls">
+            <span class="ready-controls__spacer" />
+            <button type="button" class="bb-btn bb-btn--secondary ready-controls__btn" @click="setAllGetReadyChecks(true)">Select all</button>
+            <button type="button" class="bb-btn bb-btn--secondary ready-controls__btn" @click="setAllGetReadyChecks(false)">Clear</button>
+          </div>
           <ul class="ready-list">
             <li v-for="item in readyItems" :key="item.label">
               <label class="ready-item">
@@ -913,6 +1050,11 @@ async function markStepDoneAndNext() {
         <article class="card ready">
           <h1 class="ready-title">Ingredients Checklist</h1>
           <p class="ready-sub">Check off what you have on hand. This is session-only and won’t be saved.</p>
+          <div class="ready-controls" aria-label="Ingredient checklist controls">
+            <span class="ready-controls__spacer" />
+            <button type="button" class="bb-btn bb-btn--secondary ready-controls__btn" @click="setAllIngredientChecks(true)">Select all</button>
+            <button type="button" class="bb-btn bb-btn--secondary ready-controls__btn" @click="setAllIngredientChecks(false)">Clear</button>
+          </div>
           <ul class="ready-list">
             <template v-for="(group, gi) in ingredientChecklistGroups" :key="`${group.sectionKey}-${gi}`">
               <li v-if="group.sectionTitle" class="ready-ingredient-section" role="presentation">
@@ -948,6 +1090,15 @@ async function markStepDoneAndNext() {
           </ul>
           <div class="ready-actions">
             <button type="button" class="bb-btn bb-btn--primary guided-btn ready-back-btn" @click="enterGetReadyPhase">Back</button>
+            <button
+              type="button"
+              class="bb-btn bb-btn--secondary guided-btn ready-shop-btn"
+              :disabled="uncheckedIngredientCount === 0"
+              :aria-disabled="uncheckedIngredientCount === 0 ? 'true' : 'false'"
+              @click="uncheckedIngredientCount === 0 ? undefined : openShoppingList()"
+            >
+              Shopping list{{ uncheckedIngredientCount > 0 ? ` (${uncheckedIngredientCount})` : '' }}
+            </button>
             <button type="button" class="bb-btn bb-btn--primary guided-btn ready-main-btn" @click="requestEnterRoadmapPhase">
               Cooking Steps
             </button>
@@ -969,7 +1120,7 @@ async function markStepDoneAndNext() {
         </ol>
         <div class="roadmap-actions">
           <button type="button" class="bb-btn bb-btn--primary guided-btn roadmap-back-btn" @click="enterGetReadyPhase">Back</button>
-          <button type="button" class="bb-btn bb-btn--primary guided-btn roadmap-continue-btn" @click="enterStepPhase(index)">Go to Current Step</button>
+          <button type="button" class="bb-btn bb-btn--primary guided-btn roadmap-continue-btn" @click="enterStepPhase(index)">Let's start cooking!</button>
         </div>
       </section>
 
@@ -1117,6 +1268,113 @@ async function markStepDoneAndNext() {
   flex: 1 1 0;
   min-width: 0;
   white-space: nowrap;
+}
+.checklist-confirm__actions--stack {
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+}
+.checklist-confirm__actions--stack .bb-btn {
+  width: 100%;
+  flex: 0 0 auto;
+  white-space: normal;
+}
+.ready-controls {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0 0.75rem;
+}
+.ready-controls__btn {
+  padding: 0.55rem 0.75rem;
+}
+.ready-controls__spacer {
+  flex: 1 1 auto;
+}
+.shopping-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 410;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: color-mix(in srgb, var(--bb-bg) 78%, #000 22%);
+  backdrop-filter: blur(6px);
+}
+.shopping-modal {
+  width: min(34rem, 100%);
+  background: var(--bb-surface-low);
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 14%, transparent);
+  border-radius: 18px;
+  padding: 1.05rem 1.05rem 0.95rem;
+  box-shadow: 0 20px 50px rgba(26, 28, 25, 0.12);
+  max-height: min(80vh, 46rem);
+  display: flex;
+  flex-direction: column;
+}
+.shopping-modal__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+.shopping-modal__title {
+  margin: 0;
+  font-family: var(--bb-font-headline);
+  font-size: 1.05rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--bb-text);
+}
+.shopping-modal__sub {
+  margin: 0.35rem 0 0;
+  color: var(--bb-muted);
+  line-height: 1.45;
+  font-size: 0.92rem;
+}
+.shopping-modal__close {
+  border: none;
+  background: transparent;
+  color: var(--bb-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.25rem;
+  cursor: pointer;
+}
+.shopping-modal__body {
+  margin-top: 0.75rem;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+.shopping-modal__actions {
+  margin-top: 0.85rem;
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+.shopping-modal__actions .bb-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+}
+.shopping-list {
+  margin: 0;
+  padding-left: 1.15rem;
+}
+.shopping-section {
+  list-style: none;
+  margin: 0.9rem 0 0.35rem;
+  padding: 0;
+}
+.shopping-section__title {
+  display: inline-block;
+  font-weight: 800;
+  color: var(--bb-text);
+}
+.shopping-row {
+  margin: 0.35rem 0;
+  color: var(--bb-text);
 }
 .err {
   color: #b91c1c;
@@ -1507,8 +1765,13 @@ async function markStepDoneAndNext() {
   min-width: 5.5rem;
   font-weight: 700;
 }
+.ready-shop-btn {
+  min-width: 10rem;
+  font-weight: 800;
+  flex: 1 1 10rem;
+}
 .ready-main-btn {
-  min-width: 190px;
+  min-width: 10rem;
   font-weight: 800;
   flex: 1 1 12rem;
 }

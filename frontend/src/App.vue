@@ -95,9 +95,9 @@ watchEffect(() => {
   -webkit-backdrop-filter: blur(20px);
 }
 .top-inner {
-  max-width: 72rem;
+  max-width: var(--bb-content-max, 72rem);
   margin: 0 auto;
-  padding: 0.85rem 1.25rem;
+  padding: 0.85rem var(--bb-gutter, 1.25rem);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -192,6 +192,33 @@ watchEffect(() => {
 }
 .main {
   flex: 1;
+  padding: 0 var(--bb-gutter, 1.25rem);
+}
+
+@media (min-width: 1600px) {
+  .top-inner {
+    max-width: 92rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .top-inner {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .primary-nav {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 0.85rem 1rem;
+    padding-bottom: 0.25rem;
+  }
+  .primary-nav a,
+  .nav-signout {
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
 }
 
 @media (max-width: 640px) {
