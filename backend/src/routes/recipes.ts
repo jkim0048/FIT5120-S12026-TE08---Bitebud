@@ -117,6 +117,36 @@ const progressBody = z.object({
   completedNodeIds: z.array(z.string()),
 });
 
+const completionWorkedTaxonomy = z.enum([
+  "low-prep",
+  "few-ingredients",
+  "one-pan",
+  "sweet-savoury",
+  "comforting-texture",
+  "matched-sensory-profile",
+  "easy-cleanup",
+  "clear-steps",
+]);
+
+const completionDidntWorkTaxonomy = z.enum([
+  "too-many-steps",
+  "too-many-ingredients",
+  "too-long",
+  "thick-sauce",
+  "unfamiliar-method",
+  "texture-issue",
+  "flavour-too-strong",
+  "ingredient-issue",
+]);
+
+const completionBody = z.object({
+  rating: z.number().int().min(1).max(5).optional(),
+  wouldRepeat: z.boolean().optional(),
+  worked: z.array(completionWorkedTaxonomy).optional(),
+  didntWork: z.array(completionDidntWorkTaxonomy).optional(),
+  notes: z.string().max(2000).optional(),
+});
+
 async function persistGraph(
   graph: RecipeGraph,
   opts: {
@@ -419,6 +449,35 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       : rows;
 
     return reply.send({ results });
+  });
+
+  app.post("/api/recipes/:id/completions", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
+    if (!userId) {
+      return reply.status(400).send({ error: "Missing or invalid X-User-Id" });
+    }
+    const body = completionBody.parse(request.body);
+    const recipe = await prisma.recipe.findUnique({ where: { id }, select: { id: true } });
+    if (!recipe) return reply.status(404).send({ error: "Not found" });
+
+    const created = await prisma.recipeCompletion.create({
+      data: {
+        recipeId: recipe.id,
+        userId,
+        rating: body.rating ?? null,
+        wouldRepeat: body.wouldRepeat ?? null,
+        worked: (body.worked ?? []) as unknown as object,
+        didntWork: (body.didntWork ?? []) as unknown as object,
+        notes: body.notes?.trim() ? body.notes.trim() : null,
+      },
+      select: { id: true, completedAt: true },
+    });
+
+    return reply.send({
+      id: created.id,
+      completedAt: created.completedAt.toISOString(),
+    });
   });
 
   app.post("/api/recipes/import/themealdb", async (request, reply) => {

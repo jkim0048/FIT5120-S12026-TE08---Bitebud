@@ -13,6 +13,8 @@ export type UserSettings = {
   voice: string
   darkMode: boolean
   backgroundTint: BackgroundTint
+  motivationEnabled?: boolean
+  insightsEnabled?: boolean
 }
 
 const DEFAULTS: UserSettings = {
@@ -24,6 +26,8 @@ const DEFAULTS: UserSettings = {
   voice: 'Karen',
   darkMode: false,
   backgroundTint: 'none',
+  motivationEnabled: true,
+  insightsEnabled: true,
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -50,6 +54,8 @@ function normalize(raw: Partial<UserSettings> | null): UserSettings {
     voice: typeof r.voice === 'string' ? r.voice : DEFAULTS.voice,
     darkMode: Boolean(r.darkMode),
     backgroundTint,
+    motivationEnabled: r.motivationEnabled == null ? true : Boolean(r.motivationEnabled),
+    insightsEnabled: r.insightsEnabled == null ? true : Boolean(r.insightsEnabled),
   }
 }
 

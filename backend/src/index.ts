@@ -7,6 +7,7 @@ import { registerIconRoutes } from "./routes/icons.js";
 import { registerSensoryRoutes } from "./routes/sensory.js";
 import { registerRestaurantRoutes } from "./routes/restaurants.js";
 import { registerMotivationRoutes } from "./routes/motivation.js";
+import { registerMeRoutes } from "./routes/me.js";
 
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -42,6 +43,7 @@ await registerIconRoutes(app);
 await registerSensoryRoutes(app);
 await registerRestaurantRoutes(app);
 await registerMotivationRoutes(app);
+await registerMeRoutes(app);
 
 try {
   await app.listen({ port: PORT, host: HOST });
