@@ -6,12 +6,14 @@ import { getBiteBudUserId } from '../composables/useUserId'
 import { localCalendarYmd, recordMotivationActivity } from '../lib/motivationApi'
 import { motivationToastText } from '../lib/motivationCopy'
 import MotivationToast from '../components/MotivationToast.vue'
+import { useGentleToast } from '../composables/useGentleToast'
 
 const route = useRoute()
 const router = useRouter()
 const favSaved = ref(false)
 const saveError = ref('')
 const toastMessage = ref('')
+const gentleToast = useGentleToast()
 
 function formatTagsFromQuery(key: string) {
   const raw = route.query[key]
@@ -48,6 +50,7 @@ async function saveFavorite() {
 }
 
 onMounted(() => {
+  gentleToast.show('review-saved', {})
   void saveFavorite()
   const uid = getBiteBudUserId()
   const placeId = String(route.params.id ?? '')
