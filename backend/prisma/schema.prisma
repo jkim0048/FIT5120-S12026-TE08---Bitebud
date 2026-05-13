@@ -57,7 +57,7 @@ model RecipeCompletion {
   rating      Int?
   wouldRepeat Boolean? @map("would_repeat")
   worked      Json     @default("[]")
-  didntWork   Json     @default("[]")
+  didntWork   Json     @default("[]") @map("didnt_work")
   notes       String?
   recipe      Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 

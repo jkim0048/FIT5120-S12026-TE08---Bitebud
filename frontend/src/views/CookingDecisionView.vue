@@ -10,6 +10,10 @@ function goCook(): void {
 function goDine(): void {
   void router.push({ name: 'restaurantSearch' })
 }
+
+function goProfile(): void {
+  void router.push({ name: 'profileStart' })
+}
 </script>
 
 <template>
@@ -21,14 +25,21 @@ function goDine(): void {
       </p>
     </header>
 
-    <div class="choices" role="group" aria-label="Cook at home or dine out">
-      <button type="button" class="choice bb-btn bb-btn--primary" @click="goCook">Let's start cooking</button>
-      <button type="button" class="choice choice--secondary bb-btn bb-btn--secondary" @click="goDine">
-        Let's dine out
-      </button>
-    </div>
+    <section class="eat-tier" aria-labelledby="eat-tier-heading">
+      <h2 id="eat-tier-heading" class="section-title">Let's eat</h2>
+      <div class="choices" role="group" aria-label="Cook at home or dine out">
+        <button type="button" class="choice bb-btn bb-btn--primary" @click="goCook">Let's start cooking</button>
+        <button type="button" class="choice choice--secondary bb-btn bb-btn--secondary" @click="goDine">
+          Let's dine out
+        </button>
+      </div>
+    </section>
 
-    <RouterLink class="sensory-link" :to="{ name: 'sensorySetup' }">Update sensory profile</RouterLink>
+    <section class="profile-tier" aria-labelledby="profile-tier-heading">
+      <h2 id="profile-tier-heading" class="section-title">Your profile</h2>
+      <p class="section-lede">Tune sensory needs and review patterns from your BiteBud activity.</p>
+      <button type="button" class="choice choice--profile bb-btn" @click="goProfile">My profile</button>
+    </section>
 
     <p class="footer-nav">
       <RouterLink to="/" class="muted-link">Back to home</RouterLink>
@@ -45,10 +56,10 @@ function goDine(): void {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  gap: 2rem;
 }
 .head {
   text-align: center;
-  margin-bottom: 2rem;
 }
 .h1 {
   margin: 0 0 0.65rem;
@@ -63,6 +74,20 @@ function goDine(): void {
   color: var(--bb-muted);
   font-size: 1rem;
   line-height: 1.55;
+}
+.section-title {
+  margin: 0 0 0.85rem;
+  font-family: var(--bb-font-headline);
+  font-weight: 800;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+  color: var(--bb-text);
+}
+.section-lede {
+  margin: -0.35rem 0 0.85rem;
+  color: var(--bb-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 .choices {
   display: flex;
@@ -83,16 +108,19 @@ function goDine(): void {
 .choice--secondary {
   border-width: 2px;
 }
-.sensory-link {
-  margin-top: 1.5rem;
-  text-align: center;
-  font-weight: 700;
-  font-size: 0.95rem;
-  color: var(--bb-accent);
-  text-decoration: none;
+.profile-tier {
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--bb-border);
 }
-.sensory-link:hover {
-  text-decoration: underline;
+.choice--profile {
+  background: #b89ac8;
+  border: 2px solid transparent;
+  color: #fff;
+}
+.choice--profile:hover {
+  background: #9f7bb3;
+  border-color: transparent;
+  color: #fff;
 }
 .footer-nav {
   margin-top: auto;

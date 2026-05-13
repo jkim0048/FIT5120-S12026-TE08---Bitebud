@@ -23,6 +23,7 @@ import RestaurantMyReviewsView from '../views/RestaurantMyReviewsView.vue'
 import MyProgressView from '../views/MyProgressView.vue'
 import MyInsightsView from '../views/MyInsightsView.vue'
 import CookingDecisionView from '../views/CookingDecisionView.vue'
+import ProfileStartView from '../views/ProfileStartView.vue'
 
 const AUTH_REQUIRED_NAMES = new Set([
   'search',
@@ -34,6 +35,7 @@ const AUTH_REQUIRED_NAMES = new Set([
   'myProgress',
   'myInsights',
   'cookingStart',
+  'profileStart',
 ])
 
 export const router = createRouter({
@@ -48,6 +50,7 @@ export const router = createRouter({
     { path: '/auth', name: 'auth', component: AuthView },
     { path: '/auth/new-user', name: 'authNewUser', component: AuthNewUserView },
     { path: '/start', name: 'cookingStart', component: CookingDecisionView },
+    { path: '/start/profile', name: 'profileStart', component: ProfileStartView },
     { path: '/search', name: 'search', component: RecipeSearchView },
     { path: '/recipe/:id', name: 'recipe', component: RecipeFlowPage },
     { path: '/recipe/:id/servings', name: 'guidedServings', component: GuidedServingsView },

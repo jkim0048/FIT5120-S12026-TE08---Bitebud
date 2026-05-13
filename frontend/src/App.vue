@@ -78,7 +78,7 @@ watchEffect(() => {
           <RouterLink to="/search">Let's start cooking</RouterLink>
           <RouterLink to="/restaurants/search">Let's dine out</RouterLink>
           <RouterLink v-if="showInsightsLink" to="/insights">My Insights</RouterLink>
-          <RouterLink to="/sensory/setup">Customise sensory profile</RouterLink>
+          <RouterLink to="/sensory/setup">Update sensory profile</RouterLink>
           <RouterLink v-if="showActivityChip" to="/insights" class="activity-chip" :aria-label="activityStreakAria">
             <span class="activity-chip__glyph" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
