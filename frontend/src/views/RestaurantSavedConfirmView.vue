@@ -36,7 +36,7 @@ function navToSearch() {
 }
 
 function navHome() {
-  void router.push({ name: 'restaurantEntry' })
+  void router.push({ name: 'home' })
 }
 
 async function saveFavorite() {
