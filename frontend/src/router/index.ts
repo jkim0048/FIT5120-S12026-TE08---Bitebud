@@ -86,6 +86,17 @@ export const router = createRouter({
 })
 
 router.beforeEach((to) => {
+  if (to.name === 'myInsights') {
+    try {
+      const uid = getBiteBudUserId()
+      const key = `bitebud_settings_${uid ?? 'anon'}`
+      const raw = localStorage.getItem(key)
+      const parsed = raw ? (JSON.parse(raw) as { insightsEnabled?: unknown }) : {}
+      if (parsed && parsed.insightsEnabled === false) return { name: 'home' }
+    } catch {
+      /* allow navigation */
+    }
+  }
   if (to.name === 'unlock') {
     if (isSiteUnlocked()) {
       const dest = safeUnlockRedirect(to.query.redirect)

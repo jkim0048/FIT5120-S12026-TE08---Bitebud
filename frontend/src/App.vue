@@ -324,6 +324,66 @@ watchEffect(() => {
   line-height: 1.3;
 }
 
+.activity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--bb-border);
+  background: var(--bb-surface-lowest);
+  text-decoration: none;
+  color: var(--bb-text);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.activity-chip__glyph {
+  display: inline-flex;
+  line-height: 1;
+  font-size: 1rem;
+}
+.activity-chip__n {
+  font-weight: 800;
+}
+.activity-chip__label {
+  color: var(--bb-muted);
+}
+
+.gentle-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 0.65rem 0.75rem;
+  border-radius: 14px;
+  border: 1px solid var(--bb-border);
+  background: color-mix(in srgb, var(--bb-surface-highest) 94%, #22c55e 6%);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+  z-index: 80;
+}
+.gentle-toast--visible {
+  opacity: 1;
+}
+.gentle-toast--no-motion {
+  transition: none;
+}
+.gentle-toast__glyph {
+  color: #1f7a4a;
+  flex: 0 0 auto;
+}
+.gentle-toast__text {
+  color: var(--bb-text);
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
 @media (max-width: 640px) {
   .top-inner {
     padding: 0.75rem 1rem;

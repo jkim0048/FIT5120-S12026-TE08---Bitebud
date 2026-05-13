@@ -15,7 +15,7 @@
     "@vue-leaflet/vue-leaflet": "^0.10.1",
     "bitebud": "file:..",
     "dagre": "^0.8.5",
-    "jspdf": "^3.0.2",
+    "jspdf": "^4.2.1",
     "leaflet": "^1.9.4",
     "vue": "^3.5.32",
     "vue-router": "^4.6.4"
