@@ -3,7 +3,7 @@ import { apiFetch } from '../lib/api'
 import { useSession } from './useSession'
 
 export type ActivitySummary = {
-  daysThisWeek: number
+  dayStreak: number
   activitiesThisMonth: number
   hasAny: boolean
 }

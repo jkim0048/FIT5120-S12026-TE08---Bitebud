@@ -5,48 +5,94 @@ import { parseBiteBudUserId } from "../biteBudUserId.js";
 import { parseRecipeGraph, type RecipeGraph, type RecipeNode } from "../graph/recipeGraph.js";
 import { inferFlavorProfile } from "../services/flavorProfile.js";
 
-function isoDateOnly(d: Date): string {
-  return d.toISOString().slice(0, 10);
+function isoDateOnly(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
-function parseIsoDateOnly(s: string): Date | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const da = Number(m[3]);
-  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(da)) return null;
-  const d = new Date(Date.UTC(y, mo - 1, da, 0, 0, 0, 0));
+function parseIsoDateOnly(isoDateString: string): Date | null {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDateString.trim());
+  if (!dateMatch) return null;
+  const year = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const dayOfMonth = Number(dateMatch[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(dayOfMonth)) return null;
+  const parsedUtc = new Date(Date.UTC(year, month - 1, dayOfMonth, 0, 0, 0, 0));
   // Validate the date parts survived (e.g. 2026-02-31 should be rejected).
-  if (d.getUTCFullYear() !== y || d.getUTCMonth() !== mo - 1 || d.getUTCDate() !== da) return null;
-  return d;
+  if (
+    parsedUtc.getUTCFullYear() !== year ||
+    parsedUtc.getUTCMonth() !== month - 1 ||
+    parsedUtc.getUTCDate() !== dayOfMonth
+  )
+    return null;
+  return parsedUtc;
 }
 
-function addDays(d: Date, days: number): Date {
-  const out = new Date(d);
-  out.setUTCDate(out.getUTCDate() + days);
-  return out;
+function addDays(date: Date, days: number): Date {
+  const shifted = new Date(date);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted;
 }
 
-function startOfIsoWeek(d: Date): Date {
-  const out = new Date(d);
-  out.setHours(0, 0, 0, 0);
-  const day = out.getDay(); // 0 Sun ... 6 Sat
-  const diff = (day + 6) % 7; // Mon=0 ... Sun=6
-  out.setDate(out.getDate() - diff);
-  return out;
+/** Local timezone used for "today", streak boundaries, and calendar-day grouping. */
+const LOCAL_TIMEZONE = "Australia/Melbourne";
+
+const LOCAL_CALENDAR_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: LOCAL_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/** Returns the YYYY-MM-DD calendar date of `date` evaluated in Melbourne time. */
+function localCalendarDateString(date: Date): string {
+  return LOCAL_CALENDAR_FORMATTER.format(date);
 }
 
-function timeOfDayBucket(d: Date): "morning" | "midday" | "evening" | "night" {
-  const h = d.getHours();
-  if (h >= 5 && h < 11) return "morning";
-  if (h >= 11 && h < 16) return "midday";
-  if (h >= 16 && h < 22) return "evening";
+/** Subtracts `days` calendar days from an ISO date string, returning the new ISO date. */
+function isoCalendarMinusDays(isoDateString: string, days: number): string {
+  const [year, month, dayOfMonth] = isoDateString.split("-").map(Number);
+  const dt = new Date(Date.UTC(year, month - 1, dayOfMonth));
+  dt.setUTCDate(dt.getUTCDate() - days);
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Current streak: consecutive Melbourne-local days with at least one completion or review,
+ * counting backward from today only. If nothing is logged today (Melbourne date), streak is 0.
+ */
+function computeCurrentActivityStreak(activeIsoDays: Iterable<string>, now: Date = new Date()): number {
+  const set = new Set(activeIsoDays);
+  const todayStr = localCalendarDateString(now);
+  if (!set.has(todayStr)) return 0;
+
+  let streak = 0;
+  let cursor = todayStr;
+  while (set.has(cursor)) {
+    streak += 1;
+    cursor = isoCalendarMinusDays(cursor, 1);
+  }
+  return streak;
+}
+
+function startOfIsoWeek(date: Date): Date {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const weekday = start.getDay(); // 0 Sun ... 6 Sat
+  const daysSinceMonday = (weekday + 6) % 7; // Mon=0 ... Sun=6
+  start.setDate(start.getDate() - daysSinceMonday);
+  return start;
+}
+
+function timeOfDayBucket(date: Date): "morning" | "midday" | "evening" | "night" {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 11) return "morning";
+  if (hour >= 11 && hour < 16) return "midday";
+  if (hour >= 16 && hour < 22) return "evening";
   return "night";
 }
 
-function normalizeIngredientLabel(s: string): string {
-  return s
+function normalizeIngredientLabel(rawLabel: string): string {
+  return rawLabel
     .toLowerCase()
     .replace(/\([^)]*\)/g, " ")
     .replace(/[^a-z0-9]+/g, " ")
@@ -54,7 +100,7 @@ function normalizeIngredientLabel(s: string): string {
 }
 
 function ingredientNodes(graph: RecipeGraph): RecipeNode[] {
-  return (graph.nodes ?? []).filter((n) => n.type === "ingredient");
+  return (graph.nodes ?? []).filter((node) => node.type === "ingredient");
 }
 
 function methodKeysFromGraph(graph: RecipeGraph): Set<string> {
@@ -69,20 +115,20 @@ function methodKeysFromGraph(graph: RecipeGraph): Set<string> {
     ["steam", /\bsteam\b/],
     ["boil", /\bboil\b/],
   ];
-  for (const n of graph.nodes ?? []) {
-    const t = `${n.label ?? ""} ${n.detail ?? ""}`.toLowerCase();
-    for (const [key, re] of patterns) {
-      if (re.test(t)) methods.add(key);
+  for (const node of graph.nodes ?? []) {
+    const nodeText = `${node.label ?? ""} ${node.detail ?? ""}`.toLowerCase();
+    for (const [methodKey, pattern] of patterns) {
+      if (pattern.test(nodeText)) methods.add(methodKey);
     }
   }
   return methods;
 }
 
-function ordinalThisWeek(n: number): string {
-  if (n === 1) return "first";
-  if (n === 2) return "second";
-  if (n === 3) return "third";
-  return `${n}th`;
+function ordinalThisWeek(ordinalNumber: number): string {
+  if (ordinalNumber === 1) return "first";
+  if (ordinalNumber === 2) return "second";
+  if (ordinalNumber === 3) return "third";
+  return `${ordinalNumber}th`;
 }
 
 type InsightCard = {
@@ -93,37 +139,37 @@ type InsightCard = {
   recordCount: number;
 };
 
-function clampTopN<T>(arr: T[], n: number): T[] {
-  return arr.slice(0, Math.max(0, n));
+function clampTopN<T>(items: T[], maxCount: number): T[] {
+  return items.slice(0, Math.max(0, maxCount));
 }
 
-function countTopN(map: Map<string, number>, n: number): Array<{ key: string; count: number }> {
+function countTopN(map: Map<string, number>, maxEntries: number): Array<{ key: string; count: number }> {
   return clampTopN(
     Array.from(map.entries())
       .map(([key, count]) => ({ key, count }))
-      .sort((a, b) => b.count - a.count),
-    n,
+      .sort((first, second) => second.count - first.count),
+    maxEntries,
   );
 }
 
 function pearson(xs: number[], ys: number[]): number {
   if (xs.length !== ys.length || xs.length < 2) return 0;
-  const n = xs.length;
-  const mx = xs.reduce((a, b) => a + b, 0) / n;
-  const my = ys.reduce((a, b) => a + b, 0) / n;
-  let num = 0;
-  let dx = 0;
-  let dy = 0;
-  for (let i = 0; i < n; i++) {
-    const vx = xs[i] - mx;
-    const vy = ys[i] - my;
-    num += vx * vy;
-    dx += vx * vx;
-    dy += vy * vy;
+  const pairCount = xs.length;
+  const meanX = xs.reduce((sum, value) => sum + value, 0) / pairCount;
+  const meanY = ys.reduce((sum, value) => sum + value, 0) / pairCount;
+  let numerator = 0;
+  let sumSquaredDeviationX = 0;
+  let sumSquaredDeviationY = 0;
+  for (let pairIndex = 0; pairIndex < pairCount; pairIndex++) {
+    const deviationX = xs[pairIndex] - meanX;
+    const deviationY = ys[pairIndex] - meanY;
+    numerator += deviationX * deviationY;
+    sumSquaredDeviationX += deviationX * deviationX;
+    sumSquaredDeviationY += deviationY * deviationY;
   }
-  const den = Math.sqrt(dx) * Math.sqrt(dy);
-  if (!Number.isFinite(den) || den === 0) return 0;
-  return num / den;
+  const denominator = Math.sqrt(sumSquaredDeviationX) * Math.sqrt(sumSquaredDeviationY);
+  if (!Number.isFinite(denominator) || denominator === 0) return 0;
+  return numerator / denominator;
 }
 
 export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
@@ -131,19 +177,19 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
     if (!userId) return reply.status(400).send({ error: "Missing or invalid X-User-Id" });
 
-    const daysRows = await prisma.$queryRaw<
+    const activeDayRows = await prisma.$queryRaw<
       Array<{ day: string }>
     >`SELECT DISTINCT day::text AS day FROM (
-        SELECT date_trunc('day', completed_at)::date AS day
+        SELECT ((completed_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date AS day
         FROM recipe_completions
-        WHERE user_id = ${userId} AND completed_at >= NOW() - INTERVAL '7 days'
+        WHERE user_id = ${userId} AND completed_at >= NOW() - INTERVAL '400 days'
         UNION
-        SELECT date_trunc('day', created_at)::date AS day
+        SELECT ((created_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date AS day
         FROM restaurant_reviews
-        WHERE user_id = ${userId} AND created_at >= NOW() - INTERVAL '7 days'
+        WHERE user_id = ${userId} AND created_at >= NOW() - INTERVAL '400 days'
       ) days`;
 
-    const totalsRows = await prisma.$queryRaw<
+    const activityTotalsQueryRows = await prisma.$queryRaw<
       Array<{ completions_30: bigint; reviews_30: bigint; completions_ever: bigint; reviews_ever: bigint }>
     >`SELECT
         (SELECT COUNT(*) FROM recipe_completions WHERE user_id = ${userId} AND completed_at >= NOW() - INTERVAL '30 days') AS completions_30,
@@ -151,25 +197,25 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
         (SELECT COUNT(*) FROM recipe_completions WHERE user_id = ${userId}) AS completions_ever,
         (SELECT COUNT(*) FROM restaurant_reviews WHERE user_id = ${userId}) AS reviews_ever`;
 
-    const totals = totalsRows[0] ?? {
+    const activityTotals = activityTotalsQueryRows[0] ?? {
       completions_30: 0n,
       reviews_30: 0n,
       completions_ever: 0n,
       reviews_ever: 0n,
     };
 
-    const daysThisWeek = (daysRows ?? []).length;
-    const activitiesThisMonth = Number(totals.completions_30) + Number(totals.reviews_30);
-    const hasAny = Number(totals.completions_ever) + Number(totals.reviews_ever) > 0;
+    const dayStreak = computeCurrentActivityStreak((activeDayRows ?? []).map((row) => row.day));
+    const activitiesThisMonth = Number(activityTotals.completions_30) + Number(activityTotals.reviews_30);
+    const hasAny = Number(activityTotals.completions_ever) + Number(activityTotals.reviews_ever) > 0;
 
-    return reply.send({ daysThisWeek, activitiesThisMonth, hasAny });
+    return reply.send({ dayStreak, activitiesThisMonth, hasAny });
   });
 
   app.get("/api/me/insights", async (request, reply) => {
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
     if (!userId) return reply.status(400).send({ error: "Missing or invalid X-User-Id" });
 
-    const query = z
+    const parsedQuery = z
       .object({
         dismissed: z.string().optional(),
         from: z.string().optional(),
@@ -180,8 +226,8 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
     const today = new Date();
     const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0, 0));
     const defaultFrom = addDays(todayUtc, -89); // inclusive range = 90 days
-    const parsedFrom = query.from ? parseIsoDateOnly(query.from) : null;
-    const parsedTo = query.to ? parseIsoDateOnly(query.to) : null;
+    const parsedFrom = parsedQuery.from ? parseIsoDateOnly(parsedQuery.from) : null;
+    const parsedTo = parsedQuery.to ? parseIsoDateOnly(parsedQuery.to) : null;
     const rangeFrom = parsedFrom ?? defaultFrom;
     const rangeTo = parsedTo ?? todayUtc;
     if (!rangeFrom || !rangeTo) {
@@ -197,11 +243,11 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
     const rangeFromInclusive = rangeFrom;
     const rangeToExclusive = addDays(rangeTo, 1);
 
-    const dismissedIds = query.dismissed;
-    const dismissed = new Set(
-      (dismissedIds ?? "")
+    const dismissedIdsCsv = parsedQuery.dismissed;
+    const dismissedCardIds = new Set(
+      (dismissedIdsCsv ?? "")
         .split(",")
-        .map((s) => s.trim())
+        .map((rawId) => rawId.trim())
         .filter(Boolean),
     );
 
@@ -240,18 +286,18 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
     };
 
     if (progressEnabled) {
-      const calendarRows = await prisma.$queryRaw<
+      const dailyActivityAggregateRows = await prisma.$queryRaw<
         Array<{ day: Date; recipes: bigint; dining: bigint }>
       >`SELECT day,
           SUM(recipes_count)::bigint AS recipes,
           SUM(dining_count)::bigint AS dining
         FROM (
-          SELECT date_trunc('day', completed_at)::date AS day, COUNT(*)::bigint AS recipes_count, 0::bigint AS dining_count
+          SELECT ((completed_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date AS day, COUNT(*)::bigint AS recipes_count, 0::bigint AS dining_count
           FROM recipe_completions
           WHERE user_id = ${userId} AND completed_at >= ${rangeFromInclusive} AND completed_at < ${rangeToExclusive}
           GROUP BY 1
           UNION ALL
-          SELECT date_trunc('day', created_at)::date AS day, 0::bigint AS recipes_count, COUNT(*)::bigint AS dining_count
+          SELECT ((created_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date AS day, 0::bigint AS recipes_count, COUNT(*)::bigint AS dining_count
           FROM restaurant_reviews
           WHERE user_id = ${userId} AND created_at >= ${rangeFromInclusive} AND created_at < ${rangeToExclusive}
           GROUP BY 1
@@ -259,24 +305,24 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
         GROUP BY day
         ORDER BY day ASC`;
 
-      progress.calendar = (calendarRows ?? []).map((r) => ({
-        date: isoDateOnly(new Date(r.day)),
-        recipes: Number(r.recipes),
-        dining: Number(r.dining),
+      progress.calendar = (dailyActivityAggregateRows ?? []).map((calendarRow) => ({
+        date: isoDateOnly(new Date(calendarRow.day)),
+        recipes: Number(calendarRow.recipes),
+        dining: Number(calendarRow.dining),
       }));
 
-      const weeklyRows = await prisma.$queryRaw<
+      const weeklyActivityAggregateRows = await prisma.$queryRaw<
         Array<{ week_start: Date; recipes: bigint; dining: bigint }>
       >`SELECT week_start,
           SUM(recipes_count)::bigint AS recipes,
           SUM(dining_count)::bigint AS dining
         FROM (
-          SELECT date_trunc('week', completed_at)::date AS week_start, COUNT(*)::bigint AS recipes_count, 0::bigint AS dining_count
+          SELECT date_trunc('week', (completed_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date AS week_start, COUNT(*)::bigint AS recipes_count, 0::bigint AS dining_count
           FROM recipe_completions
           WHERE user_id = ${userId} AND completed_at >= ${weeklyFrom} AND completed_at < ${rangeToExclusive}
           GROUP BY 1
           UNION ALL
-          SELECT date_trunc('week', created_at)::date AS week_start, 0::bigint AS recipes_count, COUNT(*)::bigint AS dining_count
+          SELECT date_trunc('week', (created_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date AS week_start, 0::bigint AS recipes_count, COUNT(*)::bigint AS dining_count
           FROM restaurant_reviews
           WHERE user_id = ${userId} AND created_at >= ${weeklyFrom} AND created_at < ${rangeToExclusive}
           GROUP BY 1
@@ -284,10 +330,10 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
         GROUP BY week_start
         ORDER BY week_start ASC`;
 
-      progress.weeklyBars = (weeklyRows ?? []).map((r) => ({
-        weekStart: isoDateOnly(startOfIsoWeek(new Date(r.week_start))),
-        recipes: Number(r.recipes),
-        dining: Number(r.dining),
+      progress.weeklyBars = (weeklyActivityAggregateRows ?? []).map((weeklyRow) => ({
+        weekStart: isoDateOnly(startOfIsoWeek(new Date(weeklyRow.week_start))),
+        recipes: Number(weeklyRow.recipes),
+        dining: Number(weeklyRow.dining),
       }));
 
       const breakdownRows = await prisma.$queryRaw<
@@ -295,13 +341,13 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
       >`SELECT
           (SELECT COUNT(*) FROM recipe_completions WHERE user_id = ${userId} AND completed_at >= ${rangeFromInclusive} AND completed_at < ${rangeToExclusive}) AS recipes,
           (SELECT COUNT(*) FROM restaurant_reviews WHERE user_id = ${userId} AND created_at >= ${rangeFromInclusive} AND created_at < ${rangeToExclusive}) AS dining`;
-      const br = breakdownRows[0] ?? { recipes: 0n, dining: 0n };
-      progress.typeBreakdown = { recipes: Number(br.recipes), dining: Number(br.dining) };
+      const breakdownRow = breakdownRows[0] ?? { recipes: 0n, dining: 0n };
+      progress.typeBreakdown = { recipes: Number(breakdownRow.recipes), dining: Number(breakdownRow.dining) };
     }
 
     const cooking = { works: [] as InsightCard[], doesntWork: [] as InsightCard[] };
     if (cookingEnabled) {
-      const comps = await prisma.recipeCompletion.findMany({
+      const ratedRecipeCompletions = await prisma.recipeCompletion.findMany({
         where: {
           userId,
           rating: { not: null },
@@ -319,278 +365,315 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
         },
       });
 
-      const hi = comps.filter((c) => (c.rating ?? 0) >= 4);
-      const lo = comps.filter((c) => (c.rating ?? 0) <= 3);
+      const higherRatedCompletions = ratedRecipeCompletions.filter((completion) => (completion.rating ?? 0) >= 4);
+      const lowerRatedCompletions = ratedRecipeCompletions.filter((completion) => (completion.rating ?? 0) <= 3);
 
       const cardsWorks: InsightCard[] = [];
       const cardsDoesnt: InsightCard[] = [];
 
-      if (hi.length >= 3) {
-        let le6 = 0;
-        for (const c of hi) {
-          const g = parseRecipeGraph(c.recipe.graph);
-          if (ingredientNodes(g).length <= 6) le6++;
+      if (higherRatedCompletions.length >= 3) {
+        let countHigherRatedWithSixOrFewerIngredients = 0;
+        for (const completion of higherRatedCompletions) {
+          const recipeGraph = parseRecipeGraph(completion.recipe.graph);
+          if (ingredientNodes(recipeGraph).length <= 6) countHigherRatedWithSixOrFewerIngredients++;
         }
-        if (le6 / hi.length >= 0.6) {
+        if (countHigherRatedWithSixOrFewerIngredients / higherRatedCompletions.length >= 0.6) {
           cardsWorks.push({
             id: "cooking.ingredient-count.le6",
             category: "ingredient-count",
             headline: "You finish recipes with 6 or fewer ingredients.",
-            detail: `Drawn from your higher-rated recipe completions (n=${hi.length}).`,
-            recordCount: hi.length,
+            detail: `Drawn from your higher-rated recipe completions (n=${higherRatedCompletions.length}).`,
+            recordCount: higherRatedCompletions.length,
           });
         }
 
-        const times = hi.map((c) => c.recipe.totalTimeMinutes ?? null).filter((n): n is number => typeof n === "number");
-        if (times.length >= 3) {
-          const avg = times.reduce((a, b) => a + b, 0) / times.length;
-          if (avg <= 30) {
+        const totalTimeMinutesList = higherRatedCompletions
+          .map((completion) => completion.recipe.totalTimeMinutes ?? null)
+          .filter((minutes): minutes is number => typeof minutes === "number");
+        if (totalTimeMinutesList.length >= 3) {
+          const averageMinutes =
+            totalTimeMinutesList.reduce((sum, minutes) => sum + minutes, 0) / totalTimeMinutesList.length;
+          if (averageMinutes <= 30) {
             cardsWorks.push({
               id: "cooking.prep-time.le30",
               category: "prep-time",
               headline: "You tend to finish recipes that take 30 minutes or less.",
-              detail: `Based on average total time across higher-rated recipe completions (n=${times.length}).`,
-              recordCount: times.length,
+              detail: `Based on average total time across higher-rated recipe completions (n=${totalTimeMinutesList.length}).`,
+              recordCount: totalTimeMinutesList.length,
             });
           }
         }
 
         const workedTagCounts = new Map<string, number>();
-        for (const c of comps) {
-          const tags = Array.isArray(c.worked) ? (c.worked as unknown[]) : [];
-          for (const t of tags) {
-            if (typeof t !== "string") continue;
-            workedTagCounts.set(t, (workedTagCounts.get(t) ?? 0) + 1);
+        for (const completion of ratedRecipeCompletions) {
+          const workedTags = Array.isArray(completion.worked) ? (completion.worked as unknown[]) : [];
+          for (const workedTag of workedTags) {
+            if (typeof workedTag !== "string") continue;
+            workedTagCounts.set(workedTag, (workedTagCounts.get(workedTag) ?? 0) + 1);
           }
         }
-        for (const t of countTopN(workedTagCounts, 3)) {
-          if (t.count < 3) continue;
+        for (const topWorkedTag of countTopN(workedTagCounts, 3)) {
+          if (topWorkedTag.count < 3) continue;
           cardsWorks.push({
-            id: `cooking.worked-tag.${t.key}`,
+            id: `cooking.worked-tag.${topWorkedTag.key}`,
             category: "worked-tag",
-            headline: `“${t.key}” comes up often in what worked for you.`,
-            detail: `You’ve tagged this as working ${t.count} times in your recipe completions.`,
-            recordCount: t.count,
+            headline: `“${topWorkedTag.key}” comes up often in what worked for you.`,
+            detail: `You’ve tagged this as working ${topWorkedTag.count} times in your recipe completions.`,
+            recordCount: topWorkedTag.count,
           });
         }
 
         const ingredientCounts = new Map<string, number>();
-        for (const c of hi) {
-          const g = parseRecipeGraph(c.recipe.graph);
-          for (const ing of ingredientNodes(g)) {
-            const k = normalizeIngredientLabel(ing.label);
-            if (!k) continue;
-            ingredientCounts.set(k, (ingredientCounts.get(k) ?? 0) + 1);
+        for (const completion of higherRatedCompletions) {
+          const recipeGraph = parseRecipeGraph(completion.recipe.graph);
+          for (const ingredient of ingredientNodes(recipeGraph)) {
+            const normalizedLabel = normalizeIngredientLabel(ingredient.label);
+            if (!normalizedLabel) continue;
+            ingredientCounts.set(
+              normalizedLabel,
+              (ingredientCounts.get(normalizedLabel) ?? 0) + 1,
+            );
           }
         }
-        for (const top of countTopN(ingredientCounts, 3)) {
+        for (const topIngredient of countTopN(ingredientCounts, 3)) {
           cardsWorks.push({
-            id: `cooking.ingredient-affinity.${top.key}`,
+            id: `cooking.ingredient-affinity.${topIngredient.key}`,
             category: "ingredient-affinity",
-            headline: `“${top.key}” shows up often in recipes you rate highly.`,
+            headline: `“${topIngredient.key}” shows up often in recipes you rate highly.`,
             detail: `Counted across your higher-rated recipe completions.`,
-            recordCount: top.count,
+            recordCount: topIngredient.count,
           });
         }
 
-        const todCounts = new Map<string, number>();
-        for (const c of comps) {
-          const key = `${new Date(c.completedAt).getDay()}|${timeOfDayBucket(new Date(c.completedAt))}`;
-          todCounts.set(key, (todCounts.get(key) ?? 0) + 1);
+        const dayAndTimeBucketCounts = new Map<string, number>();
+        for (const completion of ratedRecipeCompletions) {
+          const completedAt = new Date(completion.completedAt);
+          const dayAndTimeKey = `${completedAt.getDay()}|${timeOfDayBucket(completedAt)}`;
+          dayAndTimeBucketCounts.set(
+            dayAndTimeKey,
+            (dayAndTimeBucketCounts.get(dayAndTimeKey) ?? 0) + 1,
+          );
         }
-        const topBucket = countTopN(todCounts, 1)[0];
-        if (topBucket && topBucket.count / comps.length >= 0.4) {
-          const [dayIdxStr, bucket] = topBucket.key.split("|");
-          const dayIdx = Number(dayIdxStr);
-          const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        const busiestDayTimeBucket = countTopN(dayAndTimeBucketCounts, 1)[0];
+        if (busiestDayTimeBucket && busiestDayTimeBucket.count / ratedRecipeCompletions.length >= 0.4) {
+          const [weekdayIndexString, timeOfDayLabel] = busiestDayTimeBucket.key.split("|");
+          const weekdayIndex = Number(weekdayIndexString);
+          const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
           cardsWorks.push({
-            id: `cooking.time-cluster.${dayIdx}.${bucket}`,
+            id: `cooking.time-cluster.${weekdayIndex}.${timeOfDayLabel}`,
             category: "time-of-week",
-            headline: `Many of your recipe completions land on ${days[dayIdx]} ${bucket}.`,
-            detail: `This pattern appears in ${topBucket.count} of your recipe completions.`,
-            recordCount: topBucket.count,
+            headline: `Many of your recipe completions land on ${weekdayNames[weekdayIndex]} ${timeOfDayLabel}.`,
+            detail: `This pattern appears in ${busiestDayTimeBucket.count} of your recipe completions.`,
+            recordCount: busiestDayTimeBucket.count,
           });
         }
 
         // Flavor dominance in higher-rated completions (≥50%).
-        const flavorSigCounts = new Map<string, number>();
-        for (const c of hi) {
-          const g = parseRecipeGraph(c.recipe.graph);
-          const ings = ingredientNodes(g)
-            .map((n) => ({ id: n.id, label: n.label, detail: n.detail }))
-            .filter((x) => x.id && x.label);
-          const inferred = await inferFlavorProfile(ings);
-          const flavorCounts = Object.entries(inferred)
-            .map(([k, ids]) => ({ k, n: Array.isArray(ids) ? ids.length : 0 }))
-            .sort((a, b) => b.n - a.n);
-          const top1 = flavorCounts[0]?.n ? flavorCounts[0] : null;
-          const top2 = flavorCounts[1]?.n ? flavorCounts[1] : null;
-          const sig = top1
-            ? top2 && top2.n >= top1.n * 0.8
-              ? `${top1.k}+${top2.k}`
-              : `${top1.k}`
+        const flavorSignatureCounts = new Map<string, number>();
+        for (const completion of higherRatedCompletions) {
+          const recipeGraph = parseRecipeGraph(completion.recipe.graph);
+          const ingredientsForFlavorInference = ingredientNodes(recipeGraph)
+            .map((ingredientNode) => ({
+              id: ingredientNode.id,
+              label: ingredientNode.label,
+              detail: ingredientNode.detail,
+            }))
+            .filter((ingredientRow) => ingredientRow.id && ingredientRow.label);
+          const inferredFlavorProfile = await inferFlavorProfile(ingredientsForFlavorInference);
+          const flavorBuckets = Object.entries(inferredFlavorProfile)
+            .map(([flavorKey, ingredientIds]) => ({
+              flavorKey,
+              idCount: Array.isArray(ingredientIds) ? ingredientIds.length : 0,
+            }))
+            .sort((first, second) => second.idCount - first.idCount);
+          const primaryFlavorBucket = flavorBuckets[0]?.idCount ? flavorBuckets[0] : null;
+          const secondaryFlavorBucket = flavorBuckets[1]?.idCount ? flavorBuckets[1] : null;
+          const flavorSignature = primaryFlavorBucket
+            ? secondaryFlavorBucket && secondaryFlavorBucket.idCount >= primaryFlavorBucket.idCount * 0.8
+              ? `${primaryFlavorBucket.flavorKey}+${secondaryFlavorBucket.flavorKey}`
+              : `${primaryFlavorBucket.flavorKey}`
             : "";
-          if (!sig) continue;
-          flavorSigCounts.set(sig, (flavorSigCounts.get(sig) ?? 0) + 1);
+          if (!flavorSignature) continue;
+          flavorSignatureCounts.set(
+            flavorSignature,
+            (flavorSignatureCounts.get(flavorSignature) ?? 0) + 1,
+          );
         }
-        const topFlavor = countTopN(flavorSigCounts, 1)[0];
-        if (topFlavor && topFlavor.count / hi.length >= 0.5) {
+        const topFlavorSignature = countTopN(flavorSignatureCounts, 1)[0];
+        if (topFlavorSignature && topFlavorSignature.count / higherRatedCompletions.length >= 0.5) {
           cardsWorks.push({
-            id: `cooking.flavour.${topFlavor.key}`,
+            id: `cooking.flavour.${topFlavorSignature.key}`,
             category: "flavour",
             headline: `Certain flavour profiles show up often in recipes you rate highly.`,
-            detail: `“${topFlavor.key}” appears in ${topFlavor.count} of your higher-rated completions.`,
-            recordCount: topFlavor.count,
+            detail: `“${topFlavorSignature.key}” appears in ${topFlavorSignature.count} of your higher-rated completions.`,
+            recordCount: topFlavorSignature.count,
           });
         }
 
         // Method preference by rating distribution.
-        const methodHi = new Map<string, number>();
-        const methodLo = new Map<string, number>();
-        for (const c of comps) {
-          const g = parseRecipeGraph(c.recipe.graph);
-          const methods = methodKeysFromGraph(g);
-          for (const m of methods) {
-            if ((c.rating ?? 0) >= 4) methodHi.set(m, (methodHi.get(m) ?? 0) + 1);
-            if ((c.rating ?? 0) <= 3) methodLo.set(m, (methodLo.get(m) ?? 0) + 1);
+        const highRatingMethodCounts = new Map<string, number>();
+        for (const completion of ratedRecipeCompletions) {
+          const recipeGraph = parseRecipeGraph(completion.recipe.graph);
+          const inferredMethodKeys = methodKeysFromGraph(recipeGraph);
+          for (const cookingMethodKey of inferredMethodKeys) {
+            if ((completion.rating ?? 0) >= 4)
+              highRatingMethodCounts.set(
+                cookingMethodKey,
+                (highRatingMethodCounts.get(cookingMethodKey) ?? 0) + 1,
+              );
           }
         }
-        const topHiMethod = countTopN(methodHi, 1)[0];
-        if (topHiMethod && topHiMethod.count >= 3) {
+        const topHighRatingMethod = countTopN(highRatingMethodCounts, 1)[0];
+        if (topHighRatingMethod && topHighRatingMethod.count >= 3) {
           cardsWorks.push({
-            id: `cooking.method.${topHiMethod.key}.works`,
+            id: `cooking.method.${topHighRatingMethod.key}.works`,
             category: "cooking-method",
-            headline: `Recipes involving “${topHiMethod.key}” show up often in your higher ratings.`,
+            headline: `Recipes involving “${topHighRatingMethod.key}” show up often in your higher ratings.`,
             detail: `Based on tags inferred from your recipe steps.`,
-            recordCount: topHiMethod.count,
+            recordCount: topHighRatingMethod.count,
           });
         }
       }
 
-      if (lo.length >= 3) {
-        let ge10 = 0;
-        for (const c of lo) {
-          const g = parseRecipeGraph(c.recipe.graph);
-          if (ingredientNodes(g).length >= 10) ge10++;
+      if (lowerRatedCompletions.length >= 3) {
+        let countLowerRatedWithTenOrMoreIngredients = 0;
+        for (const completion of lowerRatedCompletions) {
+          const recipeGraph = parseRecipeGraph(completion.recipe.graph);
+          if (ingredientNodes(recipeGraph).length >= 10) countLowerRatedWithTenOrMoreIngredients++;
         }
-        if (ge10 / lo.length >= 0.6) {
+        if (countLowerRatedWithTenOrMoreIngredients / lowerRatedCompletions.length >= 0.6) {
           cardsDoesnt.push({
             id: "cooking.ingredient-count.ge10",
             category: "ingredient-count",
             headline: "Recipes with 10 or more ingredients often rate lower for you.",
-            detail: `Drawn from your lower-rated recipe completions (n=${lo.length}).`,
-            recordCount: lo.length,
+            detail: `Drawn from your lower-rated recipe completions (n=${lowerRatedCompletions.length}).`,
+            recordCount: lowerRatedCompletions.length,
           });
         }
 
-        const times = lo.map((c) => c.recipe.totalTimeMinutes ?? null).filter((n): n is number => typeof n === "number");
-        if (times.length >= 3) {
-          const avg = times.reduce((a, b) => a + b, 0) / times.length;
-          if (avg >= 60) {
+        const lowerRatedTimeMinutesList = lowerRatedCompletions
+          .map((completion) => completion.recipe.totalTimeMinutes ?? null)
+          .filter((minutes): minutes is number => typeof minutes === "number");
+        if (lowerRatedTimeMinutesList.length >= 3) {
+          const averageLowerRatedMinutes =
+            lowerRatedTimeMinutesList.reduce((sum, minutes) => sum + minutes, 0) /
+            lowerRatedTimeMinutesList.length;
+          if (averageLowerRatedMinutes >= 60) {
             cardsDoesnt.push({
               id: "cooking.prep-time.ge60",
               category: "prep-time",
               headline: "Longer recipes often rate lower for you.",
-              detail: `Based on average total time across lower-rated recipe completions (n=${times.length}).`,
-              recordCount: times.length,
+              detail: `Based on average total time across lower-rated recipe completions (n=${lowerRatedTimeMinutesList.length}).`,
+              recordCount: lowerRatedTimeMinutesList.length,
             });
           }
         }
 
         const didntWorkTagCounts = new Map<string, number>();
-        for (const c of comps) {
-          const tags = Array.isArray(c.didntWork) ? (c.didntWork as unknown[]) : [];
-          for (const t of tags) {
-            if (typeof t !== "string") continue;
-            didntWorkTagCounts.set(t, (didntWorkTagCounts.get(t) ?? 0) + 1);
+        for (const completion of ratedRecipeCompletions) {
+          const didntWorkTags = Array.isArray(completion.didntWork) ? (completion.didntWork as unknown[]) : [];
+          for (const didntWorkTag of didntWorkTags) {
+            if (typeof didntWorkTag !== "string") continue;
+            didntWorkTagCounts.set(didntWorkTag, (didntWorkTagCounts.get(didntWorkTag) ?? 0) + 1);
           }
         }
-        for (const t of countTopN(didntWorkTagCounts, 3)) {
-          if (t.count < 3) continue;
+        for (const topDidntWorkTag of countTopN(didntWorkTagCounts, 3)) {
+          if (topDidntWorkTag.count < 3) continue;
           cardsDoesnt.push({
-            id: `cooking.didnt-work-tag.${t.key}`,
+            id: `cooking.didnt-work-tag.${topDidntWorkTag.key}`,
             category: "didnt-work-tag",
-            headline: `“${t.key}” comes up often in what didn’t work for you.`,
-            detail: `You’ve tagged this ${t.count} times in your recipe completions.`,
-            recordCount: t.count,
+            headline: `“${topDidntWorkTag.key}” comes up often in what didn’t work for you.`,
+            detail: `You’ve tagged this ${topDidntWorkTag.count} times in your recipe completions.`,
+            recordCount: topDidntWorkTag.count,
           });
         }
 
-        const ingredientCounts = new Map<string, number>();
-        for (const c of lo) {
-          const g = parseRecipeGraph(c.recipe.graph);
-          for (const ing of ingredientNodes(g)) {
-            const k = normalizeIngredientLabel(ing.label);
-            if (!k) continue;
-            ingredientCounts.set(k, (ingredientCounts.get(k) ?? 0) + 1);
+        const lowerRatedIngredientCounts = new Map<string, number>();
+        for (const completion of lowerRatedCompletions) {
+          const recipeGraph = parseRecipeGraph(completion.recipe.graph);
+          for (const ingredient of ingredientNodes(recipeGraph)) {
+            const normalizedLabel = normalizeIngredientLabel(ingredient.label);
+            if (!normalizedLabel) continue;
+            lowerRatedIngredientCounts.set(
+              normalizedLabel,
+              (lowerRatedIngredientCounts.get(normalizedLabel) ?? 0) + 1,
+            );
           }
         }
-        for (const top of countTopN(ingredientCounts, 3)) {
+        for (const topLowerRatedIngredient of countTopN(lowerRatedIngredientCounts, 3)) {
           cardsDoesnt.push({
-            id: `cooking.ingredient-avoid.${top.key}`,
+            id: `cooking.ingredient-avoid.${topLowerRatedIngredient.key}`,
             category: "ingredient-affinity",
-            headline: `“${top.key}” shows up often in recipes you rate lower.`,
+            headline: `“${topLowerRatedIngredient.key}” shows up often in recipes you rate lower.`,
             detail: `Counted across your lower-rated recipe completions.`,
-            recordCount: top.count,
+            recordCount: topLowerRatedIngredient.count,
           });
         }
       }
 
-      const filterDismissed = (arr: InsightCard[]) => arr.filter((c) => !dismissed.has(c.id));
-      cooking.works = clampTopN(filterDismissed(cardsWorks), 3);
-      cooking.doesntWork = clampTopN(filterDismissed(cardsDoesnt), 3);
+      const filterDismissedCards = (insightCards: InsightCard[]) =>
+        insightCards.filter((card) => !dismissedCardIds.has(card.id));
+      cooking.works = clampTopN(filterDismissedCards(cardsWorks), 3);
+      cooking.doesntWork = clampTopN(filterDismissedCards(cardsDoesnt), 3);
     }
 
     const dining = { works: [] as InsightCard[] };
     if (diningEnabled) {
-      const rows = await prisma.restaurantReview.findMany({
+      const restaurantReviewsInRange = await prisma.restaurantReview.findMany({
         where: { userId, createdAt: { gte: rangeFromInclusive, lt: rangeToExclusive } },
         orderBy: { createdAt: "desc" },
         take: 250,
         include: { place: true },
       });
 
-      const works: InsightCard[] = [];
+      const diningInsightCards: InsightCard[] = [];
 
       // Sensory match: dimensions where lower values correlate with higher overall ratings.
-      const dims: Array<{ key: "noise" | "music" | "light" | "crowds" | "smells"; label: string }> = [
+      const sensoryDimensions: Array<{ key: "noise" | "music" | "light" | "crowds" | "smells"; label: string }> = [
         { key: "noise", label: "noise" },
         { key: "music", label: "music" },
         { key: "light", label: "light" },
         { key: "crowds", label: "crowds" },
         { key: "smells", label: "smells" },
       ];
-      const overall = rows.map((r) => Number(r.overallRating));
-      const sensoryScores = dims
-        .map((d) => {
-          const vals = rows.map((r) => 5 - Number((r as any)[`${d.key}Rating`] ?? 0));
-          return { key: d.key, label: d.label, corr: pearson(vals, overall), n: vals.length };
+      const overallRatings = restaurantReviewsInRange.map((review) => Number(review.overallRating));
+      const sensoryCorrelationRows = sensoryDimensions
+        .map((dimension) => {
+          const sensoryCalmnessValues = restaurantReviewsInRange.map(
+            (review) => 5 - Number((review as any)[`${dimension.key}Rating`] ?? 0),
+          );
+          return {
+            key: dimension.key,
+            label: dimension.label,
+            correlation: pearson(sensoryCalmnessValues, overallRatings),
+            sampleSize: sensoryCalmnessValues.length,
+          };
         })
-        .filter((x) => x.n >= 3)
-        .sort((a, b) => b.corr - a.corr);
-      for (const s of sensoryScores.slice(0, 2)) {
-        if (s.corr < 0.35) continue;
-        works.push({
-          id: `dining.sensory.${s.key}`,
+        .filter((row) => row.sampleSize >= 3)
+        .sort((first, second) => second.correlation - first.correlation);
+      for (const sensoryCorrelation of sensoryCorrelationRows.slice(0, 2)) {
+        if (sensoryCorrelation.correlation < 0.35) continue;
+        diningInsightCards.push({
+          id: `dining.sensory.${sensoryCorrelation.key}`,
           category: "sensory-match",
-          headline: `You tend to rate places higher when ${s.label} is lower.`,
+          headline: `You tend to rate places higher when ${sensoryCorrelation.label} is lower.`,
           detail: `This card is based on patterns across your restaurant reviews.`,
-          recordCount: rows.length,
+          recordCount: restaurantReviewsInRange.length,
         });
       }
 
       // Cuisine: favourites or repeated higher ratings.
       const cuisineCounts = new Map<string, number>();
-      for (const r of rows) {
-        const cuisine = (r.place.cuisine ?? "").trim();
-        if (!cuisine) continue;
-        if (Number(r.overallRating) >= 4) {
-          cuisineCounts.set(cuisine, (cuisineCounts.get(cuisine) ?? 0) + 1);
+      for (const review of restaurantReviewsInRange) {
+        const cuisineLabel = (review.place.cuisine ?? "").trim();
+        if (!cuisineLabel) continue;
+        if (Number(review.overallRating) >= 4) {
+          cuisineCounts.set(cuisineLabel, (cuisineCounts.get(cuisineLabel) ?? 0) + 1);
         }
       }
       const topCuisine = countTopN(cuisineCounts, 1)[0];
       if (topCuisine && topCuisine.count >= 2) {
-        works.push({
+        diningInsightCards.push({
           id: `dining.cuisine.${topCuisine.key}`,
           category: "cuisine",
           headline: `You often rate ${topCuisine.key} places highly.`,
@@ -600,31 +683,144 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
       }
 
       // Best windows: aggregate bestTimesOfDay.
-      const timeCounts = new Map<string, number>();
-      for (const r of rows) {
-        const arr = Array.isArray(r.bestTimesOfDay) ? (r.bestTimesOfDay as unknown[]) : [];
-        for (const t of arr) {
-          if (typeof t !== "string") continue;
-          const key = t.trim();
-          if (!key) continue;
-          timeCounts.set(key, (timeCounts.get(key) ?? 0) + 1);
+      const preferredTimeSlotCounts = new Map<string, number>();
+      for (const review of restaurantReviewsInRange) {
+        const bestTimeChoices = Array.isArray(review.bestTimesOfDay)
+          ? (review.bestTimesOfDay as unknown[])
+          : [];
+        for (const timeChoice of bestTimeChoices) {
+          if (typeof timeChoice !== "string") continue;
+          const trimmedTimeLabel = timeChoice.trim();
+          if (!trimmedTimeLabel) continue;
+          preferredTimeSlotCounts.set(
+            trimmedTimeLabel,
+            (preferredTimeSlotCounts.get(trimmedTimeLabel) ?? 0) + 1,
+          );
         }
       }
-      const topTimes = countTopN(timeCounts, 2).filter((t) => t.count >= 2);
-      if (topTimes.length) {
-        const label = topTimes.map((t) => t.key).join(" and ");
-        const n = topTimes.reduce((a, b) => a + b.count, 0);
-        works.push({
-          id: `dining.best-windows.${topTimes.map((t) => t.key).join("+")}`,
+      const topPreferredTimeSlots = countTopN(preferredTimeSlotCounts, 2).filter(
+        (timeBucket) => timeBucket.count >= 2,
+      );
+      if (topPreferredTimeSlots.length) {
+        const combinedTimeLabels = topPreferredTimeSlots.map((timeBucket) => timeBucket.key).join(" and ");
+        const totalBestTimeSelections = topPreferredTimeSlots.reduce(
+          (runningTotal, timeBucket) => runningTotal + timeBucket.count,
+          0,
+        );
+        diningInsightCards.push({
+          id: `dining.best-windows.${topPreferredTimeSlots.map((timeBucket) => timeBucket.key).join("+")}`,
           category: "best-windows",
-          headline: `You often choose ${label} as a good time to go.`,
+          headline: `You often choose ${combinedTimeLabels} as a good time to go.`,
           detail: `Based on what you’ve picked in your reviews.`,
-          recordCount: n,
+          recordCount: totalBestTimeSelections,
         });
       }
 
-      dining.works = clampTopN(works.filter((c) => !dismissed.has(c.id)), 3);
+      dining.works = clampTopN(diningInsightCards.filter((card) => !dismissedCardIds.has(card.id)), 3);
     }
+
+    const lifetimeStatsRows = await prisma.$queryRaw<
+      Array<{
+        cooking_days_total: bigint;
+        dining_days_total: bigint;
+        dining_total: bigint;
+        first_activity_day: string | null;
+      }>
+    >`SELECT
+        (
+          SELECT COUNT(DISTINCT ((completed_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date)
+          FROM recipe_completions
+          WHERE user_id = ${userId}
+        )::bigint AS cooking_days_total,
+        (
+          SELECT COUNT(DISTINCT ((created_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date)
+          FROM restaurant_reviews
+          WHERE user_id = ${userId}
+        )::bigint AS dining_days_total,
+        (
+          SELECT COUNT(*)
+          FROM restaurant_reviews
+          WHERE user_id = ${userId}
+        )::bigint AS dining_total,
+        (
+          SELECT MIN(day)::text
+          FROM (
+            SELECT MIN(((completed_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date) AS day
+            FROM recipe_completions
+            WHERE user_id = ${userId}
+            UNION ALL
+            SELECT MIN(((created_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date) AS day
+            FROM restaurant_reviews
+            WHERE user_id = ${userId}
+          ) firsts
+        ) AS first_activity_day`;
+
+    const lifetimeStats = lifetimeStatsRows[0] ?? {
+      cooking_days_total: 0n,
+      dining_days_total: 0n,
+      dining_total: 0n,
+      first_activity_day: null,
+    };
+
+    const cookingDaysTotalLifetime = Number(lifetimeStats.cooking_days_total ?? 0n);
+    const diningDaysTotalLifetime = Number(lifetimeStats.dining_days_total ?? 0n);
+    const diningTotalLifetime = Number(lifetimeStats.dining_total ?? 0n);
+    const firstActivityIsoDay = lifetimeStats.first_activity_day ?? null;
+    const todayMelbourneIso = localCalendarDateString(new Date());
+    const daysSinceFirstActivity = firstActivityIsoDay
+      ? Math.max(
+          1,
+          Math.round(
+            (Date.UTC(
+              Number(todayMelbourneIso.slice(0, 4)),
+              Number(todayMelbourneIso.slice(5, 7)) - 1,
+              Number(todayMelbourneIso.slice(8, 10)),
+            ) -
+              Date.UTC(
+                Number(firstActivityIsoDay.slice(0, 4)),
+                Number(firstActivityIsoDay.slice(5, 7)) - 1,
+                Number(firstActivityIsoDay.slice(8, 10)),
+              )) /
+              86_400_000,
+          ) + 1,
+        )
+      : 0;
+
+    const lifetime = {
+      cookingDaysTotal: cookingDaysTotalLifetime,
+      diningDaysTotal: diningDaysTotalLifetime,
+      diningTotal: diningTotalLifetime,
+      firstActivityDate: firstActivityIsoDay,
+      daysSinceFirstActivity,
+    };
+
+    // Current-week (Monday-anchored, Melbourne local) counters for the progress gauges.
+    // These reset to 0 every Monday at midnight local time.
+    const thisWeekRows = await prisma.$queryRaw<
+      Array<{ week_start: string; cooking_days: bigint; dining_reviews: bigint }>
+    >`SELECT
+        date_trunc('week', NOW() AT TIME ZONE ${LOCAL_TIMEZONE})::date::text AS week_start,
+        (
+          SELECT COUNT(DISTINCT ((completed_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date)
+          FROM recipe_completions
+          WHERE user_id = ${userId}
+            AND ((completed_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date
+                >= date_trunc('week', NOW() AT TIME ZONE ${LOCAL_TIMEZONE})::date
+        )::bigint AS cooking_days,
+        (
+          SELECT COUNT(*)
+          FROM restaurant_reviews
+          WHERE user_id = ${userId}
+            AND ((created_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date
+                >= date_trunc('week', NOW() AT TIME ZONE ${LOCAL_TIMEZONE})::date
+        )::bigint AS dining_reviews`;
+
+    const thisWeekRow = thisWeekRows[0] ?? { week_start: null, cooking_days: 0n, dining_reviews: 0n };
+    const thisWeek = {
+      weekStart: thisWeekRow.week_start ?? null,
+      cookingDays: Number(thisWeekRow.cooking_days ?? 0n),
+      diningReviews: Number(thisWeekRow.dining_reviews ?? 0n),
+    };
 
     return reply.send({
       range: { from: isoDateOnly(rangeFromInclusive), to: isoDateOnly(rangeTo) },
@@ -632,6 +828,8 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
       cooking,
       dining,
       thresholds,
+      lifetime,
+      thisWeek,
     });
   });
 }

@@ -17,7 +17,18 @@ const toast = useGentleToast()
 const showActivityChip = computed(() => {
   if (!isSignedIn.value) return false
   if (settings.value.motivationEnabled === false) return false
-  return (activity.value?.daysThisWeek ?? 0) > 0
+  return (activity.value?.dayStreak ?? 0) > 0
+})
+
+const activityStreakLabel = computed(() => {
+  const n = activity.value?.dayStreak ?? 0
+  return n === 1 ? 'day streak' : 'days streak'
+})
+
+const activityStreakAria = computed(() => {
+  const n = activity.value?.dayStreak ?? 0
+  const unit = n === 1 ? 'day' : 'days'
+  return `Activity streak: ${n} ${unit}`
 })
 
 const showInsightsLink = computed(() => {
@@ -69,17 +80,10 @@ watchEffect(() => {
           <RouterLink v-if="showInsightsLink" to="/insights">My Insights</RouterLink>
           <RouterLink v-if="isSignedIn" to="/sensory/setup">Customise sensory profile</RouterLink>
           <RouterLink v-else to="/auth">Customise sensory profile</RouterLink>
-          <RouterLink v-if="showActivityChip" to="/insights" class="activity-chip" :aria-label="`Recent activity: ${activity?.daysThisWeek} days this week`">
-            <span class="activity-chip__glyph" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M7 14c5-1 8-5 9-10 2 6-1 14-7 16-3 1-6 0-8-2 2 0 4-1 6-4Z"
-                  fill="currentColor"
-                />
-              </svg>
-            </span>
-            <span class="activity-chip__n">{{ activity?.daysThisWeek }}</span>
-            <span class="activity-chip__label">days this week</span>
+          <RouterLink v-if="showActivityChip" to="/insights" class="activity-chip" :aria-label="activityStreakAria">
+            <span class="activity-chip__glyph" aria-hidden="true">🔥</span>
+            <span class="activity-chip__n">{{ activity?.dayStreak }}</span>
+            <span class="activity-chip__label">{{ activityStreakLabel }}</span>
           </RouterLink>
           <button v-if="isSignedIn && hasProfile" type="button" class="nav-signout" @click="onSignOut">Sign out</button>
           <RouterLink to="/settings">Settings</RouterLink>
@@ -254,8 +258,9 @@ watchEffect(() => {
   line-height: 1;
 }
 .activity-chip__glyph {
-  color: #1f7a4a;
   display: inline-flex;
+  line-height: 1;
+  font-size: 1rem;
 }
 .activity-chip__n {
   font-weight: 800;

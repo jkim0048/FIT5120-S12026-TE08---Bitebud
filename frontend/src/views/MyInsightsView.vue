@@ -29,6 +29,18 @@ type InsightsResponse = {
     dining: { have: number; need: 2 }
     progress: { have: number; need: 3 }
   }
+  lifetime?: {
+    cookingDaysTotal: number
+    diningDaysTotal: number
+    diningTotal: number
+    firstActivityDate: string | null
+    daysSinceFirstActivity: number
+  }
+  thisWeek?: {
+    weekStart: string | null
+    cookingDays: number
+    diningReviews: number
+  }
 }
 
 const router = useRouter()
@@ -207,6 +219,103 @@ function activitySummary() {
   return { recipes, reviews, daysAny }
 }
 
+const COOKING_GAUGE_MAX = 7
+const DINING_GAUGE_MAX = 7
+const GAUGE_ARC_LENGTH_PERCENT = 100
+
+/** Returns the Monday (local) of the week containing the given JS Date. */
+function startOfWeekMondayLocal(now: Date): Date {
+  const out = new Date(now)
+  out.setHours(0, 0, 0, 0)
+  const day = out.getDay() // Sun=0
+  const diff = (day + 6) % 7 // Mon=0
+  out.setDate(out.getDate() - diff)
+  return out
+}
+
+const thisWeekStats = computed(() => {
+  const d = data.value
+  // Prefer server-computed values (Melbourne Monday boundary).
+  if (d?.thisWeek) {
+    return {
+      cookingDays: Math.max(0, Math.round(d.thisWeek.cookingDays ?? 0)),
+      diningReviews: Math.max(0, Math.round(d.thisWeek.diningReviews ?? 0)),
+      weekStart: d.thisWeek.weekStart ?? null,
+    }
+  }
+  // Fallback: derive from the calendar in the current response (browser-local Monday).
+  if (!d) return { cookingDays: 0, diningReviews: 0, weekStart: null as string | null }
+  const mondayLocal = startOfWeekMondayLocal(new Date())
+  const yyyy = mondayLocal.getFullYear()
+  const mm = String(mondayLocal.getMonth() + 1).padStart(2, '0')
+  const dd = String(mondayLocal.getDate()).padStart(2, '0')
+  const mondayIso = `${yyyy}-${mm}-${dd}`
+  let cookingDays = 0
+  let diningReviews = 0
+  for (const row of d.progress.calendar ?? []) {
+    if (row.date < mondayIso) continue
+    if ((row.recipes ?? 0) > 0) cookingDays += 1
+    diningReviews += row.dining ?? 0
+  }
+  return { cookingDays, diningReviews, weekStart: mondayIso }
+})
+
+function clampGaugeValue(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0
+  return Math.max(0, Math.round(value))
+}
+
+function gaugePercent(value: number, max: number): number {
+  if (!Number.isFinite(value) || value <= 0 || max <= 0) return 0
+  return Math.min(GAUGE_ARC_LENGTH_PERCENT, (value / max) * GAUGE_ARC_LENGTH_PERCENT)
+}
+
+const cookingThisWeek = computed(() => clampGaugeValue(thisWeekStats.value.cookingDays))
+const diningThisWeek = computed(() => clampGaugeValue(thisWeekStats.value.diningReviews))
+
+const cookingGaugePercent = computed(() => gaugePercent(cookingThisWeek.value, COOKING_GAUGE_MAX))
+const diningGaugePercent = computed(() => gaugePercent(diningThisWeek.value, DINING_GAUGE_MAX))
+
+const cookingThisWeekDisplay = computed(() => String(cookingThisWeek.value))
+const diningThisWeekDisplay = computed(() => String(diningThisWeek.value))
+
+const cookingUnitLabel = computed(() => (cookingThisWeek.value === 1 ? 'day' : 'days'))
+const diningUnitLabel = computed(() => (diningThisWeek.value === 1 ? 'review' : 'reviews'))
+
+const weekStartPretty = computed(() => {
+  const iso = thisWeekStats.value.weekStart
+  if (!iso) return ''
+  return isoToPretty(iso)
+})
+
+const dowFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' })
+const calendarTooltipDateFormatter = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  day: '2-digit',
+  month: 'short',
+  timeZone: 'UTC',
+})
+
+function calendarCellTooltip(date: string, recipes: number, reviews: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim())
+  const dateLabel = m
+    ? calendarTooltipDateFormatter.format(
+        new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))),
+      )
+    : date
+  const recipeCount = Math.max(0, recipes | 0)
+  const reviewCount = Math.max(0, reviews | 0)
+  if (recipeCount === 0 && reviewCount === 0) return `${dateLabel} — no activity`
+  const parts: string[] = []
+  if (recipeCount > 0) {
+    parts.push(`${recipeCount} ${recipeCount === 1 ? 'recipe' : 'recipes'} cooked`)
+  }
+  if (reviewCount > 0) {
+    parts.push(`${reviewCount} restaurant ${reviewCount === 1 ? 'review' : 'reviews'}`)
+  }
+  return `${dateLabel}: ${parts.join(', ')}`
+}
+
 function mostActiveDow() {
   const d = data.value
   if (!d) return null
@@ -214,7 +323,7 @@ function mostActiveDow() {
   for (const day of d.progress.calendar ?? []) {
     const total = (day.recipes ?? 0) + (day.dining ?? 0)
     if (total <= 0) continue
-    const dow = new Date(`${day.date}T00:00:00.000Z`).toLocaleDateString(undefined, { weekday: 'long' })
+    const dow = dowFormatter.format(new Date(`${day.date}T00:00:00.000Z`))
     counts.set(dow, (counts.get(dow) ?? 0) + total)
   }
   const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])
@@ -681,6 +790,7 @@ function exportPdf() {
         <div v-else class="progress-grid">
           <div class="calendar">
             <div class="calendar-title">{{ isoToPretty(data.range.from) }} to {{ isoToPretty(data.range.to) }}</div>
+            <p class="calendar-hint">Hover over any day to see details.</p>
             <div class="months">
               <section v-for="m in visibleMonthGrids" :key="m.monthKey" class="month">
                 <div class="month-title">{{ m.label }}</div>
@@ -694,8 +804,8 @@ function exportPdf() {
                     type="button"
                     class="cell"
                     :class="[{ 'cell--out': !d.inMonth }, d.total === 0 ? 'cell--0' : d.total === 1 ? 'cell--1' : d.total === 2 ? 'cell--2' : d.total === 3 ? 'cell--3' : 'cell--4']"
-                    :data-tip="`${d.date}: ${d.recipes} recipe${d.recipes === 1 ? '' : 's'}, ${d.reviews} review${d.reviews === 1 ? '' : 's'}`"
-                    :aria-label="`${d.date}: ${d.recipes} recipe${d.recipes === 1 ? '' : 's'}, ${d.reviews} review${d.reviews === 1 ? '' : 's'}`"
+                    :data-tip="calendarCellTooltip(d.date, d.recipes, d.reviews)"
+                    :aria-label="calendarCellTooltip(d.date, d.recipes, d.reviews)"
                   >
                     <span v-if="d.inMonth" class="day">{{ Number(d.date.slice(8, 10)) }}</span>
                     <span class="sr">{{ d.date }}</span>
@@ -710,17 +820,74 @@ function exportPdf() {
             </div>
           </div>
 
-          <div class="weekly">
-            <div class="calendar-title">Last 12 weeks</div>
-            <div class="bars" aria-label="Weekly activity bars, last 12 weeks">
-              <div v-for="w in data.progress.weeklyBars" :key="w.weekStart" class="bar">
-                <div class="bar-label" :title="w.weekStart">{{ w.weekStart.slice(5) }}</div>
-                <div class="bar-track">
-                  <div class="bar-seg bar-seg--recipes" :style="{ width: `${Math.min(100, w.recipes * 18)}%` }" />
-                  <div class="bar-seg bar-seg--dining" :style="{ width: `${Math.min(100, w.dining * 18)}%` }" />
+          <div class="weekly-gauges">
+            <article class="gauge-card gauge-card--cooking">
+              <h3 class="gauge-title">
+                You cooked <strong>{{ cookingThisWeekDisplay }}</strong> {{ cookingUnitLabel }} this week
+              </h3>
+              <div
+                class="gauge"
+                role="img"
+                :aria-label="`Cooking days this week: ${cookingThisWeekDisplay} ${cookingUnitLabel} out of ${COOKING_GAUGE_MAX}`"
+              >
+                <svg viewBox="0 0 120 120" class="gauge-svg" aria-hidden="true">
+                  <path
+                    class="gauge-track"
+                    d="M 28.18 91.82 A 45 45 0 1 1 91.82 91.82"
+                    pathLength="100"
+                    fill="none"
+                  />
+                  <path
+                    class="gauge-fill gauge-fill--cooking"
+                    d="M 28.18 91.82 A 45 45 0 1 1 91.82 91.82"
+                    pathLength="100"
+                    fill="none"
+                    :stroke-dasharray="`${cookingGaugePercent} 100`"
+                  />
+                </svg>
+                <div class="gauge-readout">
+                  <span class="gauge-value">{{ cookingThisWeekDisplay }}</span>
+                  <span class="gauge-unit">{{ cookingUnitLabel }} / week</span>
                 </div>
               </div>
-            </div>
+              <p class="gauge-caption">
+                Resets every Monday<span v-if="weekStartPretty"> — week of {{ weekStartPretty }}</span>
+              </p>
+            </article>
+
+            <article class="gauge-card gauge-card--dining">
+              <h3 class="gauge-title">
+                You left <strong>{{ diningThisWeekDisplay }}</strong> dining {{ diningUnitLabel }} this week
+              </h3>
+              <div
+                class="gauge"
+                role="img"
+                :aria-label="`Dining reviews this week: ${diningThisWeekDisplay} ${diningUnitLabel} out of ${DINING_GAUGE_MAX}`"
+              >
+                <svg viewBox="0 0 120 120" class="gauge-svg" aria-hidden="true">
+                  <path
+                    class="gauge-track"
+                    d="M 28.18 91.82 A 45 45 0 1 1 91.82 91.82"
+                    pathLength="100"
+                    fill="none"
+                  />
+                  <path
+                    class="gauge-fill gauge-fill--dining"
+                    d="M 28.18 91.82 A 45 45 0 1 1 91.82 91.82"
+                    pathLength="100"
+                    fill="none"
+                    :stroke-dasharray="`${diningGaugePercent} 100`"
+                  />
+                </svg>
+                <div class="gauge-readout">
+                  <span class="gauge-value">{{ diningThisWeekDisplay }}</span>
+                  <span class="gauge-unit">{{ diningUnitLabel }} / week</span>
+                </div>
+              </div>
+              <p class="gauge-caption">
+                Resets every Monday<span v-if="weekStartPretty"> — week of {{ weekStartPretty }}</span>
+              </p>
+            </article>
           </div>
 
           <div class="breakdown">
@@ -1073,6 +1240,12 @@ function exportPdf() {
   color: var(--bb-text);
   margin-bottom: 0.35rem;
 }
+.calendar-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--bb-muted);
+}
 
 .months {
   display: grid;
@@ -1108,7 +1281,10 @@ function exportPdf() {
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+}
+.cell:hover,
+.cell:focus-visible {
+  z-index: 5;
 }
 .day {
   font-size: 0.72rem;
@@ -1147,28 +1323,50 @@ function exportPdf() {
   gap: 0.5rem;
   justify-content: flex-start;
 }
-.cell::after {
-  content: attr(data-tip);
+.cell::after,
+.cell::before {
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 8px);
-  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 140ms ease-out, transform 140ms ease-out;
+  z-index: 10;
+}
+.cell::after {
+  content: attr(data-tip);
+  bottom: calc(100% + 10px);
+  transform: translate(-50%, 4px);
   white-space: nowrap;
-  font-size: 0.8rem;
-  line-height: 1.2;
-  padding: 0.45rem 0.55rem;
-  border-radius: 12px;
-  border: 1px solid var(--bb-border);
+  font-size: 0.78rem;
+  line-height: 1.25;
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--bb-border) 70%, transparent);
   background: var(--bb-surface-highest);
   color: var(--bb-text);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
-  opacity: 0;
-  pointer-events: none;
-  z-index: 10;
+  font-variant-numeric: tabular-nums;
+}
+.cell::before {
+  content: "";
+  bottom: calc(100% + 4px);
+  transform: translate(-50%, 4px) rotate(45deg);
+  width: 8px;
+  height: 8px;
+  background: var(--bb-surface-highest);
+  border-right: 1px solid color-mix(in srgb, var(--bb-border) 70%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--bb-border) 70%, transparent);
+  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.08);
 }
 .cell:hover::after,
 .cell:focus-visible::after {
   opacity: 1;
+  transform: translate(-50%, 0);
+}
+.cell:hover::before,
+.cell:focus-visible::before {
+  opacity: 1;
+  transform: translate(-50%, 0) rotate(45deg);
 }
 .sr {
   position: absolute;
@@ -1182,36 +1380,85 @@ function exportPdf() {
   border: 0;
 }
 
-.bars {
-  display: grid;
-  gap: 0.35rem;
-}
-.bar {
-  display: grid;
-  grid-template-columns: 44px 1fr;
-  gap: 0.5rem;
-  align-items: center;
-}
-.bar-label {
-  color: color-mix(in srgb, var(--bb-text) 65%, var(--bb-muted));
-  font-variant-numeric: tabular-nums;
-  font-size: 0.8rem;
-}
-.bar-track {
-  height: 10px;
-  background: color-mix(in srgb, var(--bb-border) 45%, transparent);
-  border-radius: 999px;
-  overflow: hidden;
+.weekly-gauges {
   display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
 }
-.bar-seg {
+.gauge-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.75rem 0.6rem;
+  background: var(--bb-surface-lowest);
+  border: 1px solid color-mix(in srgb, var(--bb-border) 70%, transparent);
+  border-radius: 14px;
+  text-align: center;
+}
+.gauge-title {
+  margin: 0;
+  font-family: var(--bb-font-headline);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--bb-text);
+}
+.gauge-title strong {
+  font-weight: 800;
+}
+.gauge {
+  position: relative;
+  width: min(180px, 100%);
+  aspect-ratio: 1 / 1;
+}
+.gauge-svg {
+  width: 100%;
   height: 100%;
+  display: block;
 }
-.bar-seg--recipes {
-  background: color-mix(in srgb, var(--bb-accent) 45%, white);
+.gauge-track {
+  stroke: color-mix(in srgb, var(--bb-border) 55%, transparent);
+  stroke-width: 10;
+  stroke-linecap: round;
 }
-.bar-seg--dining {
-  background: color-mix(in srgb, var(--bb-primary) 45%, white);
+.gauge-fill {
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dasharray 320ms ease-out;
+}
+.gauge-fill--cooking {
+  stroke: color-mix(in srgb, var(--bb-accent) 75%, white);
+}
+.gauge-fill--dining {
+  stroke: color-mix(in srgb, var(--bb-primary) 75%, white);
+}
+.gauge-readout {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.gauge-value {
+  font-family: var(--bb-font-headline);
+  font-size: 1.9rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--bb-text);
+  font-variant-numeric: tabular-nums;
+}
+.gauge-unit {
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--bb-muted);
+}
+.gauge-caption {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--bb-muted);
 }
 
 .breakdown-row {
