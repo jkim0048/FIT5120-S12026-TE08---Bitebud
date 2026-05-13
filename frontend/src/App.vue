@@ -1,14 +1,40 @@
 <script setup lang="ts">
-import { watchEffect } from 'vue'
+import { computed, watchEffect } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useSettings } from './composables/useSettings'
 import { useSession } from './composables/useSession'
 import { useSensoryProfile } from './composables/useSensoryProfile'
+import { useActivityChip } from './composables/useActivityChip'
+import { useGentleToast } from './composables/useGentleToast'
 
 const { settings } = useSettings()
 const router = useRouter()
 const { userId, isSignedIn, logout } = useSession()
 const { hasProfile } = useSensoryProfile()
+const { activity } = useActivityChip()
+const toast = useGentleToast()
+
+const showActivityChip = computed(() => {
+  if (!isSignedIn.value) return false
+  if (settings.value.motivationEnabled === false) return false
+  return (activity.value?.dayStreak ?? 0) > 0
+})
+
+const activityStreakLabel = computed(() => {
+  const n = activity.value?.dayStreak ?? 0
+  return n === 1 ? 'day streak' : 'days streak'
+})
+
+const activityStreakAria = computed(() => {
+  const n = activity.value?.dayStreak ?? 0
+  const unit = n === 1 ? 'day' : 'days'
+  return `Activity streak: ${n} ${unit}`
+})
+
+const showInsightsLink = computed(() => {
+  if (!isSignedIn.value) return false
+  return settings.value.insightsEnabled !== false
+})
 
 function onSignOut() {
   logout()
@@ -51,8 +77,14 @@ watchEffect(() => {
           <RouterLink to="/">Home</RouterLink>
           <RouterLink to="/search">Let's start cooking</RouterLink>
           <RouterLink to="/restaurants">Let's dine out</RouterLink>
+          <RouterLink v-if="showInsightsLink" to="/insights">My Insights</RouterLink>
           <RouterLink v-if="isSignedIn" to="/sensory/setup">Customise sensory profile</RouterLink>
           <RouterLink v-else to="/auth">Customise sensory profile</RouterLink>
+          <RouterLink v-if="showActivityChip" to="/insights" class="activity-chip" :aria-label="activityStreakAria">
+            <span class="activity-chip__glyph" aria-hidden="true">🔥</span>
+            <span class="activity-chip__n">{{ activity?.dayStreak }}</span>
+            <span class="activity-chip__label">{{ activityStreakLabel }}</span>
+          </RouterLink>
           <button v-if="isSignedIn && hasProfile" type="button" class="nav-signout" @click="onSignOut">Sign out</button>
           <RouterLink to="/settings">Settings</RouterLink>
           <div
@@ -76,6 +108,24 @@ watchEffect(() => {
     <main id="main-content" class="main" tabindex="-1">
       <RouterView />
     </main>
+
+    <div
+      class="gentle-toast"
+      :class="[{ 'gentle-toast--visible': toast.state.value.visible }, { 'gentle-toast--no-motion': toast.noMotion.value }]"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span class="gentle-toast__glyph" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M7 14c5-1 8-5 9-10 2 6-1 14-7 16-3 1-6 0-8-2 2 0 4-1 6-4Z"
+            fill="currentColor"
+          />
+        </svg>
+      </span>
+      <span class="gentle-toast__text">{{ toast.state.value.message }}</span>
+    </div>
   </div>
 </template>
 
@@ -194,6 +244,66 @@ watchEffect(() => {
   flex: 1;
 }
 
+.activity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--bb-border);
+  background: var(--bb-surface-lowest);
+  text-decoration: none;
+  color: var(--bb-text);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.activity-chip__glyph {
+  display: inline-flex;
+  line-height: 1;
+  font-size: 1rem;
+}
+.activity-chip__n {
+  font-weight: 800;
+}
+.activity-chip__label {
+  color: var(--bb-muted);
+}
+
+.gentle-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 0.65rem 0.75rem;
+  border-radius: 14px;
+  border: 1px solid var(--bb-border);
+  background: color-mix(in srgb, var(--bb-surface-highest) 94%, #22c55e 6%);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+  z-index: 80;
+}
+.gentle-toast--visible {
+  opacity: 1;
+}
+.gentle-toast--no-motion {
+  transition: none;
+}
+.gentle-toast__glyph {
+  color: #1f7a4a;
+  flex: 0 0 auto;
+}
+.gentle-toast__text {
+  color: var(--bb-text);
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
 @media (max-width: 640px) {
   .top-inner {
     padding: 0.75rem 1rem;
@@ -217,6 +327,14 @@ watchEffect(() => {
   .primary-nav a {
     font-size: 0.95rem;
     padding: 0.35rem 0;
+  }
+
+  .activity-chip {
+    padding: 0.28rem 0.48rem;
+    gap: 0.35rem;
+  }
+  .activity-chip__label {
+    display: none;
   }
 }
 </style>
