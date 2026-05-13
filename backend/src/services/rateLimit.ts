@@ -18,30 +18,37 @@ function rateLimitKey(req: FastifyRequest, prefix: string): string {
   return `${prefix}:${identity}`;
 }
 
+/**
+ * Bump and check the IP rate-limit bucket for this request. When the bucket exceeds `opts.limit` in
+ * `opts.windowMs`, this function sends a 429 response on `reply` (the caller should return early after).
+ */
 export function enforceRateLimit(
   req: FastifyRequest,
   reply: FastifyReply,
   opts: RateLimitOpts,
 ): void {
   const now = Date.now();
-  const key = rateLimitKey(req, opts.keyPrefix);
-  const cur = buckets.get(key);
-  if (!cur || now - cur.windowStart >= opts.windowMs) {
-    buckets.set(key, { windowStart: now, count: 1 });
+  const bucketKey = rateLimitKey(req, opts.keyPrefix);
+  const currentBucket = buckets.get(bucketKey);
+  if (!currentBucket || now - currentBucket.windowStart >= opts.windowMs) {
+    buckets.set(bucketKey, { windowStart: now, count: 1 });
     return;
   }
-  cur.count += 1;
-  if (cur.count <= opts.limit) return;
+  currentBucket.count += 1;
+  if (currentBucket.count <= opts.limit) return;
 
-  const retryAfterSec = Math.max(1, Math.ceil((opts.windowMs - (now - cur.windowStart)) / 1000));
+  const retryAfterSeconds = Math.max(
+    1,
+    Math.ceil((opts.windowMs - (now - currentBucket.windowStart)) / 1000),
+  );
   void reply
-    .header("Retry-After", String(retryAfterSec))
+    .header("Retry-After", String(retryAfterSeconds))
     .status(429)
     .send({
       // Keep message generic to avoid giving attackers tuning hints.
       error: "Too many requests. Please wait a moment and try again.",
       code: "RATE_LIMITED",
-      retryAfterSeconds: retryAfterSec,
+      retryAfterSeconds,
     });
 }
 

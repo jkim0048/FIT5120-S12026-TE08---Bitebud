@@ -1,20 +1,21 @@
 /** Production: set VITE_API_ORIGIN to Cloud Run URL (no trailing slash). Dev: unset → same-origin /api via Vite proxy. */
 const API_ORIGIN = (import.meta.env.VITE_API_ORIGIN as string | undefined)?.replace(/\/$/, "") ?? "";
 
+/** Build the full URL for an API request — prefixes `VITE_API_ORIGIN` in production builds. */
 export function apiUrl(path: string): string {
-  const p = path.startsWith("/") ? path : `/${path}`;
-  return API_ORIGIN ? `${API_ORIGIN}${p}` : p;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return API_ORIGIN ? `${API_ORIGIN}${normalizedPath}` : normalizedPath;
 }
 
 function mergeHeaders(init?: RequestInit): HeadersInit {
-  const h = new Headers(init?.headers)
+  const headers = new Headers(init?.headers)
   if (
     init?.body &&
-    !h.has('Content-Type')
+    !headers.has('Content-Type')
   ) {
-    h.set('Content-Type', 'application/json')
+    headers.set('Content-Type', 'application/json')
   }
-  return h
+  return headers
 }
 
 export class ApiError extends Error {
@@ -29,23 +30,27 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Thin `fetch` wrapper that prefixes the API origin, auto-sets `Content-Type: application/json` for bodies,
+ * and throws a typed `ApiError` for non-2xx responses (preserving message and error code from the JSON body).
+ */
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(apiUrl(path), {
+  const response = await fetch(apiUrl(path), {
     ...init,
     headers: mergeHeaders(init),
   })
-  const text = await res.text()
-  if (!res.ok) {
-    let message = text || `${res.status} ${res.statusText}`
+  const bodyText = await response.text()
+  if (!response.ok) {
+    let message = bodyText || `${response.status} ${response.statusText}`
     let code: string | undefined
     try {
-      const j = JSON.parse(text) as { error?: string; code?: string }
-      if (typeof j.error === 'string' && j.error.trim()) message = j.error
-      if (typeof j.code === 'string' && j.code.trim()) code = j.code
+      const parsedBody = JSON.parse(bodyText) as { error?: string; code?: string }
+      if (typeof parsedBody.error === 'string' && parsedBody.error.trim()) message = parsedBody.error
+      if (typeof parsedBody.code === 'string' && parsedBody.code.trim()) code = parsedBody.code
     } catch {
       /* plain text body */
     }
-    throw new ApiError(message, res.status, code)
+    throw new ApiError(message, response.status, code)
   }
-  return text ? (JSON.parse(text) as T) : ({} as T)
+  return bodyText ? (JSON.parse(bodyText) as T) : ({} as T)
 }

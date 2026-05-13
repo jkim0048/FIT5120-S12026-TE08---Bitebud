@@ -1,7 +1,7 @@
 import { prisma } from "../prisma.js";
 
 /** Icon catalog persistence — single owner for Wicked icons + ingredient maps + user overrides. */
-export const iconCatalogRepository = {
+export const iconCatalogDatabase = {
   wickedIconCount: () => prisma.wickedIcon.count(),
 
   wickedIconFindMany: prisma.wickedIcon.findMany.bind(prisma.wickedIcon),

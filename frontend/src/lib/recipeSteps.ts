@@ -2,24 +2,26 @@ import type { RecipeGraph, RecipeNode } from '../types/recipe'
 
 const STEP_HEADING_RX = /^step\s*\d+$/i
 
-function isStepNode(n: RecipeNode): boolean {
-  return n.type !== 'ingredient'
+function isStepNode(node: RecipeNode): boolean {
+  return node.type !== 'ingredient'
 }
 
-function isTrivialStepHeading(n: RecipeNode): boolean {
-  const lab = n.label.trim()
-  if (!STEP_HEADING_RX.test(lab)) return false
-  const det = n.detail.trim()
-  if (det === lab) return true
-  if (det.length === 0) return true
-  if (det.length <= 12 && STEP_HEADING_RX.test(det)) return true
+const TRIVIAL_HEADING_DETAIL_MAX_LENGTH = 12
+
+function isTrivialStepHeading(node: RecipeNode): boolean {
+  const label = node.label.trim()
+  if (!STEP_HEADING_RX.test(label)) return false
+  const detail = node.detail.trim()
+  if (detail === label) return true
+  if (detail.length === 0) return true
+  if (detail.length <= TRIVIAL_HEADING_DETAIL_MAX_LENGTH && STEP_HEADING_RX.test(detail)) return true
   return false
 }
 
 function nodeIndexOrder(graph: RecipeGraph): Map<string, number> {
-  const m = new Map<string, number>()
-  graph.nodes.forEach((n, i) => m.set(n.id, i))
-  return m
+  const indexById = new Map<string, number>()
+  graph.nodes.forEach((node, nodeIndex) => indexById.set(node.id, nodeIndex))
+  return indexById
 }
 
 /**
@@ -30,46 +32,49 @@ export function getOrderedRecipeSteps(graph: RecipeGraph): RecipeNode[] {
   const stepNodes = graph.nodes.filter(isStepNode)
   if (!stepNodes.length) return []
 
-  const stepIds = new Set(stepNodes.map((n) => n.id))
+  const stepIds = new Set(stepNodes.map((node) => node.id))
   const indexOrder = nodeIndexOrder(graph)
 
-  const adj = new Map<string, string[]>()
-  const inDeg = new Map<string, number>()
-  for (const id of stepIds) {
-    adj.set(id, [])
-    inDeg.set(id, 0)
+  const adjacency = new Map<string, string[]>()
+  const inDegree = new Map<string, number>()
+  for (const stepId of stepIds) {
+    adjacency.set(stepId, [])
+    inDegree.set(stepId, 0)
   }
-  for (const e of graph.edges) {
-    if (e.type !== 'requires') continue
-    if (!stepIds.has(e.source) || !stepIds.has(e.target)) continue
-    adj.get(e.source)!.push(e.target)
-    inDeg.set(e.target, (inDeg.get(e.target) ?? 0) + 1)
+  for (const edge of graph.edges) {
+    if (edge.type !== 'requires') continue
+    if (!stepIds.has(edge.source) || !stepIds.has(edge.target)) continue
+    adjacency.get(edge.source)!.push(edge.target)
+    inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1)
   }
 
-  const ready = [...stepIds].filter((id) => inDeg.get(id) === 0)
-  ready.sort((a, b) => (indexOrder.get(a) ?? 0) - (indexOrder.get(b) ?? 0))
+  const ready = [...stepIds].filter((stepId) => inDegree.get(stepId) === 0)
+  ready.sort((leftId, rightId) => (indexOrder.get(leftId) ?? 0) - (indexOrder.get(rightId) ?? 0))
 
-  const ordered: string[] = []
+  const orderedIds: string[] = []
   while (ready.length) {
-    const u = ready.shift()!
-    ordered.push(u)
-    for (const v of adj.get(u) ?? []) {
-      const next = (inDeg.get(v) ?? 0) - 1
-      inDeg.set(v, next)
-      if (next === 0) {
-        ready.push(v)
-        ready.sort((a, b) => (indexOrder.get(a) ?? 0) - (indexOrder.get(b) ?? 0))
+    const currentId = ready.shift()!
+    orderedIds.push(currentId)
+    for (const neighbourId of adjacency.get(currentId) ?? []) {
+      const remaining = (inDegree.get(neighbourId) ?? 0) - 1
+      inDegree.set(neighbourId, remaining)
+      if (remaining === 0) {
+        ready.push(neighbourId)
+        ready.sort((leftId, rightId) => (indexOrder.get(leftId) ?? 0) - (indexOrder.get(rightId) ?? 0))
       }
     }
   }
 
-  const byId = new Map(stepNodes.map((n) => [n.id, n]))
+  const nodeById = new Map(stepNodes.map((node) => [node.id, node]))
   let sequence: RecipeNode[]
-  if (ordered.length === stepIds.size) {
-    sequence = ordered.map((id) => byId.get(id)!).filter(Boolean)
+  if (orderedIds.length === stepIds.size) {
+    sequence = orderedIds.map((stepId) => nodeById.get(stepId)!).filter(Boolean)
   } else {
-    sequence = [...stepNodes].sort((a, b) => (indexOrder.get(a.id) ?? 0) - (indexOrder.get(b.id) ?? 0))
+    sequence = [...stepNodes].sort(
+      (leftNode, rightNode) =>
+        (indexOrder.get(leftNode.id) ?? 0) - (indexOrder.get(rightNode.id) ?? 0),
+    )
   }
 
-  return sequence.filter((n) => !isTrivialStepHeading(n))
+  return sequence.filter((node) => !isTrivialStepHeading(node))
 }

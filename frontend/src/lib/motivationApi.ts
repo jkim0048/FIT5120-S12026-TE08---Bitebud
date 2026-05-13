@@ -1,11 +1,12 @@
 import { apiFetch } from './api'
 import { biteBudUserIdHeader } from '../composables/useUserId'
 
-export function localCalendarYmd(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+/** Format `date` as a `YYYY-MM-DD` calendar string in the local timezone. */
+export function localCalendarYmd(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 export type MotivationSummary = {
@@ -15,6 +16,7 @@ export type MotivationSummary = {
   hasActivity: boolean
 }
 
+/** Fetch the current motivation summary (streak counts + comeback toast hint) for the active user. */
 export async function fetchMotivationSummary(): Promise<MotivationSummary> {
   return apiFetch<MotivationSummary>('/api/motivation/summary', {
     headers: biteBudUserIdHeader(),
@@ -28,6 +30,7 @@ export type RecordMotivationResponse = {
   toastKey: string | null
 }
 
+/** Record an eligible motivation activity (recipe completion or restaurant review) and return new streak info. */
 export async function recordMotivationActivity(body: {
   type: 'recipe_completed' | 'restaurant_review_submitted'
   localDate: string
@@ -54,14 +57,15 @@ export type MotivationProgressPayload = {
   breakdown: { recipe_completed: number; restaurant_review_submitted: number }
 }
 
+/** Fetch the motivation progress payload (calendar + streak + breakdown) for the active user. */
 export async function fetchMotivationProgress(opts?: {
   year?: number
   month?: number
 }): Promise<MotivationProgressPayload> {
-  const qs = new URLSearchParams()
-  if (opts?.year != null) qs.set('year', String(opts.year))
-  if (opts?.month != null) qs.set('month', String(opts.month))
-  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  const queryParams = new URLSearchParams()
+  if (opts?.year != null) queryParams.set('year', String(opts.year))
+  if (opts?.month != null) queryParams.set('month', String(opts.month))
+  const suffix = queryParams.toString() ? `?${queryParams.toString()}` : ''
   return apiFetch<MotivationProgressPayload>(`/api/motivation/progress${suffix}`, {
     headers: biteBudUserIdHeader(),
   })
@@ -75,6 +79,7 @@ export type MotivationInsightsPayload = {
   diningCard?: { title: string; body: string }
 }
 
+/** Fetch the motivation insights cards (cooking + dining) for the active user. */
 export async function fetchMotivationInsights(): Promise<MotivationInsightsPayload> {
   return apiFetch<MotivationInsightsPayload>('/api/motivation/insights', {
     headers: biteBudUserIdHeader(),

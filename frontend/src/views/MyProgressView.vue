@@ -29,17 +29,17 @@ const calendarCells = computed(() => {
   const month = data.value?.calendarMonthDays ?? []
   if (!month.length) return cells
   const first = month[0]
-  const y = Number(first.date.slice(0, 4))
-  const m = Number(first.date.slice(5, 7)) - 1
-  const jsDow = new Date(Date.UTC(y, m, 1)).getUTCDay()
-  for (let i = 0; i < jsDow; i++) {
+  const year = Number(first.date.slice(0, 4))
+  const monthIndex = Number(first.date.slice(5, 7)) - 1
+  const weekdayOffset = new Date(Date.UTC(year, monthIndex, 1)).getUTCDay()
+  for (let blankIndex = 0; blankIndex < weekdayOffset; blankIndex++) {
     cells.push({ date: '', count: 0, label: null })
   }
-  for (const c of month) {
+  for (const calendarDay of month) {
     cells.push({
-      date: c.date,
-      count: c.count,
-      label: String(Number(c.date.slice(8, 10))),
+      date: calendarDay.date,
+      count: calendarDay.count,
+      label: String(Number(calendarDay.date.slice(8, 10))),
     })
   }
   return cells

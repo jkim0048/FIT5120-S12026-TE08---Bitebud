@@ -693,16 +693,17 @@ function exportPdf() {
     // — My Progress
     sectionHeading('My Progress')
     if (d.thresholds.progress.have < d.thresholds.progress.need) {
-      const n = d.thresholds.progress.need - d.thresholds.progress.have
-      const w = n === 1 ? 'more activity' : 'more activities'
-      bodyParagraph(`After ${n} ${w}, your progress view will fill in.`)
+      const remainingCount = d.thresholds.progress.need - d.thresholds.progress.have
+      const remainingLabel = remainingCount === 1 ? 'more activity' : 'more activities'
+      bodyParagraph(`After ${remainingCount} ${remainingLabel}, your progress view will fill in.`)
       y += 1
     } else {
-      for (const m of monthGrids.value) {
-        subHeading(`Calendar: ${m.label}`)
+      for (const month of monthGrids.value) {
+        subHeading(`Calendar: ${month.label}`)
         writeRawLines(['Mon Tue Wed Thu Fri Sat Sun'], mL, 9, 'bold', 3)
-        for (let i = 0; i < m.days.length; i += 7) {
-          const week = m.days.slice(i, i + 7)
+        const DAYS_PER_WEEK = 7
+        for (let weekStartIndex = 0; weekStartIndex < month.days.length; weekStartIndex += DAYS_PER_WEEK) {
+          const week = month.days.slice(weekStartIndex, weekStartIndex + DAYS_PER_WEEK)
           bodyLine(week.map(fmtCalCell).join('  '))
         }
         y += 2
@@ -710,20 +711,20 @@ function exportPdf() {
 
       subHeading('Weekly activity')
       const bars = d.progress.weeklyBars ?? []
-      const maxTot = Math.max(1, ...bars.map((w) => w.recipes + w.dining))
+      const maxWeeklyTotal = Math.max(1, ...bars.map((weekBar) => weekBar.recipes + weekBar.dining))
       const labelW = 32
       const barH = 4
       const barMaxW = cw - labelW - 2
-      for (const w of bars) {
+      for (const weekBar of bars) {
         ensure(barH + 4)
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(8)
         doc.setTextColor(0, 0, 0)
-        doc.text(w.weekStart, mL, y, { baseline: 'top' })
-        const tot = w.recipes + w.dining
-        const bw = (tot / maxTot) * barMaxW
+        doc.text(weekBar.weekStart, mL, y, { baseline: 'top' })
+        const weeklyTotal = weekBar.recipes + weekBar.dining
+        const barWidth = (weeklyTotal / maxWeeklyTotal) * barMaxW
         doc.setFillColor(210, 210, 210)
-        doc.rect(mL + labelW, y, bw, barH, 'F')
+        doc.rect(mL + labelW, y, barWidth, barH, 'F')
         y += barH + 2
       }
 
@@ -739,22 +740,22 @@ function exportPdf() {
     sectionHeading('Cooking')
     subHeading('What works well for you')
     if (d.thresholds.cooking.have < d.thresholds.cooking.need) {
-      const n = d.thresholds.cooking.need - d.thresholds.cooking.have
-      const w = n === 1 ? 'more rated recipe' : 'more rated recipes'
-      bodyParagraph(`After ${n} ${w}, I can show you what your favourites have in common.`)
+      const remainingCount = d.thresholds.cooking.need - d.thresholds.cooking.have
+      const remainingLabel = remainingCount === 1 ? 'more rated recipe' : 'more rated recipes'
+      bodyParagraph(`After ${remainingCount} ${remainingLabel}, I can show you what your favourites have in common.`)
     } else {
-      for (const c of d.cooking.works) writeCookingBullet(c)
+      for (const cookingCard of d.cooking.works) writeCookingBullet(cookingCard)
     }
     y += 1
     subHeading("What doesn't seem to work")
     if (d.thresholds.cooking.have < d.thresholds.cooking.need) {
-      const n = d.thresholds.cooking.need - d.thresholds.cooking.have
-      const w = n === 1 ? 'more rated recipe' : 'more rated recipes'
-      bodyParagraph(`After ${n} ${w}, I can show you what your favourites have in common.`)
+      const remainingCount = d.thresholds.cooking.need - d.thresholds.cooking.have
+      const remainingLabel = remainingCount === 1 ? 'more rated recipe' : 'more rated recipes'
+      bodyParagraph(`After ${remainingCount} ${remainingLabel}, I can show you what your favourites have in common.`)
     } else if (d.cooking.doesntWork.length === 0) {
       bodyLine('None recorded.')
     } else {
-      for (const c of d.cooking.doesntWork) writeCookingBullet(c)
+      for (const cookingCard of d.cooking.doesntWork) writeCookingBullet(cookingCard)
     }
     y += 1
     drawHR()
@@ -763,11 +764,11 @@ function exportPdf() {
     sectionHeading('Dining')
     subHeading('What works well for you when you dine out')
     if (d.thresholds.dining.have < d.thresholds.dining.need) {
-      const n = d.thresholds.dining.need - d.thresholds.dining.have
-      const w = n === 1 ? 'more restaurant review' : 'more restaurant reviews'
-      bodyParagraph(`After ${n} ${w}, I can show you which places tend to suit you best.`)
+      const remainingCount = d.thresholds.dining.need - d.thresholds.dining.have
+      const remainingLabel = remainingCount === 1 ? 'more restaurant review' : 'more restaurant reviews'
+      bodyParagraph(`After ${remainingCount} ${remainingLabel}, I can show you which places tend to suit you best.`)
     } else {
-      for (const c of d.dining.works) writeDiningBullet(c)
+      for (const diningCard of d.dining.works) writeDiningBullet(diningCard)
     }
     y += 1
     drawHR()

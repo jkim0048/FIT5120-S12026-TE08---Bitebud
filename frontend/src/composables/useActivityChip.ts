@@ -12,6 +12,7 @@ const activity = ref<ActivitySummary | null>(null)
 let loadedForUser: string | null = null
 let loading: Promise<void> | null = null
 
+/** Composable that lazily loads the activity-chip summary (streak + month total) for the active user. */
 export function useActivityChip() {
   const { userId, isSignedIn } = useSession()
 
@@ -21,16 +22,16 @@ export function useActivityChip() {
       loadedForUser = null
       return
     }
-    const uid = userId.value
-    if (!uid) return
+    const currentUserId = userId.value
+    if (!currentUserId) return
     if (loading) return loading
     loading = (async () => {
       try {
-        const res = await apiFetch<ActivitySummary>('/api/me/activity', {
-          headers: { 'X-User-Id': uid },
+        const response = await apiFetch<ActivitySummary>('/api/me/activity', {
+          headers: { 'X-User-Id': currentUserId },
         })
-        activity.value = res
-        loadedForUser = uid
+        activity.value = response
+        loadedForUser = currentUserId
       } finally {
         loading = null
       }
@@ -50,10 +51,10 @@ export function useActivityChip() {
 
   watch(
     () => userId.value,
-    (uid) => {
-      if (!uid) return
+    (currentUserId) => {
+      if (!currentUserId) return
       if (!isSignedIn.value) return
-      if (loadedForUser === uid) return
+      if (loadedForUser === currentUserId) return
       void refresh()
     },
   )

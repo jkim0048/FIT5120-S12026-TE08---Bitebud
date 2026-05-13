@@ -46,6 +46,7 @@ async function loadImageAsDataUrl(src: string): Promise<string> {
   }
 }
 
+/** Render and download a printable shopping-list PDF (ingredients + optional pantry sections). */
 export async function downloadShoppingListPdf(payload: ShoppingListPdfPayload): Promise<void> {
   const title = (payload.recipeTitle || 'Recipe').trim() || 'Recipe'
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })

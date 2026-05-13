@@ -28,8 +28,8 @@ function ordinal(n: number): string {
 
 function templateMessage(template: GentleToastTemplate, data: Record<string, unknown>): string {
   if (template === 'recipe-saved') {
-    const n = typeof data.n === 'number' ? Math.max(1, Math.floor(data.n)) : 1
-    return `Recipe saved. That's your ${ordinal(n)} this week.`
+    const ordinalCount = typeof data.n === 'number' ? Math.max(1, Math.floor(data.n)) : 1
+    return `Recipe saved. That's your ${ordinal(ordinalCount)} this week.`
   }
   if (template === 'review-saved') {
     return 'Review added — your notes will be there next time.'
@@ -37,6 +37,7 @@ function templateMessage(template: GentleToastTemplate, data: Record<string, unk
   return "Thanks for the rating. It'll show up in your Insights."
 }
 
+/** Composable returning a small toast queue used for in-app encouragement messages. */
 export function useGentleToast() {
   const { settings } = useSettings()
   const enabled = computed(() => settings.value.motivationEnabled !== false)

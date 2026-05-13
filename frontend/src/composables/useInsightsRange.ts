@@ -61,6 +61,7 @@ function computeRange(preset: Exclude<InsightsRangePreset, 'custom'>): { from: D
   return { from: addDays(to, -6), to }
 }
 
+/** Composable that owns the My Insights date-range state with per-user persistence. */
 export function useInsightsRange(): {
   from: Ref<Date>
   to: Ref<Date>

@@ -2,12 +2,12 @@ import "./env.js";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
-import { registerRecipeRoutes } from "./routes/recipes.js";
+import { registerRecipeRoutes } from "./routes/recipes/index.js";
 import { registerIconRoutes } from "./routes/icons.js";
 import { registerSensoryRoutes } from "./routes/sensory.js";
-import { registerRestaurantRoutes } from "./routes/restaurants.js";
+import { registerRestaurantRoutes } from "./routes/restaurants/index.js";
 import { registerMotivationRoutes } from "./routes/motivation.js";
-import { registerMeRoutes } from "./routes/me.js";
+import { registerMeRoutes } from "./routes/me/index.js";
 
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST ?? "0.0.0.0";

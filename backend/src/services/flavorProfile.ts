@@ -66,6 +66,7 @@ function sanitizeResult(raw: unknown, validIds: Set<string>): FlavorInferenceRes
   return out;
 }
 
+/** Group ingredient labels into flavour buckets using a token-based heuristic; returns labelled buckets. */
 export async function inferFlavorProfile(ingredients: FlavorInferenceInput[]): Promise<FlavorInferenceResult> {
   const validIds = new Set(ingredients.map((x) => x.id));
   const fallback = heuristicInfer(ingredients);

@@ -3,8 +3,8 @@ import crypto from "crypto";
 import { z } from "zod";
 import type { SensoryFoodStatus } from "@prisma/client";
 import { parseBiteBudUserId } from "../biteBudUserId.js";
-import { iconCatalogRepository } from "../repositories/iconCatalogRepository.js";
-import { sensoryProfileRepository } from "../repositories/sensoryProfileRepository.js";
+import { iconCatalogDatabase } from "../database/iconCatalogDatabase.js";
+import { sensoryProfileDatabase } from "../database/sensoryProfileDatabase.js";
 import { formatIngredientDisplayLabel } from "../services/icons.js";
 
 const saveBody = z
@@ -57,13 +57,17 @@ function hashCode(code: string): string {
 
 const profileInclude = { foodItems: true } as const;
 
+/**
+ * Register every `/api/sensory/*` endpoint group on the Fastify app
+ * (profile CRUD, food-item CRUD, and code-based profile retrieval with rate-limited brute-force guard).
+ */
 export async function registerSensoryRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/sensory/me", async (request, reply) => {
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
     if (!userId) {
       return reply.status(400).send({ error: "Missing or invalid X-User-Id" });
     }
-    const profile = await sensoryProfileRepository.sensoryProfileFindUnique({
+    const profile = await sensoryProfileDatabase.sensoryProfileFindUnique({
       where: { userId },
       include: profileInclude,
     });
@@ -78,7 +82,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
     const body = saveBody.parse(request.body);
     const codeHash = hashCode(userId);
 
-    const profile = await sensoryProfileRepository.sensoryProfileUpsert({
+    const profile = await sensoryProfileDatabase.sensoryProfileUpsert({
       where: { userId },
       create: {
         userId,
@@ -104,7 +108,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
       return reply.status(400).send({ error: "Missing or invalid X-User-Id" });
     }
     const body = createItemBody.parse(request.body);
-    const prof = await sensoryProfileRepository.sensoryProfileFindUnique({
+    const prof = await sensoryProfileDatabase.sensoryProfileFindUnique({
       where: { userId },
       select: { id: true },
     });
@@ -114,7 +118,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
         .send({ error: "Save your profile (code and settings) before adding foods." });
     }
 
-    const existing = await sensoryProfileRepository.sensoryFoodItemFindMany({
+    const existing = await sensoryProfileDatabase.sensoryFoodItemFindMany({
       where: { profileId: prof.id },
     });
 
@@ -123,7 +127,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
 
     if (body.wickedIconId) {
       const id = body.wickedIconId.trim();
-      const icon = await iconCatalogRepository.wickedIconFindUnique({ where: { id } });
+      const icon = await iconCatalogDatabase.wickedIconFindUnique({ where: { id } });
       if (!icon) {
         return reply.status(400).send({ error: "Unknown icon — pick from the list." });
       }
@@ -133,7 +137,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
       delete notes.ingredientKey;
     } else if (body.ingredientKey) {
       const key = body.ingredientKey.trim();
-      const mapRow = await iconCatalogRepository.ingredientIconMapFindUnique({
+      const mapRow = await iconCatalogDatabase.ingredientIconMapFindUnique({
         where: { ingredientKey: key },
       });
       if (!mapRow) {
@@ -173,7 +177,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
       }
     }
 
-    const item = await sensoryProfileRepository.sensoryFoodItemCreate({
+    const item = await sensoryProfileDatabase.sensoryFoodItemCreate({
       data: {
         profileId: prof.id,
         name,
@@ -195,13 +199,13 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
       return reply.status(400).send({ error: "Invalid item id" });
     }
     const body = patchItemBody.parse(request.body);
-    const existing = await sensoryProfileRepository.sensoryFoodItemFindFirst({
+    const existing = await sensoryProfileDatabase.sensoryFoodItemFindFirst({
       where: { id: idParse.data, profile: { userId } },
     });
     if (!existing) {
       return reply.status(404).send({ error: "Not found" });
     }
-    const item = await sensoryProfileRepository.sensoryFoodItemUpdate({
+    const item = await sensoryProfileDatabase.sensoryFoodItemUpdate({
       where: { id: existing.id },
       data: {
         ...(body.name != null ? { name: body.name } : {}),
@@ -222,20 +226,20 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
     if (!idParse.success) {
       return reply.status(400).send({ error: "Invalid item id" });
     }
-    const existing = await sensoryProfileRepository.sensoryFoodItemFindFirst({
+    const existing = await sensoryProfileDatabase.sensoryFoodItemFindFirst({
       where: { id: idParse.data, profile: { userId } },
     });
     if (!existing) {
       return reply.status(404).send({ error: "Not found" });
     }
-    await sensoryProfileRepository.sensoryFoodItemDelete({ where: { id: existing.id } });
+    await sensoryProfileDatabase.sensoryFoodItemDelete({ where: { id: existing.id } });
     return reply.send({ ok: true });
   });
 
   app.post("/api/sensory/retrieve", async (request, reply) => {
     const body = retrieveBody.parse(request.body);
     const codeHash = hashCode(body.code);
-    const attempt = await sensoryProfileRepository.sensoryCodeAttemptFindUnique({
+    const attempt = await sensoryProfileDatabase.sensoryCodeAttemptFindUnique({
       where: { codeHash },
     });
     const now = new Date();
@@ -248,7 +252,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
         .send({ error: "Code temporarily locked", retrySeconds });
     }
 
-    const profile = await sensoryProfileRepository.sensoryProfileFindUnique({
+    const profile = await sensoryProfileDatabase.sensoryProfileFindUnique({
       where: { codeHash },
       include: profileInclude,
     });
@@ -258,7 +262,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
         nextCount >= 10
           ? new Date(Date.now() + 10 * 60 * 1000)
           : new Date(Date.now() + Math.min(nextCount * 5, 60) * 1000);
-      await sensoryProfileRepository.sensoryCodeAttemptUpsert({
+      await sensoryProfileDatabase.sensoryCodeAttemptUpsert({
         where: { codeHash },
         create: {
           codeHash,
@@ -276,7 +280,7 @@ export async function registerSensoryRoutes(app: FastifyInstance): Promise<void>
     }
 
     if (attempt) {
-      await sensoryProfileRepository.sensoryCodeAttemptDelete({ where: { codeHash } });
+      await sensoryProfileDatabase.sensoryCodeAttemptDelete({ where: { codeHash } });
     }
     return { ok: true, profile };
   });

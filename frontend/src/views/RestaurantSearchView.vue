@@ -81,29 +81,36 @@ const filteredResults = computed(() => {
 })
 
 /** Full shortlist split by type — do not use a page slice here: API merges locals first then Nominatim, so paging hid all "nearby" rows on page 1. */
-const reviewedResults = computed(() => filteredResults.value.filter((r) => r.source === 'bitebud' && r.reviewCount > 0))
+const reviewedResults = computed(() =>
+  filteredResults.value.filter((restaurant) => restaurant.source === 'bitebud' && restaurant.reviewCount > 0),
+)
 const freshResults = computed(() =>
-  filteredResults.value.filter((r) => r.source === 'nominatim' || (r.source === 'bitebud' && r.reviewCount === 0)),
+  filteredResults.value.filter(
+    (restaurant) =>
+      restaurant.source === 'nominatim' || (restaurant.source === 'bitebud' && restaurant.reviewCount === 0),
+  ),
 )
 const hasAnyResult = computed(() => reviewedResults.value.length + freshResults.value.length > 0)
 const showNearbyEffective = computed(() => reviewedResults.value.length === 0 || showNearbySection.value)
 
 const closestDistanceText = computed(() => {
   const distances = filteredResults.value
-    .map((r) => r.distanceKm)
-    .filter((d): d is number => typeof d === 'number')
+    .map((restaurant) => restaurant.distanceKm)
+    .filter((distance): distance is number => typeof distance === 'number')
     .sort((a, b) => a - b)
   if (!distances.length) return 'Distance unavailable'
   return `${distances[0].toFixed(1)} km to closest option`
 })
 
 const mapPoints = computed(() =>
-  filteredResults.value.filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude)),
+  filteredResults.value.filter(
+    (restaurant) => Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude),
+  ),
 )
 
 const mapCenter = computed<[number, number]>(() => {
   if (mapPoints.value.length) {
-    const active = mapPoints.value.find((r) => r.id === activeMapId.value)
+    const active = mapPoints.value.find((restaurant) => restaurant.id === activeMapId.value)
     const chosen = active ?? mapPoints.value[0]
     return [chosen.latitude, chosen.longitude]
   }
@@ -129,18 +136,24 @@ function ensureRasterBasemap(leafletMap: L.Map): void {
 
 /** Fit all pins or fall back to mapCenter (Melbourne when empty). */
 function applySearchResultsToMap(leafletMap: L.Map): void {
-  const pts = mapPoints.value.filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
-  if (pts.length >= 2) {
-    const bounds = L.latLngBounds(pts.map((r) => [r.latitude, r.longitude] as [number, number]))
+  const validPoints = mapPoints.value.filter(
+    (restaurant) => Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude),
+  )
+  if (validPoints.length >= 2) {
+    const bounds = L.latLngBounds(
+      validPoints.map((restaurant) => [restaurant.latitude, restaurant.longitude] as [number, number]),
+    )
     if (bounds.isValid()) {
       leafletMap.fitBounds(bounds, { padding: [44, 44], maxZoom: 16, animate: false })
       return
     }
   }
-  if (pts.length === 1) {
-    leafletMap.setView([pts[0].latitude, pts[0].longitude], Math.min(16, Math.max(mapZoom.value, 13)), {
-      animate: false,
-    })
+  if (validPoints.length === 1) {
+    leafletMap.setView(
+      [validPoints[0].latitude, validPoints[0].longitude],
+      Math.min(16, Math.max(mapZoom.value, 13)),
+      { animate: false },
+    )
     return
   }
   if (
@@ -171,10 +184,10 @@ async function syncMapAfterReveal() {
   if (!showMapSection.value) return
 
   setTimeout(() => {
-    const m = (mapEl.value as any)?.leafletObject as L.Map | undefined
-    if (!m) return
-    m.invalidateSize?.()
-    applySearchResultsToMap(m)
+    const refreshedMap = (mapEl.value as any)?.leafletObject as L.Map | undefined
+    if (!refreshedMap) return
+    refreshedMap.invalidateSize?.()
+    applySearchResultsToMap(refreshedMap)
   }, 80)
 }
 
@@ -185,14 +198,14 @@ const summaryText = computed(() => {
 })
 
 watch(
-  () => filteredResults.value.map((r) => r.id),
-  (ids) => {
-    if (!ids.length) {
+  () => filteredResults.value.map((restaurant) => restaurant.id),
+  (restaurantIds) => {
+    if (!restaurantIds.length) {
       activeMapId.value = null
       return
     }
-    if (activeMapId.value && ids.includes(activeMapId.value)) return
-    activeMapId.value = ids[0] ?? null
+    if (activeMapId.value && restaurantIds.includes(activeMapId.value)) return
+    activeMapId.value = restaurantIds[0] ?? null
   },
 )
 
@@ -226,12 +239,12 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
     // Active marker will be synced to filteredResults via watcher.
     warningText.value =
       Array.isArray(data.warnings) && data.warnings.length
-        ? data.warnings.map((w) => w.error).filter(Boolean).join(' · ')
+        ? data.warnings.map((warning) => warning.error).filter(Boolean).join(' · ')
         : ''
     modeLabel.value = data.modeUsed === 'near_me' ? 'Using your location' : data.modeUsed === 'area' ? 'Using area fallback' : 'Using typed search'
     sourceSummary.value = `Reviewed ${data.sourceCounts?.bitebud ?? reviewedResults.value.length} · Nearby ${data.sourceCounts?.nominatim ?? freshResults.value.length}`
-    const near = data.results.find((r) => r.distanceKm !== null)
-    const distance = near?.distanceKm
+    const nearestRestaurant = data.results.find((restaurant) => restaurant.distanceKm !== null)
+    const distance = nearestRestaurant?.distanceKm
     locationDistanceLabel.value = typeof distance === 'number' ? `${distance.toFixed(1)} km to nearby places` : 'No distance context yet'
     if (data.modeUsed === 'near_me') {
       distanceAnchorLabel.value = 'Distances from your current location'
@@ -251,7 +264,9 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
       searchFocusLat.value = params.lat
       searchFocusLon.value = params.lon
     } else {
-      const firstGeo = data.results.find((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
+      const firstGeo = data.results.find(
+        (restaurant) => Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude),
+      )
       if (firstGeo) {
         searchFocusLat.value = firstGeo.latitude
         searchFocusLon.value = firstGeo.longitude
@@ -388,30 +403,38 @@ function normalizeAreaToken(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+const EARTH_RADIUS_KM = 6371
+
 function distanceKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
-  const r = 6371
-  const dLat = ((bLat - aLat) * Math.PI) / 180
-  const dLon = ((bLon - aLon) * Math.PI) / 180
+  const deltaLat = ((bLat - aLat) * Math.PI) / 180
+  const deltaLon = ((bLon - aLon) * Math.PI) / 180
   const lat1 = (aLat * Math.PI) / 180
   const lat2 = (bLat * Math.PI) / 180
-  const h =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
-  return 2 * r * Math.asin(Math.sqrt(h))
+  const haversine =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2)
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(haversine))
 }
 
 function withDistanceFromCurrentLocation(items: RestaurantSearchResult[]): RestaurantSearchResult[] {
   if (currentDistanceLat.value == null || currentDistanceLon.value == null) return items
   if (!Number.isFinite(currentDistanceLat.value) || !Number.isFinite(currentDistanceLon.value)) return items
-  return items.map((r) => ({
-    ...r,
-    distanceKm: Number(distanceKm(currentDistanceLat.value!, currentDistanceLon.value!, r.latitude, r.longitude).toFixed(1)),
+  return items.map((restaurant) => ({
+    ...restaurant,
+    distanceKm: Number(
+      distanceKm(
+        currentDistanceLat.value!,
+        currentDistanceLon.value!,
+        restaurant.latitude,
+        restaurant.longitude,
+      ).toFixed(1),
+    ),
   }))
 }
 
 function refreshDistanceSummaryFromResults() {
-  const near = results.value.find((r) => r.distanceKm !== null)
-  const distance = near?.distanceKm
+  const nearestRestaurant = results.value.find((restaurant) => restaurant.distanceKm !== null)
+  const distance = nearestRestaurant?.distanceKm
   locationDistanceLabel.value = typeof distance === 'number' ? `${distance.toFixed(1)} km to nearby places` : 'No distance context yet'
 }
 
@@ -432,35 +455,35 @@ async function captureCurrentLocationForDistance(): Promise<boolean> {
 
 function pickBestSuggestionForArea(query: string, suggestions: LocationSuggestion[]): LocationSuggestion | null {
   if (!suggestions.length) return null
-  const q = normalizeAreaToken(query)
-  if (!q) return suggestions[0] ?? null
+  const normalizedQuery = normalizeAreaToken(query)
+  if (!normalizedQuery) return suggestions[0] ?? null
 
   const scored = suggestions
-    .map((s) => {
-      const suburb = normalizeAreaToken(s.suburb ?? '')
-      const area = normalizeAreaToken(s.areaSearch ?? '')
-      const display = normalizeAreaToken(s.displayName ?? '')
-      const postcode = normalizeAreaToken(s.postcode ?? '')
+    .map((suggestion) => {
+      const suburb = normalizeAreaToken(suggestion.suburb ?? '')
+      const area = normalizeAreaToken(suggestion.areaSearch ?? '')
+      const display = normalizeAreaToken(suggestion.displayName ?? '')
+      const postcode = normalizeAreaToken(suggestion.postcode ?? '')
 
       let score = 0
-      if (suburb === q || area === q) score += 100
-      if (suburb.startsWith(q) || area.startsWith(q)) score += 70
-      if (suburb.includes(q) || area.includes(q)) score += 45
-      if (display.includes(q)) score += 20
-      if (postcode === q) score += 80
+      if (suburb === normalizedQuery || area === normalizedQuery) score += 100
+      if (suburb.startsWith(normalizedQuery) || area.startsWith(normalizedQuery)) score += 70
+      if (suburb.includes(normalizedQuery) || area.includes(normalizedQuery)) score += 45
+      if (display.includes(normalizedQuery)) score += 20
+      if (postcode === normalizedQuery) score += 80
 
-      return { s, score }
+      return { suggestion, score }
     })
     .sort((a, b) => b.score - a.score)
 
   const top = scored[0]
   if (!top || top.score <= 0) return suggestions[0] ?? null
-  return top.s
+  return top.suggestion
 }
 
 async function fetchLocationSuggestions() {
-  const q = normalizeLocationQuery(fallbackSuburb.value)
-  if (q.length < 2) {
+  const normalizedQuery = normalizeLocationQuery(fallbackSuburb.value)
+  if (normalizedQuery.length < 2) {
     locationSuggestions.value = []
     locationSuggestOpen.value = false
     locationSuggestActiveIndex.value = -1
@@ -470,10 +493,10 @@ async function fetchLocationSuggestions() {
   }
   locationSuggestLoading.value = true
   try {
-    const res = await suggestRestaurantLocations(q, 10)
-    locationSuggestions.value = res.suggestions
+    const response = await suggestRestaurantLocations(normalizedQuery, 10)
+    locationSuggestions.value = response.suggestions
     locationSuggestOpen.value = true
-    locationSuggestActiveIndex.value = res.suggestions.length ? 0 : -1
+    locationSuggestActiveIndex.value = response.suggestions.length ? 0 : -1
   } catch {
     locationSuggestions.value = []
     locationSuggestOpen.value = true
@@ -488,8 +511,8 @@ function onLocationInput() {
   locationSuggestActiveIndex.value = -1
   locationInvalid.value = false
   locationHint.value = ''
-  const q = normalizeLocationQuery(fallbackSuburb.value)
-  locationSuggestOpen.value = q.length >= 2
+  const normalizedQuery = normalizeLocationQuery(fallbackSuburb.value)
+  locationSuggestOpen.value = normalizedQuery.length >= 2
   if (locationSuggestTimer) clearTimeout(locationSuggestTimer)
   locationSuggestTimer = setTimeout(() => {
     locationSuggestTimer = undefined
@@ -649,22 +672,22 @@ watch(
 
 watch(
   () =>
-    `${mapPoints.value.map((p) => p.id).join(',')}|${searchFocusLat.value ?? ''}:${searchFocusLon.value ?? ''}`,
+    `${mapPoints.value.map((point) => point.id).join(',')}|${searchFocusLat.value ?? ''}:${searchFocusLon.value ?? ''}`,
   () => {
     void syncMapAfterReveal()
   },
 )
 
-function resultMeta(r: RestaurantSearchResult): string {
-  const cuisine = r.cuisine ?? 'Restaurant'
-  const reviews = `${r.reviewCount} reviews`
-  const comfort = `${r.comfortBadge} ${r.overallRating.toFixed(1)}/5`
-  const distance = r.distanceKm === null ? '' : ` · ${r.distanceKm.toFixed(1)} km`
+function resultMeta(restaurant: RestaurantSearchResult): string {
+  const cuisine = restaurant.cuisine ?? 'Restaurant'
+  const reviews = `${restaurant.reviewCount} reviews`
+  const comfort = `${restaurant.comfortBadge} ${restaurant.overallRating.toFixed(1)}/5`
+  const distance = restaurant.distanceKm === null ? '' : ` · ${restaurant.distanceKm.toFixed(1)} km`
   return `${cuisine} · ${reviews} · ${comfort}${distance}`
 }
 
-function freshResultMeta(r: RestaurantSearchResult): string {
-  const distance = r.distanceKm === null ? '' : ` · ${r.distanceKm.toFixed(1)} km`
+function freshResultMeta(restaurant: RestaurantSearchResult): string {
+  const distance = restaurant.distanceKm === null ? '' : ` · ${restaurant.distanceKm.toFixed(1)} km`
   return `No BiteBud sensory reviews yet${distance}`
 }
 
@@ -678,11 +701,11 @@ function showEasiestThree() {
   const ranked = [...filteredResults.value].sort((a, b) => {
     const badgeDelta = comfortRank(a.comfortBadge) - comfortRank(b.comfortBadge)
     if (badgeDelta !== 0) return badgeDelta
-    const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.MAX_SAFE_INTEGER
-    const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.MAX_SAFE_INTEGER
-    return da - db
+    const distanceA = typeof a.distanceKm === 'number' ? a.distanceKm : Number.MAX_SAFE_INTEGER
+    const distanceB = typeof b.distanceKm === 'number' ? b.distanceKm : Number.MAX_SAFE_INTEGER
+    return distanceA - distanceB
   })
-  recommendedIds.value = ranked.slice(0, 3).map((r) => r.id)
+  recommendedIds.value = ranked.slice(0, 3).map((restaurant) => restaurant.id)
   if (recommendedIds.value.length) activeMapId.value = recommendedIds.value[0]
 }
 

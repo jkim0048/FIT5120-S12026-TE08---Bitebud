@@ -415,7 +415,7 @@ function toTitleCase(v: string): string {
   return v.replace(/\b\w/g, (m) => m.toUpperCase())
 }
 function toolIconFor(label: string): string {
-  const hit = TOOL_ICON_HINTS.find((r) => r.match.test(label))
+  const hit = TOOL_ICON_HINTS.find((hint) => hint.match.test(label))
   return hit?.icon ?? '🍽️'
 }
 function ingredientVisualToken(item: { label: string; emoji?: string; icon?: string }): string {
@@ -600,8 +600,8 @@ const timerPct = computed(() => {
   if (remaining.value == null || totalSeconds.value == null || totalSeconds.value <= 0) return 0
   return Math.max(0, Math.min(1, remaining.value / totalSeconds.value))
 })
-const ringDashArray = 754
-const ringDashOffset = computed(() => Math.round((1 - timerPct.value) * ringDashArray))
+const RING_DASH_ARRAY = 754
+const ringDashOffset = computed(() => Math.round((1 - timerPct.value) * RING_DASH_ARRAY))
 
 function speak(text: string) {
   if (!speechSupported) return
@@ -1144,7 +1144,7 @@ async function markStepDoneAndNext() {
         <div class="ring-wrap" role="timer" aria-live="polite">
           <svg viewBox="0 0 280 280" class="ring">
             <circle class="ring-bg" cx="140" cy="140" r="120" />
-            <circle class="ring-fg" cx="140" cy="140" r="120" :stroke-dasharray="ringDashArray" :stroke-dashoffset="ringDashOffset" />
+            <circle class="ring-fg" cx="140" cy="140" r="120" :stroke-dasharray="RING_DASH_ARRAY" :stroke-dashoffset="ringDashOffset" />
           </svg>
           <div class="ring-center">
             <p class="timer-screen-clock">{{ formatClock(remaining) }}</p>

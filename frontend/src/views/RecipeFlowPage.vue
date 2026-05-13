@@ -35,10 +35,12 @@ const recipeLede = ref<string | null>(null)
 const roadmapView = ref<'visual' | 'full'>('visual')
 
 const recipeId = computed(() => route.params.id as string)
-const ingredients = computed(() => graph.value?.nodes.filter((n) => n.type === 'ingredient') ?? [])
+const ingredients = computed(() => graph.value?.nodes.filter((node) => node.type === 'ingredient') ?? [])
 const stepNodes = computed(() => (graph.value ? getOrderedRecipeSteps(graph.value) : []))
 const timelineNodes = computed(() => stepNodes.value)
-const lanes = computed(() => [...new Set(stepNodes.value.map((n) => n.lane).filter((x): x is string => Boolean(x)))])
+const lanes = computed(() => [
+  ...new Set(stepNodes.value.map((step) => step.lane).filter((lane): lane is string => Boolean(lane))),
+])
 
 const displayHeroImageUrl = computed(() => {
   if (!graph.value) return null
@@ -47,48 +49,50 @@ const displayHeroImageUrl = computed(() => {
 const hasHeroImage = computed(() => Boolean(displayHeroImageUrl.value))
 
 const hasConflictWarnings = computed(() => {
-  const c = conflicts.value
-  if (!c?.hasProfile) return false
-  return c.sensory.length + c.dietary.length > 0
+  const conflict = conflicts.value
+  if (!conflict?.hasProfile) return false
+  return conflict.sensory.length + conflict.dietary.length > 0
 })
 
 const profileMatchText = computed(() => {
   if (!conflicts.value?.hasProfile) return 'No profile linked yet. You can still cook this recipe.'
   if (!hasConflictWarnings.value) return 'This recipe matches your sensory profile — all ingredients appear safe or sometimes OK.'
-  const c = conflicts.value
-  const bits: string[] = []
-  if (c.dietary.length) {
-    const uniq = [...new Set(c.dietary.map((d) => d.constraint))]
-    bits.push(`May conflict with your dietary or cultural settings (${uniq.slice(0, 6).join(', ')}${uniq.length > 6 ? '…' : ''}).`)
+  const conflict = conflicts.value
+  const messages: string[] = []
+  if (conflict.dietary.length) {
+    const uniqueConstraints = [...new Set(conflict.dietary.map((entry) => entry.constraint))]
+    messages.push(
+      `May conflict with your dietary or cultural settings (${uniqueConstraints.slice(0, 6).join(', ')}${uniqueConstraints.length > 6 ? '…' : ''}).`,
+    )
   }
-  if (c.sensory.length) {
-    bits.push('Some ingredients match foods you marked unsafe or unsure.')
+  if (conflict.sensory.length) {
+    messages.push('Some ingredients match foods you marked unsafe or unsure.')
   }
-  return `${bits.join(' ')} Review the list below before cooking.`
+  return `${messages.join(' ')} Review the list below before cooking.`
 })
 
 const totalMinutes = computed(() => {
   if (graph.value?.totalTimeMinutes != null) return graph.value.totalTimeMinutes
-  const sum = stepNodes.value.reduce((acc, s) => acc + Math.max(0, Number(s.timeMinutes ?? 0)), 0)
+  const sum = stepNodes.value.reduce((acc, step) => acc + Math.max(0, Number(step.timeMinutes ?? 0)), 0)
   return sum || null
 })
 
 /** Hero stat: Low / Medium / High effort (API complexity or step count). */
 const effortLabel = computed(() => {
-  const c = recipeComplexity.value?.toLowerCase()
-  if (c === 'low') return 'Low'
-  if (c === 'medium') return 'Medium'
-  if (c === 'high') return 'High'
-  const count = stepNodes.value.length
-  if (count <= 6) return 'Low'
-  if (count <= 10) return 'Medium'
+  const complexity = recipeComplexity.value?.toLowerCase()
+  if (complexity === 'low') return 'Low'
+  if (complexity === 'medium') return 'Medium'
+  if (complexity === 'high') return 'High'
+  const stepCount = stepNodes.value.length
+  if (stepCount <= 6) return 'Low'
+  if (stepCount <= 10) return 'Medium'
   return 'High'
 })
 
 const servingsLabel = computed(() => {
-  const s = Number(graph.value?.servings ?? NaN)
-  if (!Number.isFinite(s) || s <= 0) return '—'
-  return `${Math.round(s)}`
+  const servings = Number(graph.value?.servings ?? NaN)
+  if (!Number.isFinite(servings) || servings <= 0) return '—'
+  return `${Math.round(servings)}`
 })
 
 async function load(opts?: { showPageLoading?: boolean }) {
@@ -114,7 +118,9 @@ async function load(opts?: { showPageLoading?: boolean }) {
     imageUrl.value = data.imageUrl ?? null
     recipeLede.value = data.lede ?? null
     recipeComplexity.value = data.complexity ?? null
-    recipeTags.value = Array.isArray(data.tags) ? data.tags.filter((t): t is string => typeof t === 'string') : []
+    recipeTags.value = Array.isArray(data.tags)
+      ? data.tags.filter((tag): tag is string => typeof tag === 'string')
+      : []
     const uid = getBiteBudUserId()
     if (uid) {
       const prog = await apiFetch<{ completedNodeIds: string[] }>(`/api/recipes/${recipeId.value}/progress`, {
@@ -169,8 +175,8 @@ onMounted(async () => {
 
 function ingredientLabelsForStep(step: RecipeNode): string[] {
   if (!graph.value || !step.ingredientIds?.length) return []
-  const byId = new Map(graph.value.nodes.map((n) => [n.id, n.label]))
-  return step.ingredientIds.map((id) => byId.get(id)).filter((v): v is string => Boolean(v))
+  const labelById = new Map(graph.value.nodes.map((node) => [node.id, node.label]))
+  return step.ingredientIds.map((id) => labelById.get(id)).filter((label): label is string => Boolean(label))
 }
 
 function onSelectStep(payload: { id: string; label: string; detail: string; ingredientLabels: string[] }) {
@@ -178,25 +184,25 @@ function onSelectStep(payload: { id: string; label: string; detail: string; ingr
 }
 
 function ingredientSensoryKind(label: string): 'safe' | 'unsafe' | 'unsure' {
-  const c = conflicts.value
-  if (!c?.hasProfile) return 'safe'
-  const match = c.sensory.find((x) => x.label.toLowerCase() === label.toLowerCase())
+  const conflict = conflicts.value
+  if (!conflict?.hasProfile) return 'safe'
+  const match = conflict.sensory.find((sensoryItem) => sensoryItem.label.toLowerCase() === label.toLowerCase())
   if (!match) return 'safe'
   return match.kind === 'unsafe' ? 'unsafe' : 'unsure'
 }
 
 function ingredientSensoryDisplay(label: string): string {
-  const k = ingredientSensoryKind(label)
-  if (k === 'safe') return 'Safe'
-  if (k === 'unsafe') return 'Avoid'
+  const kind = ingredientSensoryKind(label)
+  if (kind === 'safe') return 'Safe'
+  if (kind === 'unsafe') return 'Avoid'
   return 'Check'
 }
 
 function ingredientDietaryForLabel(label: string) {
-  const c = conflicts.value
-  if (!c?.hasProfile) return []
-  const low = label.toLowerCase()
-  return c.dietary.filter((d) => d.label.toLowerCase() === low)
+  const conflict = conflicts.value
+  if (!conflict?.hasProfile) return []
+  const lowerLabel = label.toLowerCase()
+  return conflict.dietary.filter((entry) => entry.label.toLowerCase() === lowerLabel)
 }
 
 function timelineHeat(step: RecipeNode): string {

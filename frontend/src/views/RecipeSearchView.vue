@@ -34,7 +34,7 @@ const MAX_RECIPE_PASTE_CHARS = 40_000
 
 const catalogPage = ref(0)
 const browseSkip = ref(0)
-const pageSize = 12
+const PAGE_SIZE = 12
 
 type SensoryMatch = 'safe' | 'sometimes'
 type PrepBucket = 'under30' | '30to60' | 'over60' | 'any'
@@ -289,9 +289,9 @@ async function fetchSuggestions(rawText: string) {
       )
       if (requestId !== latestSuggestionRequest) return
       suggestions.value = mapSuggestionCards(
-        data.results.map((r) => ({
-          ...r,
-          profileWarnings: r.profileWarnings ?? [],
+        data.results.map((result) => ({
+          ...result,
+          profileWarnings: result.profileWarnings ?? [],
           source: 'db' as const,
         })),
       )
@@ -313,14 +313,14 @@ async function fetchSuggestions(rawText: string) {
       }>(`/api/recipes/search?${params.toString()}`, { headers: biteBudUserIdHeader() })
       if (requestId !== latestSuggestionRequest) return
       suggestions.value = mapSuggestionCards(
-        data.results.map((r) => ({
-          id: r.id,
-          mealDbId: r.id,
-          title: r.title,
-          image: r.image,
-          minutes: r.minutes ?? undefined,
-          matchStatus: r.matchStatus ?? 'safe',
-          profileWarnings: r.profileWarnings ?? [],
+        data.results.map((result) => ({
+          id: result.id,
+          mealDbId: result.id,
+          title: result.title,
+          image: result.image,
+          minutes: result.minutes ?? undefined,
+          matchStatus: result.matchStatus ?? 'safe',
+          profileWarnings: result.profileWarnings ?? [],
           source: 'themealdb' as const,
           tags: [],
         })),
@@ -500,23 +500,23 @@ async function search() {
       const params = new URLSearchParams()
       if (qTrimmed) params.set('q', qTrimmed)
       params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
-      params.set('limit', String(pageSize))
+      params.set('limit', String(PAGE_SIZE))
       params.set('skip', String(browseSkip.value))
       params.set('sort', 'newest')
       const data = await apiFetch<{ results: Omit<BrowseCard, 'source'>[] }>(
         `/api/recipes/browse?${params.toString()}`,
         { headers: biteBudUserIdHeader() },
       )
-      results.value = data.results.map((r) => ({
-        ...r,
-        profileWarnings: r.profileWarnings ?? [],
+      results.value = data.results.map((result) => ({
+        ...result,
+        profileWarnings: result.profileWarnings ?? [],
         source: 'db' as const,
       }))
     } else if (activeTab.value === 'explore') {
       const params = new URLSearchParams()
       if (qTrimmed) params.set('q', qTrimmed)
       params.set('page', String(catalogPage.value))
-      params.set('limit', String(pageSize))
+      params.set('limit', String(PAGE_SIZE))
       params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
       const data = await apiFetch<{
         results: {
@@ -528,14 +528,14 @@ async function search() {
           profileWarnings?: string[]
         }[]
       }>(`/api/recipes/search?${params.toString()}`, { headers: biteBudUserIdHeader() })
-      results.value = data.results.map((r) => ({
-        id: r.id,
-        mealDbId: r.id,
-        title: r.title,
-        image: r.image,
-        minutes: r.minutes ?? undefined,
-        matchStatus: r.matchStatus ?? 'safe',
-        profileWarnings: r.profileWarnings ?? [],
+      results.value = data.results.map((result) => ({
+        id: result.id,
+        mealDbId: result.id,
+        title: result.title,
+        image: result.image,
+        minutes: result.minutes ?? undefined,
+        matchStatus: result.matchStatus ?? 'safe',
+        profileWarnings: result.profileWarnings ?? [],
         source: 'themealdb' as const,
         tags: [],
       }))
@@ -574,7 +574,7 @@ async function importMealDb(id: string) {
   err.value = null
   loadingImport.value = true
   try {
-    const card = results.value.find((r) => r.id === id)
+    const card = results.value.find((result) => result.id === id)
     if (card?.source === 'db') {
       await router.push({ name: 'recipe', params: { id } })
     } else {
@@ -632,7 +632,7 @@ function goPage(delta: number) {
     catalogPage.value = Math.max(0, catalogPage.value + delta)
     void search()
   } else if (activeTab.value === 'forYou') {
-    browseSkip.value = Math.max(0, browseSkip.value + delta * pageSize)
+    browseSkip.value = Math.max(0, browseSkip.value + delta * PAGE_SIZE)
     void search()
   }
 }
@@ -919,8 +919,8 @@ async function openRecipeWithConfirm(c: BrowseCard) {
           <button type="button" class="pager-btn" :disabled="busy || (catalogPage === 0 && browseSkip === 0)" @click="goPage(-1)">
             ←
           </button>
-          <span class="pager-num">{{ activeTab === 'explore' ? catalogPage + 1 : Math.floor(browseSkip / pageSize) + 1 }}</span>
-          <button type="button" class="pager-btn" :disabled="busy || filteredCards.length < pageSize" @click="goPage(1)">
+          <span class="pager-num">{{ activeTab === 'explore' ? catalogPage + 1 : Math.floor(browseSkip / PAGE_SIZE) + 1 }}</span>
+          <button type="button" class="pager-btn" :disabled="busy || filteredCards.length < PAGE_SIZE" @click="goPage(1)">
             →
           </button>
         </nav>

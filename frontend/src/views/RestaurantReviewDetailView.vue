@@ -16,7 +16,7 @@ const myReview = computed(() => {
   const uid = userId.value
   const all = details.value?.reviews
   if (!uid || !Array.isArray(all) || all.length === 0) return null
-  const mine = all.filter((r) => r.userId === uid)
+  const mine = all.filter((review) => review.userId === uid)
   if (!mine.length) return null
   // Pick the most recent.
   return [...mine].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null
