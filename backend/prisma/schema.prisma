@@ -28,6 +28,7 @@ model Recipe {
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
   progress         RecipeProgress[]
+  completions      RecipeCompletion[]
 
   @@index([title])
   @@index([totalTimeMinutes])
@@ -46,6 +47,23 @@ model RecipeProgress {
 
   @@id([recipeId, userId])
   @@map("recipe_progress")
+}
+
+model RecipeCompletion {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recipeId    String   @map("recipe_id") @db.Uuid
+  userId      String   @map("user_id")
+  completedAt DateTime @default(now()) @map("completed_at")
+  rating      Int?
+  wouldRepeat Boolean? @map("would_repeat")
+  worked      Json     @default("[]")
+  didntWork   Json     @default("[]")
+  notes       String?
+  recipe      Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([userId, completedAt])
+  @@index([recipeId])
+  @@map("recipe_completions")
 }
 
 model WickedIcon {
