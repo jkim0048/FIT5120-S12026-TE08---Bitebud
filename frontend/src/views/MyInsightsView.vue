@@ -630,17 +630,6 @@ function exportPdf() {
     </p>
     <header class="assign-head">
       <div class="assign-head__brand">
-        <span class="assign-head__icon-tile" aria-hidden="true">
-          <svg class="assign-head__brain" viewBox="0 0 48 48" width="34" height="34" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M24 6c-6 0-11 4-12 10-1 0-2 2-2 5 0 3 1 5 2 5 1 6 6 10 12 10s11-4 12-10c1 0 2-2 2-5 0-3-1-5-2-5-1-6-6-10-12-10Z"
-              stroke="#5a4a58"
-              stroke-width="1.5"
-              fill="#fff5f8"
-            />
-            <path d="M18 22h4M26 22h4M20 30h8" stroke="#6b5a68" stroke-width="1.5" stroke-linecap="round" />
-          </svg>
-        </span>
         <h1 class="assign-head__h1">My Insights</h1>
         <p class="assign-head__lede">A quiet mirror of your own patterns.</p>
       </div>
@@ -1053,20 +1042,6 @@ function exportPdf() {
   flex-direction: column;
   align-items: center;
   gap: 0.45rem;
-}
-.assign-head__icon-tile {
-  display: grid;
-  place-items: center;
-  width: 3.1rem;
-  height: 3.1rem;
-  border-radius: 12px;
-  background: linear-gradient(145deg, #ffb8d9 0%, #ffc9a8 45%, #ff9a6a 100%);
-  box-shadow:
-    0 4px 14px rgba(255, 130, 120, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
-}
-.assign-head__brain {
-  display: block;
 }
 .assign-head__h1 {
   margin: 0;

@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, watchEffect } from 'vue'
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { computed, ref, watch, watchEffect } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useSettings } from './composables/useSettings'
 import { useSession } from './composables/useSession'
 import { useSensoryProfile } from './composables/useSensoryProfile'
-import { useActivityChip } from './composables/useActivityChip'
 import { useGentleToast } from './composables/useGentleToast'
+import { fetchMotivationSummary } from './lib/motivationApi'
 
 const { settings } = useSettings()
+const route = useRoute()
 const router = useRouter()
 const { userId, isSignedIn, logout } = useSession()
 const { hasProfile } = useSensoryProfile()
@@ -41,22 +42,57 @@ function onProfileNavToggle(ev: Event) {
 const sensoryRoute = computed(() => ({
   name: hasProfile.value ? 'sensorySummary' : 'sensorySetup',
 }))
-const { activity } = useActivityChip()
 const toast = useGentleToast()
 
-const showActivityChip = computed(() => {
+/** Same source as the former home hero streak: Epic 7 `/api/motivation/summary` (not `/api/me/activity`, which is 0 unless you logged today). */
+const navMotivationLoaded = ref(false)
+const navMotivationHasActivity = ref(false)
+const navMotivationStreak = ref(0)
+
+async function loadNavMotivationSummary(): Promise<void> {
+  navMotivationLoaded.value = false
+  if (!isSignedIn.value || !userId.value) {
+    navMotivationHasActivity.value = false
+    navMotivationStreak.value = 0
+    navMotivationLoaded.value = true
+    return
+  }
+  try {
+    const s = await fetchMotivationSummary()
+    navMotivationHasActivity.value = s.hasActivity
+    navMotivationStreak.value = s.currentStreak
+  } catch {
+    navMotivationHasActivity.value = false
+    navMotivationStreak.value = 0
+  } finally {
+    navMotivationLoaded.value = true
+  }
+}
+
+watch(
+  () => [isSignedIn.value, userId.value] as const,
+  () => {
+    void loadNavMotivationSummary()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => route.fullPath,
+  () => {
+    if (isSignedIn.value && userId.value) void loadNavMotivationSummary()
+  },
+)
+
+const showNavStreakPill = computed(() => {
   if (!isSignedIn.value) return false
   if (settings.value.motivationEnabled === false) return false
-  return (activity.value?.dayStreak ?? 0) > 0
+  if (!navMotivationLoaded.value) return false
+  return navMotivationHasActivity.value
 })
 
-const activityStreakLabel = computed(() => {
-  const n = activity.value?.dayStreak ?? 0
-  return n === 1 ? 'day streak' : 'days streak'
-})
-
-const activityStreakAria = computed(() => {
-  const n = activity.value?.dayStreak ?? 0
+const navStreakAria = computed(() => {
+  const n = navMotivationStreak.value
   const unit = n === 1 ? 'day' : 'days'
   return `Activity streak: ${n} ${unit}`
 })
@@ -139,22 +175,21 @@ watchEffect(() => {
             </div>
           </details>
 
-          <RouterLink v-if="showActivityChip" to="/progress" class="activity-chip" :aria-label="activityStreakAria">
-            <span class="activity-chip__glyph" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M7 14c5-1 8-5 9-10 2 6-1 14-7 16-3 1-6 0-8-2 2 0 4-1 6-4Z"
-                  fill="currentColor"
-                />
-              </svg>
-            </span>
-            <span class="activity-chip__n">{{ activity?.dayStreak }}</span>
-            <span class="activity-chip__label">{{ activityStreakLabel }}</span>
-          </RouterLink>
           <button v-if="hasProfile" type="button" class="nav-signout" @click="onSignOut">Sign out</button>
           <RouterLink to="/settings">Settings</RouterLink>
-          <div class="avatar" :title="`Signed in as ${userId}`" aria-hidden="true">
-            <span class="avatar-text">{{ userId }}</span>
+          <div class="nav-user-cluster">
+            <div class="avatar" :title="`Signed in as ${userId}`" aria-hidden="true">
+              <span class="avatar-text">{{ userId }}</span>
+            </div>
+            <RouterLink
+              v-if="showNavStreakPill"
+              to="/progress"
+              class="nav-streak-pill"
+              :aria-label="navStreakAria"
+            >
+              <span class="nav-streak-pill__icon" aria-hidden="true">&#128293;</span>
+              <span class="nav-streak-pill__n">{{ navMotivationStreak }}</span>
+            </RouterLink>
           </div>
         </nav>
       </div>
@@ -372,7 +407,8 @@ watchEffect(() => {
   }
   .primary-nav > a,
   .nav-dropdown,
-  .nav-signout {
+  .nav-signout,
+  .nav-user-cluster {
     white-space: nowrap;
     flex: 0 0 auto;
   }
@@ -382,28 +418,37 @@ watchEffect(() => {
   }
 }
 
-.activity-chip {
+.nav-user-cluster {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+.nav-streak-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   padding: 0.3rem 0.55rem;
   border-radius: 999px;
-  border: 1px solid var(--bb-border);
-  background: var(--bb-surface-lowest);
+  border: 1px solid color-mix(in srgb, var(--bb-border) 85%, var(--bb-text) 15%);
+  background: color-mix(in srgb, var(--bb-surface-low) 92%, var(--bb-text) 4%);
   text-decoration: none;
   color: var(--bb-text);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.nav-streak-pill:hover {
+  border-color: color-mix(in srgb, var(--bb-border) 70%, var(--bb-accent) 30%);
+  color: var(--bb-accent);
+}
+.nav-streak-pill__icon {
+  font-size: 0.95rem;
   line-height: 1;
 }
-.activity-chip__glyph {
-  color: #1f7a4a;
-  display: inline-flex;
-}
-.activity-chip__n {
+.nav-streak-pill__n {
   font-weight: 800;
-}
-.activity-chip__label {
-  color: var(--bb-muted);
 }
 
 .gentle-toast {
@@ -465,14 +510,6 @@ watchEffect(() => {
   .nav-dropdown__summary {
     font-size: 0.95rem;
     padding: 0.35rem 0;
-  }
-
-  .activity-chip {
-    padding: 0.28rem 0.48rem;
-    gap: 0.35rem;
-  }
-  .activity-chip__label {
-    display: none;
   }
 }
 </style>
