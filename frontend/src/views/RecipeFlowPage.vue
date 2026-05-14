@@ -230,7 +230,12 @@ function closeStepPanel() {
 </script>
 
 <template>
-  <div v-if="loadErr" class="page err">{{ loadErr }}</div>
+  <div v-if="loadErr" class="page err">
+    <p>{{ loadErr }}</p>
+    <p class="recipe-flow-back">
+      <RouterLink class="recipe-flow-back__link" :to="{ name: 'search' }">Back to recipe search</RouterLink>
+    </p>
+  </div>
   <div
     v-else-if="pageLoading && !graph"
     class="page load-screen"
@@ -242,10 +247,21 @@ function closeStepPanel() {
       <div class="spinner" aria-hidden="true" />
       <h1 class="load-screen__title">Loading recipe</h1>
       <p class="load-screen__text">Gathering steps, ingredients, and your cooking flow. This usually takes a moment.</p>
+      <p class="recipe-flow-back recipe-flow-back--muted">
+        <RouterLink class="recipe-flow-back__link" :to="{ name: 'search' }">Back to recipe search</RouterLink>
+      </p>
     </div>
   </div>
-  <div v-else-if="!graph" class="page muted">Loading…</div>
+  <div v-else-if="!graph" class="page muted">
+    <p>Loading…</p>
+    <p class="recipe-flow-back">
+      <RouterLink class="recipe-flow-back__link" :to="{ name: 'search' }">Back to recipe search</RouterLink>
+    </p>
+  </div>
   <div v-else class="page">
+    <p class="recipe-flow-back">
+      <RouterLink class="recipe-flow-back__link" :to="{ name: 'search' }">Back to recipe search</RouterLink>
+    </p>
     <div v-if="!refined" class="ai-banner" role="status">
       <strong>AI is busy right now.</strong>
       <span class="ai-note">Showing a simplified guide. You can refine it later.</span>
@@ -528,6 +544,21 @@ function closeStepPanel() {
   font-size: 0.95rem;
   line-height: 1.55;
   color: var(--bb-muted);
+}
+.recipe-flow-back {
+  margin: 1rem 0 0;
+}
+.recipe-flow-back--muted {
+  margin-top: 1.25rem;
+}
+.recipe-flow-back__link {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--bb-accent);
+  text-decoration: none;
+}
+.recipe-flow-back__link:hover {
+  text-decoration: underline;
 }
 .spinner {
   width: 44px;

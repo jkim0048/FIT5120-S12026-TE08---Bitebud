@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { biteBudUserIdHeader, getBiteBudUserId } from '../composables/useUserId'
 import { useSettings } from '../composables/useSettings'
 import { apiFetch, apiUrl } from '../lib/api'
@@ -441,6 +441,18 @@ function parsePositiveInt(v: unknown): number | null {
   const i = Math.round(n)
   return i > 0 ? i : null
 }
+
+const exitToFlavorsLocation = computed(() => {
+  const id = String(route.params.id ?? '')
+  if (!id) return { name: 'search' as const }
+  const sv = selectedServings.value ?? parsePositiveInt(route.query.servings) ?? 2
+  const bs = baseServings.value ?? parsePositiveInt(route.query.baseServings) ?? sv
+  return {
+    name: 'guidedFlavors' as const,
+    params: { id },
+    query: { servings: String(sv), baseServings: String(bs) },
+  }
+})
 
 function gcd(a: number, b: number): number {
   let x = Math.abs(a)
@@ -931,7 +943,12 @@ async function markStepDoneAndNext() {
 
 <template>
   <div class="page">
-    <p v-if="err" class="err">{{ err }}</p>
+    <template v-if="err">
+      <p class="err">{{ err }}</p>
+      <p class="guided-exit">
+        <RouterLink class="guided-exit__link" :to="exitToFlavorsLocation">← Back to flavour adjustments</RouterLink>
+      </p>
+    </template>
     <div
       v-else-if="pageLoading && !graph"
       class="load-screen"
@@ -943,6 +960,9 @@ async function markStepDoneAndNext() {
         <div class="spinner" aria-hidden="true" />
         <h1 class="load-screen__title">Loading guided cooking</h1>
         <p class="load-screen__text">Preparing your steps and kitchen-friendly view. This usually takes a moment.</p>
+        <p class="guided-exit guided-exit--muted">
+          <RouterLink class="guided-exit__link" :to="exitToFlavorsLocation">← Back to flavour adjustments</RouterLink>
+        </p>
       </div>
     </div>
     <template v-else-if="graph && current">
@@ -1228,8 +1248,18 @@ async function markStepDoneAndNext() {
         </div>
       </div>
     </template>
-    <p v-else-if="graph && !current" class="muted page-muted">This recipe has no steps to guide yet.</p>
-    <p v-else-if="!err" class="muted page-muted">Loading…</p>
+    <template v-else-if="graph && !current">
+      <p class="muted page-muted">This recipe has no steps to guide yet.</p>
+      <p class="guided-exit">
+        <RouterLink class="guided-exit__link" :to="exitToFlavorsLocation">← Back to flavour adjustments</RouterLink>
+      </p>
+    </template>
+    <template v-else-if="!err">
+      <p class="muted page-muted">Loading…</p>
+      <p class="guided-exit">
+        <RouterLink class="guided-exit__link" :to="exitToFlavorsLocation">← Back to flavour adjustments</RouterLink>
+      </p>
+    </template>
   </div>
 </template>
 
@@ -1423,6 +1453,22 @@ async function markStepDoneAndNext() {
   font-size: 0.95rem;
   line-height: 1.55;
   color: var(--bb-muted);
+}
+.guided-exit {
+  margin: 1rem 0 0;
+  text-align: center;
+}
+.guided-exit--muted {
+  margin-top: 1.25rem;
+}
+.guided-exit__link {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--bb-accent);
+  text-decoration: none;
+}
+.guided-exit__link:hover {
+  text-decoration: underline;
 }
 .spinner {
   width: 44px;

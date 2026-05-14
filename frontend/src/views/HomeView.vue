@@ -73,11 +73,6 @@ function scrollToTop() {
           <p v-if="motivationHasActivity && motivationShowStartFresh" class="motivation-soft">
             Start fresh today. Every day counts on its own.
           </p>
-          <p class="motivation-links">
-            <RouterLink to="/progress">My progress</RouterLink>
-            <span class="motivation-links__sep" aria-hidden="true"> · </span>
-            <RouterLink to="/insights">My insights</RouterLink>
-          </p>
         </div>
       </div>
     </section>

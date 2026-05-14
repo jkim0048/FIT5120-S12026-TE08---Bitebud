@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import {
   CULTURAL_CHIPS,
   DIETARY_CHIPS,
@@ -109,7 +109,7 @@ function onFoodEditThumbError(e: Event) {
 <template>
   <div class="page">
     <div class="top-nav">
-      <span class="top-placeholder" />
+      <RouterLink class="link link-back" :to="{ name: 'profileStart' }">← Back to profile</RouterLink>
       <button type="button" class="link link-btn" :disabled="profileLoading" @click="saveAndViewSummary">Save &amp; Continue to Summary →</button>
     </div>
 
@@ -323,14 +323,14 @@ function onFoodEditThumbError(e: Event) {
   align-items: center;
   margin-bottom: 0.75rem;
 }
-.top-placeholder {
-  width: 1px;
-  height: 1px;
-}
 .link {
   color: var(--bb-primary);
   text-decoration: none;
   font-weight: 700;
+}
+.link-back {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .link-btn {
   border: none;

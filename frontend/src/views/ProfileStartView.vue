@@ -23,6 +23,9 @@ const sensoryRoute = computed(() => ({
 
     <div class="choices" role="group" aria-label="Profile actions">
       <RouterLink class="choice bb-btn bb-btn--primary" :to="sensoryRoute">Update sensory profile</RouterLink>
+      <RouterLink class="choice choice--secondary bb-btn bb-btn--secondary" :to="{ name: 'myProgress' }">
+        My Progress
+      </RouterLink>
       <RouterLink
         v-if="showInsightsLink"
         class="choice choice--secondary bb-btn bb-btn--secondary"

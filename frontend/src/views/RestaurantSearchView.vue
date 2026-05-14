@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiError } from '../lib/api'
 import {
   createRestaurantFromNominatim,
@@ -757,6 +757,9 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="page">
+    <p class="page-back">
+      <RouterLink class="page-back-link" :to="{ name: 'cookingStart' }">Back to start</RouterLink>
+    </p>
     <header class="hero">
       <h1>Find a restaurant.</h1>
       <p class="hint hero-hint">Search by restaurant, address, or suburb.</p>
@@ -984,6 +987,18 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.page-back {
+  margin: 0 0 0.15rem;
+}
+.page-back-link {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--bb-accent);
+  text-decoration: none;
+}
+.page-back-link:hover {
+  text-decoration: underline;
+}
 .page {
   max-width: 92rem;
   margin: 0 auto;

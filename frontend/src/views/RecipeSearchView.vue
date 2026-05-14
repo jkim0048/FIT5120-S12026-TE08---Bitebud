@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import PasteRecipeGuide from '../components/PasteRecipeGuide.vue'
 import { useSensoryProfile } from '../composables/useSensoryProfile'
 import { ApiError, apiFetch } from '../lib/api'
@@ -709,6 +709,10 @@ async function openRecipeWithConfirm(c: BrowseCard) {
       </div>
     </div>
 
+    <p class="page-back">
+      <RouterLink class="page-back-link" :to="{ name: 'cookingStart' }">Back to start</RouterLink>
+    </p>
+
     <header class="page-hero">
       <h1 class="page-title">Recipes</h1>
       <p class="page-lede">Search the library, paste a recipe, or revisit recipes you’ve completed before.</p>
@@ -1091,6 +1095,22 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   font-size: 0.82rem;
   line-height: 1.55;
   color: color-mix(in srgb, var(--bb-muted) 80%, transparent);
+}
+.page-back {
+  margin: 0 0 1rem;
+  max-width: 48rem;
+}
+.page-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--bb-accent);
+  text-decoration: none;
+}
+.page-back-link:hover {
+  text-decoration: underline;
 }
 .page-hero {
   margin-bottom: 1.5rem;

@@ -13,7 +13,7 @@ import {
   findWeeklyActivityAggregate,
 } from "../database/userActivityDatabase.js";
 import { parseRecipeGraph } from "../graph/recipeGraph.js";
-import { inferFlavorProfile } from "./flavorProfile.js";
+import { inferFlavorProfileHeuristic } from "./flavorProfile.js";
 import {
   ingredientNodes,
   methodKeysFromGraph,
@@ -135,19 +135,29 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
   const { userId, rangeFromInclusive, rangeTo, dismissedCardIds } = request;
   const rangeToExclusive = addDays(rangeTo, 1);
 
-  const ratedCompletionsCount = await recipeDatabase.recipeCompletionCount({
-    where: {
-      userId,
-      rating: { not: null },
-      completedAt: { gte: rangeFromInclusive, lt: rangeToExclusive },
-    },
-  });
-  const reviewsCount = await restaurantDatabase.restaurantReviewCount({
-    where: { userId, createdAt: { gte: rangeFromInclusive, lt: rangeToExclusive } },
-  });
-  const completionsCount = await recipeDatabase.recipeCompletionCount({
-    where: { userId, completedAt: { gte: rangeFromInclusive, lt: rangeToExclusive } },
-  });
+  const [
+    ratedCompletionsCount,
+    reviewsCount,
+    completionsCount,
+    lifetimeStats,
+    thisWeekRow,
+  ] = await Promise.all([
+    recipeDatabase.recipeCompletionCount({
+      where: {
+        userId,
+        rating: { not: null },
+        completedAt: { gte: rangeFromInclusive, lt: rangeToExclusive },
+      },
+    }),
+    restaurantDatabase.restaurantReviewCount({
+      where: { userId, createdAt: { gte: rangeFromInclusive, lt: rangeToExclusive } },
+    }),
+    recipeDatabase.recipeCompletionCount({
+      where: { userId, completedAt: { gte: rangeFromInclusive, lt: rangeToExclusive } },
+    }),
+    findLifetimeActivityStats(userId),
+    findThisWeekActivityStats(userId),
+  ]);
   const totalActivities = completionsCount + reviewsCount;
 
   const thresholds = {
@@ -173,18 +183,16 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
   };
 
   if (totalActivities > 0) {
-    const dailyActivityAggregateRows = await findDailyActivityAggregate(
-      userId,
-      rangeFromInclusive,
-      rangeToExclusive,
-    );
+    const [dailyActivityAggregateRows, breakdownRow] = await Promise.all([
+      findDailyActivityAggregate(userId, rangeFromInclusive, rangeToExclusive),
+      findActivityBreakdown(userId, rangeFromInclusive, rangeToExclusive),
+    ]);
     progress.calendar = (dailyActivityAggregateRows ?? []).map((calendarRow) => ({
       date: calendarRow.day,
       recipes: Number(calendarRow.recipes),
       dining: Number(calendarRow.dining),
     }));
 
-    const breakdownRow = await findActivityBreakdown(userId, rangeFromInclusive, rangeToExclusive);
     progress.typeBreakdown = {
       recipes: Number(breakdownRow.recipes),
       dining: Number(breakdownRow.dining),
@@ -349,7 +357,7 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
             detail: ingredientNode.detail,
           }))
           .filter((ingredientRow) => ingredientRow.id && ingredientRow.label);
-        const inferredFlavorProfile = await inferFlavorProfile(ingredientsForFlavorInference);
+        const inferredFlavorProfile = inferFlavorProfileHeuristic(ingredientsForFlavorInference);
         const flavorBuckets = Object.entries(inferredFlavorProfile)
           .map(([flavorKey, ingredientIds]) => ({
             flavorKey,
@@ -607,7 +615,6 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
     );
   }
 
-  const lifetimeStats = await findLifetimeActivityStats(userId);
   const cookingDaysTotalLifetime = Number(lifetimeStats.cooking_days_total ?? 0n);
   const diningDaysTotalLifetime = Number(lifetimeStats.dining_days_total ?? 0n);
   const diningTotalLifetime = Number(lifetimeStats.dining_total ?? 0n);
@@ -640,7 +647,6 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
     daysSinceFirstActivity,
   };
 
-  const thisWeekRow = await findThisWeekActivityStats(userId);
   const thisWeek = {
     weekStart: thisWeekRow.week_start || null,
     cookingDays: Number(thisWeekRow.cooking_days ?? 0n),
