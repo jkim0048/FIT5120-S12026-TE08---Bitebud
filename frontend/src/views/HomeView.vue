@@ -64,6 +64,7 @@ function scrollToTop() {
           >
             Let's get started
           </RouterLink>
+          <RouterLink :to="{ name: 'aboutUs' }" class="bb-btn bb-btn--secondary cta">Learn more</RouterLink>
         </div>
         <div v-if="isSignedIn && motivationLoaded" class="motivation-hero">
           <div v-if="motivationHasActivity" class="streak-chip" aria-label="Current streak in days">
@@ -72,6 +73,11 @@ function scrollToTop() {
           </div>
           <p v-if="motivationHasActivity && motivationShowStartFresh" class="motivation-soft">
             Start fresh today. Every day counts on its own.
+          </p>
+          <p class="motivation-links">
+            <RouterLink to="/progress">My progress</RouterLink>
+            <span class="motivation-links__sep" aria-hidden="true"> · </span>
+            <RouterLink to="/insights">My insights</RouterLink>
           </p>
         </div>
       </div>
