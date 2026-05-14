@@ -24,6 +24,7 @@ import MyProgressView from '../views/MyProgressView.vue'
 import MyInsightsView from '../views/MyInsightsView.vue'
 import CookingDecisionView from '../views/CookingDecisionView.vue'
 import ProfileStartView from '../views/ProfileStartView.vue'
+import AboutUsView from '../views/AboutUsView.vue'
 
 const AUTH_REQUIRED_NAMES = new Set([
   'search',
@@ -47,6 +48,7 @@ export const router = createRouter({
   routes: [
     { path: '/unlock', name: 'unlock', component: UnlockView },
     { path: '/', name: 'home', component: HomeView },
+    { path: '/about', name: 'aboutUs', component: AboutUsView },
     { path: '/auth', name: 'auth', component: AuthView },
     { path: '/auth/new-user', name: 'authNewUser', component: AuthNewUserView },
     { path: '/start', name: 'cookingStart', component: CookingDecisionView },

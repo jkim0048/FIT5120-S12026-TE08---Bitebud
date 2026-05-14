@@ -105,6 +105,7 @@ watchEffect(() => {
         </div>
         <nav v-if="isSignedIn" class="primary-nav" aria-label="Primary">
           <RouterLink to="/">Home</RouterLink>
+          <RouterLink :to="{ name: 'aboutUs' }">Learn more</RouterLink>
 
           <details ref="eatDetailsRef" class="nav-dropdown" @toggle="onEatNavToggle">
             <summary class="nav-dropdown__summary">Let's eat</summary>
