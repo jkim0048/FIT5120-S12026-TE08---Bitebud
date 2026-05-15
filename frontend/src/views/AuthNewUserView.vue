@@ -54,7 +54,7 @@ function closeModal(): void {
 
 async function onModalNo(): Promise<void> {
   closeModal()
-  await router.push({ name: 'search' })
+  await router.push({ name: 'cookingStart' })
 }
 
 async function onModalYes(): Promise<void> {

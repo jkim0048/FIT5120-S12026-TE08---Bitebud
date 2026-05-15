@@ -1,4 +1,6 @@
 import type { Prisma } from "@prisma/client";
+import { LOCAL_TIMEZONE, pgDateColumnToYmd } from "../calendarDate.js";
+import { prisma } from "../prisma.js";
 import {
   createMotivationEvent,
   createMotivationProfile,
@@ -286,21 +288,52 @@ export async function getMotivationProgress(
     const c = readCounts(r.counts);
     recipe += c.recipe_completed ?? 0;
     review += c.restaurant_review_submitted ?? 0;
-    const key = r.localDate.toISOString().slice(0, 10);
+    const key = pgDateColumnToYmd(r.localDate);
     const dayTotal = totalEligibleCount(c);
     byDate.set(key, (byDate.get(key) ?? 0) + dayTotal);
     if (dayTotal > 0) totalActiveDays += 1;
   }
-
-  const eligibleTotal = recipe + review;
 
   const now = new Date();
   const calYear = opts?.year ?? now.getUTCFullYear();
   const calMonth = opts?.month ?? now.getUTCMonth() + 1;
   const y = calYear;
   const m0 = calMonth - 1;
+  const monthStart = new Date(Date.UTC(y, m0, 1));
+  const monthEndExclusive = new Date(Date.UTC(y, m0 + 1, 1));
   const monthEnd = new Date(Date.UTC(y, m0 + 1, 0));
   const daysInMonth = monthEnd.getUTCDate();
+
+  const monthActivityRows = await prisma.$queryRaw<
+    Array<{ day: string; recipes: bigint; dining: bigint }>
+  >`SELECT day::text AS day,
+      SUM(recipes_count)::bigint AS recipes,
+      SUM(dining_count)::bigint AS dining
+    FROM (
+      SELECT ((completed_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date AS day, COUNT(*)::bigint AS recipes_count, 0::bigint AS dining_count
+      FROM recipe_completions
+      WHERE user_id = ${userId} AND completed_at >= ${monthStart} AND completed_at < ${monthEndExclusive}
+      GROUP BY 1
+      UNION ALL
+      SELECT ((created_at AT TIME ZONE 'UTC') AT TIME ZONE ${LOCAL_TIMEZONE})::date AS day, 0::bigint AS recipes_count, COUNT(*)::bigint AS dining_count
+      FROM restaurant_reviews
+      WHERE user_id = ${userId} AND created_at >= ${monthStart} AND created_at < ${monthEndExclusive}
+      GROUP BY 1
+    ) x
+    GROUP BY day
+    ORDER BY day ASC`;
+
+  for (const row of monthActivityRows ?? []) {
+    const total = Number(row.recipes) + Number(row.dining);
+    if (total > 0) byDate.set(row.day, total);
+  }
+
+  const [recipeTotal, reviewTotal] = await Promise.all([
+    prisma.recipeCompletion.count({ where: { userId } }),
+    prisma.restaurantReview.count({ where: { userId } }),
+  ]);
+  recipe = Math.max(recipe, recipeTotal);
+  review = Math.max(review, reviewTotal);
 
   const calendarMonthDays: Array<{ date: string; count: number }> = [];
   for (let day = 1; day <= daysInMonth; day++) {
@@ -313,6 +346,8 @@ export async function getMotivationProgress(
   for (const cell of calendarMonthDays) {
     if (cell.count > 0) activeDaysThisMonth += 1;
   }
+
+  const eligibleTotal = recipe + review;
 
   return {
     eligibleTotal,

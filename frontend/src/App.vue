@@ -73,34 +73,28 @@ watchEffect(() => {
             <span class="brand-text">BiteBud</span>
           </RouterLink>
         </div>
-        <nav class="primary-nav" aria-label="Primary">
+        <nav v-if="isSignedIn" class="primary-nav" aria-label="Primary">
           <RouterLink to="/">Home</RouterLink>
           <RouterLink to="/search">Let's start cooking</RouterLink>
-          <RouterLink to="/restaurants">Let's dine out</RouterLink>
+          <RouterLink to="/restaurants/search">Let's dine out</RouterLink>
           <RouterLink v-if="showInsightsLink" to="/insights">My Insights</RouterLink>
-          <RouterLink v-if="isSignedIn" to="/sensory/setup">Customise sensory profile</RouterLink>
-          <RouterLink v-else to="/auth">Customise sensory profile</RouterLink>
+          <RouterLink to="/sensory/setup">Update sensory profile</RouterLink>
           <RouterLink v-if="showActivityChip" to="/insights" class="activity-chip" :aria-label="activityStreakAria">
-            <span class="activity-chip__glyph" aria-hidden="true">🔥</span>
+            <span class="activity-chip__glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M7 14c5-1 8-5 9-10 2 6-1 14-7 16-3 1-6 0-8-2 2 0 4-1 6-4Z"
+                  fill="currentColor"
+                />
+              </svg>
+            </span>
             <span class="activity-chip__n">{{ activity?.dayStreak }}</span>
             <span class="activity-chip__label">{{ activityStreakLabel }}</span>
           </RouterLink>
-          <button v-if="isSignedIn && hasProfile" type="button" class="nav-signout" @click="onSignOut">Sign out</button>
+          <button v-if="hasProfile" type="button" class="nav-signout" @click="onSignOut">Sign out</button>
           <RouterLink to="/settings">Settings</RouterLink>
-          <div
-            class="avatar"
-            :class="{ 'avatar--empty': !isSignedIn }"
-            :title="isSignedIn ? `Signed in as ${userId}` : 'Not signed in'"
-            aria-hidden="true"
-          >
-            <span v-if="isSignedIn" class="avatar-text">{{ userId }}</span>
-            <img
-              v-else
-              class="avatar-mark"
-              src="/bitebud-mark.png"
-              alt=""
-              aria-hidden="true"
-            />
+          <div class="avatar" :title="`Signed in as ${userId}`" aria-hidden="true">
+            <span class="avatar-text">{{ userId }}</span>
           </div>
         </nav>
       </div>
@@ -145,9 +139,9 @@ watchEffect(() => {
   -webkit-backdrop-filter: blur(20px);
 }
 .top-inner {
-  max-width: 72rem;
+  max-width: var(--bb-content-max, 72rem);
   margin: 0 auto;
-  padding: 0.85rem 1.25rem;
+  padding: 0.85rem var(--bb-gutter, 1.25rem);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -242,6 +236,92 @@ watchEffect(() => {
 }
 .main {
   flex: 1;
+  padding: 0 var(--bb-gutter, 1.25rem);
+}
+
+@media (min-width: 1600px) {
+  .top-inner {
+    max-width: 92rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .top-inner {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .primary-nav {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 0.85rem 1rem;
+    padding-bottom: 0.25rem;
+  }
+  .primary-nav a,
+  .nav-signout {
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+}
+
+.activity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--bb-border);
+  background: var(--bb-surface-lowest);
+  text-decoration: none;
+  color: var(--bb-text);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.activity-chip__glyph {
+  color: #1f7a4a;
+  display: inline-flex;
+}
+.activity-chip__n {
+  font-weight: 800;
+}
+.activity-chip__label {
+  color: var(--bb-muted);
+}
+
+.gentle-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 0.65rem 0.75rem;
+  border-radius: 14px;
+  border: 1px solid var(--bb-border);
+  background: color-mix(in srgb, var(--bb-surface-highest) 94%, #22c55e 6%);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+  z-index: 80;
+}
+.gentle-toast--visible {
+  opacity: 1;
+}
+.gentle-toast--no-motion {
+  transition: none;
+}
+.gentle-toast__glyph {
+  color: #1f7a4a;
+  flex: 0 0 auto;
+}
+.gentle-toast__text {
+  color: var(--bb-text);
+  font-size: 0.95rem;
+  line-height: 1.3;
 }
 
 .activity-chip {

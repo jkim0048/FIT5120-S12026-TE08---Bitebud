@@ -41,6 +41,7 @@ model RecipeProgress {
   recipeId         String   @map("recipe_id") @db.Uuid
   userId           String   @map("user_id")
   completedNodeIds Json     @default("[]") @map("completed_node_ids")
+  completedAt      DateTime? @map("completed_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
   recipe           Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
@@ -56,7 +57,7 @@ model RecipeCompletion {
   rating      Int?
   wouldRepeat Boolean? @map("would_repeat")
   worked      Json     @default("[]")
-  didntWork   Json     @default("[]")
+  didntWork   Json     @default("[]") @map("didnt_work")
   notes       String?
   recipe      Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 

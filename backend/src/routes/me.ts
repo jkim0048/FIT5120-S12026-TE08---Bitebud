@@ -4,49 +4,15 @@ import { prisma } from "../prisma.js";
 import { parseBiteBudUserId } from "../biteBudUserId.js";
 import { parseRecipeGraph, type RecipeGraph, type RecipeNode } from "../graph/recipeGraph.js";
 import { inferFlavorProfile } from "../services/flavorProfile.js";
-
-function isoDateOnly(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function parseIsoDateOnly(isoDateString: string): Date | null {
-  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDateString.trim());
-  if (!dateMatch) return null;
-  const year = Number(dateMatch[1]);
-  const month = Number(dateMatch[2]);
-  const dayOfMonth = Number(dateMatch[3]);
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(dayOfMonth)) return null;
-  const parsedUtc = new Date(Date.UTC(year, month - 1, dayOfMonth, 0, 0, 0, 0));
-  // Validate the date parts survived (e.g. 2026-02-31 should be rejected).
-  if (
-    parsedUtc.getUTCFullYear() !== year ||
-    parsedUtc.getUTCMonth() !== month - 1 ||
-    parsedUtc.getUTCDate() !== dayOfMonth
-  )
-    return null;
-  return parsedUtc;
-}
-
-function addDays(date: Date, days: number): Date {
-  const shifted = new Date(date);
-  shifted.setUTCDate(shifted.getUTCDate() + days);
-  return shifted;
-}
-
-/** Local timezone used for "today", streak boundaries, and calendar-day grouping. */
-const LOCAL_TIMEZONE = "Australia/Melbourne";
-
-const LOCAL_CALENDAR_FORMATTER = new Intl.DateTimeFormat("en-CA", {
-  timeZone: LOCAL_TIMEZONE,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
-/** Returns the YYYY-MM-DD calendar date of `date` evaluated in Melbourne time. */
-function localCalendarDateString(date: Date): string {
-  return LOCAL_CALENDAR_FORMATTER.format(date);
-}
+import {
+  LOCAL_TIMEZONE,
+  addDays,
+  isoDateOnly,
+  localCalendarDateString,
+  parseIsoDateOnly,
+  pgDateColumnToYmd,
+  todayMelbourneDate,
+} from "../calendarDate.js";
 
 /** Subtracts `days` calendar days from an ISO date string, returning the new ISO date. */
 function isoCalendarMinusDays(isoDateString: string, days: number): string {
@@ -223,8 +189,7 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
       })
       .parse((request.query as Record<string, unknown>) ?? {});
 
-    const today = new Date();
-    const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0, 0));
+    const todayUtc = todayMelbourneDate();
     const defaultFrom = addDays(todayUtc, -89); // inclusive range = 90 days
     const parsedFrom = parsedQuery.from ? parseIsoDateOnly(parsedQuery.from) : null;
     const parsedTo = parsedQuery.to ? parseIsoDateOnly(parsedQuery.to) : null;
@@ -285,10 +250,10 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
       typeBreakdown: { recipes: 0, dining: 0 },
     };
 
-    if (progressEnabled) {
+    if (totalActivities > 0) {
       const dailyActivityAggregateRows = await prisma.$queryRaw<
-        Array<{ day: Date; recipes: bigint; dining: bigint }>
-      >`SELECT day,
+        Array<{ day: string; recipes: bigint; dining: bigint }>
+      >`SELECT day::text AS day,
           SUM(recipes_count)::bigint AS recipes,
           SUM(dining_count)::bigint AS dining
         FROM (
@@ -306,14 +271,24 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
         ORDER BY day ASC`;
 
       progress.calendar = (dailyActivityAggregateRows ?? []).map((calendarRow) => ({
-        date: isoDateOnly(new Date(calendarRow.day)),
+        date: calendarRow.day,
         recipes: Number(calendarRow.recipes),
         dining: Number(calendarRow.dining),
       }));
 
+      const breakdownRows = await prisma.$queryRaw<
+        Array<{ recipes: bigint; dining: bigint }>
+      >`SELECT
+          (SELECT COUNT(*) FROM recipe_completions WHERE user_id = ${userId} AND completed_at >= ${rangeFromInclusive} AND completed_at < ${rangeToExclusive}) AS recipes,
+          (SELECT COUNT(*) FROM restaurant_reviews WHERE user_id = ${userId} AND created_at >= ${rangeFromInclusive} AND created_at < ${rangeToExclusive}) AS dining`;
+      const breakdownRow = breakdownRows[0] ?? { recipes: 0n, dining: 0n };
+      progress.typeBreakdown = { recipes: Number(breakdownRow.recipes), dining: Number(breakdownRow.dining) };
+    }
+
+    if (progressEnabled) {
       const weeklyActivityAggregateRows = await prisma.$queryRaw<
-        Array<{ week_start: Date; recipes: bigint; dining: bigint }>
-      >`SELECT week_start,
+        Array<{ week_start: string; recipes: bigint; dining: bigint }>
+      >`SELECT week_start::text AS week_start,
           SUM(recipes_count)::bigint AS recipes,
           SUM(dining_count)::bigint AS dining
         FROM (
@@ -331,18 +306,10 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
         ORDER BY week_start ASC`;
 
       progress.weeklyBars = (weeklyActivityAggregateRows ?? []).map((weeklyRow) => ({
-        weekStart: isoDateOnly(startOfIsoWeek(new Date(weeklyRow.week_start))),
+        weekStart: weeklyRow.week_start,
         recipes: Number(weeklyRow.recipes),
         dining: Number(weeklyRow.dining),
       }));
-
-      const breakdownRows = await prisma.$queryRaw<
-        Array<{ recipes: bigint; dining: bigint }>
-      >`SELECT
-          (SELECT COUNT(*) FROM recipe_completions WHERE user_id = ${userId} AND completed_at >= ${rangeFromInclusive} AND completed_at < ${rangeToExclusive}) AS recipes,
-          (SELECT COUNT(*) FROM restaurant_reviews WHERE user_id = ${userId} AND created_at >= ${rangeFromInclusive} AND created_at < ${rangeToExclusive}) AS dining`;
-      const breakdownRow = breakdownRows[0] ?? { recipes: 0n, dining: 0n };
-      progress.typeBreakdown = { recipes: Number(breakdownRow.recipes), dining: Number(breakdownRow.dining) };
     }
 
     const cooking = { works: [] as InsightCard[], doesntWork: [] as InsightCard[] };

@@ -48,6 +48,23 @@ const calendarCells = computed(() => {
 const recipeCount = computed(() => data.value?.breakdown.recipe_completed ?? 0)
 const reviewCount = computed(() => data.value?.breakdown.restaurant_review_submitted ?? 0)
 
+const dayDetailFormatter = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+})
+
+function calendarCellTitle(cell: { date: string; count: number }): string | undefined {
+  if (!cell.date) return undefined
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(cell.date.trim())
+  const dateLabel = m
+    ? dayDetailFormatter.format(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))))
+    : cell.date
+  if (cell.count <= 0) return `${dateLabel} — no activity`
+  return `${dateLabel}: ${cell.count} ${cell.count === 1 ? 'activity' : 'activities'}`
+}
+
 const activityBarDenominator = computed(() => {
   return Math.max(1, recipeCount.value, reviewCount.value)
 })
@@ -155,7 +172,8 @@ onMounted(() => {
               'cal-cell--pad': !cell.date,
               'cal-cell--active': cell.date && cell.count > 0,
             }"
-            :title="cell.date || undefined"
+            :title="calendarCellTitle(cell)"
+            :aria-label="cell.date ? calendarCellTitle(cell) : undefined"
           >
             <template v-if="cell.date">
               <span class="cal-d">{{ cell.label }}</span>
@@ -380,9 +398,9 @@ onMounted(() => {
 }
 
 .cal-cell--active {
-  background: var(--mp-teal);
-  border-color: var(--mp-teal);
-  color: #fff;
+  background: #d9e8f0;
+  border-color: #8fb0c4;
+  color: var(--mp-text);
 }
 
 .cal-d {

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { readFile } from "node:fs/promises";
 import { recipeRepository } from "../repositories/recipeRepository.js";
+import { prisma } from "../prisma.js";
 import { sensoryProfileRepository } from "../repositories/sensoryProfileRepository.js";
 import {
   parseRecipeGraph,
@@ -35,6 +36,7 @@ import { parseBiteBudUserId } from "../biteBudUserId.js";
 import { zSearchQuery, zUserRecipeText } from "../validation/text.js";
 import { enforceRateLimit } from "../services/rateLimit.js";
 import { looksLikeFoodRecipe } from "../services/recipePasteChecker.js";
+import { findEligibleRecipeEvents } from "../repositories/motivationRepository.js";
 
 function jsonStringArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
@@ -239,7 +241,47 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       where.heatLevel = q.heatLevel;
     }
     if (userId) {
-      where.progress = { some: { userId } };
+      // Backfill completion for legacy records (motivation logged before we had RecipeProgress.completedAt).
+      // This keeps “My recipes” consistent for existing users like PUR.
+      try {
+        const events = await findEligibleRecipeEvents(userId);
+        const ids = new Set<string>();
+        for (const e of events) {
+          const m = e.metadata as { type?: string; recipeId?: string };
+          if (m?.type !== "recipe_completed") continue;
+          if (typeof m.recipeId === "string" && m.recipeId.trim()) ids.add(m.recipeId.trim());
+        }
+        const recipeIds = [...ids];
+        if (recipeIds.length) {
+          const existingRecipes = await recipeRepository.recipeFindMany({
+            where: { id: { in: recipeIds } },
+            select: { id: true },
+          });
+          const existingSet = new Set(existingRecipes.map((r) => r.id));
+          for (const recipeId of recipeIds) {
+            if (!existingSet.has(recipeId)) continue;
+            const row = await recipeRepository.recipeProgressFindUnique({
+              where: { recipeId_userId: { recipeId, userId } },
+            });
+            if (row && (row as any).completedAt) continue;
+            await recipeRepository.recipeProgressUpsert({
+              where: { recipeId_userId: { recipeId, userId } },
+              create: {
+                recipeId,
+                userId,
+                completedNodeIds: ((row as any)?.completedNodeIds as string[]) ?? [],
+                completedAt: new Date(),
+              } as any,
+              update: { completedAt: new Date() } as any,
+            });
+          }
+        }
+      } catch {
+        // Do not block browsing on backfill failures.
+      }
+
+      // “My recipes” should only include successfully completed recipes.
+      where.progress = { some: { userId, completedAt: { not: null } } };
     } else {
       // For You is user-specific; without user ID we return empty.
       where.id = "__none__";
@@ -844,6 +886,38 @@ export async function registerRecipeRoutes(app: FastifyInstance): Promise<void> 
       update: {
         completedNodeIds: body.completedNodeIds,
       },
+    });
+    return reply.send({ ok: true });
+  });
+
+  app.post("/api/recipes/:id/complete", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);
+    if (!userId) {
+      return reply.status(400).send({ error: "Missing or invalid X-User-Id" });
+    }
+    const recipe = await recipeRepository.recipeFindUnique({ where: { id } });
+    if (!recipe) return reply.status(404).send({ error: "Not found" });
+
+    const existing = await recipeRepository.recipeProgressFindUnique({
+      where: { recipeId_userId: { recipeId: id, userId } },
+    });
+    if (existing && (existing as any).completedAt) {
+      return reply.send({ ok: true });
+    }
+
+    const completedAt = new Date();
+    await recipeRepository.recipeProgressUpsert({
+      where: {
+        recipeId_userId: { recipeId: id, userId },
+      },
+      create: {
+        recipeId: id,
+        userId,
+        completedNodeIds: ((existing as any)?.completedNodeIds as string[]) ?? [],
+        completedAt,
+      } as any,
+      update: { completedAt } as any,
     });
     return reply.send({ ok: true });
   });

@@ -63,17 +63,32 @@ const customToInput = ref('')
 let debounceTimer: number | null = null
 const monthPage = ref(0)
 
+function usesSingleMonthCalendar(): boolean {
+  const preset = insightsRange.preset.value
+  return preset === '30d' || preset === '90d' || preset === '12m' || preset === 'custom'
+}
+
 function monthPageSize(): number {
-  // Keep this calm and compact for 12m; show 4 months per page on wide screens, 3 on narrow.
-  if (insightsRange.preset.value !== '12m') return 4
+  if (usesSingleMonthCalendar()) return 1
+  // Keep this calm and compact for short ranges; show 4 months per page on wide screens, 3 on narrow.
   return window.matchMedia?.('(max-width: 900px)')?.matches ? 3 : 4
 }
 
 const visibleMonthGrids = computed(() => {
   const all = monthGrids.value
+  if (!all.length) return []
   const size = monthPageSize()
   const start = monthPage.value * size
   return all.slice(start, start + size)
+})
+
+const visibleMonthGrid = computed(() => visibleMonthGrids.value[0] ?? null)
+
+const monthNavLabel = computed(() => {
+  if (!usesSingleMonthCalendar()) return ''
+  const total = monthGrids.value.length
+  if (total <= 1) return ''
+  return `${monthPage.value + 1} of ${total}`
 })
 
 const canPrevMonths = computed(() => monthPage.value > 0)
@@ -147,13 +162,26 @@ function isoToPretty(iso: string): string {
   return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+const MELBOURNE_CALENDAR = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Australia/Melbourne',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
 function isoToday(): string {
-  return new Date().toISOString().slice(0, 10)
+  return MELBOURNE_CALENDAR.format(new Date())
 }
 
 function toIso(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
+
+const showProgressCalendar = computed(() => {
+  const d = data.value
+  if (!d) return false
+  return d.thresholds.progress.have > 0 || (d.progress.calendar?.length ?? 0) > 0
+})
 
 const canExport = computed(() => {
   const d = data.value
@@ -219,45 +247,40 @@ function activitySummary() {
   return { recipes, reviews, daysAny }
 }
 
-const COOKING_GAUGE_MAX = 7
-const DINING_GAUGE_MAX = 7
 const GAUGE_ARC_LENGTH_PERCENT = 100
 
-/** Returns the Monday (local) of the week containing the given JS Date. */
-function startOfWeekMondayLocal(now: Date): Date {
-  const out = new Date(now)
-  out.setHours(0, 0, 0, 0)
-  const day = out.getDay() // Sun=0
-  const diff = (day + 6) % 7 // Mon=0
-  out.setDate(out.getDate() - diff)
-  return out
+const insightsRangeCaption = computed(() => {
+  const preset = insightsRange.preset.value
+  if (preset === '7d') return 'Last 7 days'
+  if (preset === '30d') return 'Last 30 days'
+  if (preset === '90d') return 'Last 90 days'
+  if (preset === '12m') return 'Last 12 months'
+  if (preset === 'custom' && data.value) {
+    return `${isoToPretty(data.value.range.from)} to ${isoToPretty(data.value.range.to)}`
+  }
+  return 'Selected period'
+})
+
+function rangeActivityBreakdown(): { cookedRecipes: number; dinedOut: number } {
+  const d = data.value
+  if (!d) return { cookedRecipes: 0, dinedOut: 0 }
+  const cooked = d.progress.typeBreakdown.recipes ?? 0
+  const dined = d.progress.typeBreakdown.dining ?? 0
+  if (cooked + dined > 0) return { cookedRecipes: cooked, dinedOut: dined }
+  let cookedFromCalendar = 0
+  let dinedFromCalendar = 0
+  for (const row of d.progress.calendar ?? []) {
+    cookedFromCalendar += row.recipes ?? 0
+    dinedFromCalendar += row.dining ?? 0
+  }
+  return { cookedRecipes: cookedFromCalendar, dinedOut: dinedFromCalendar }
 }
 
-const thisWeekStats = computed(() => {
-  const d = data.value
-  // Prefer server-computed values (Melbourne Monday boundary).
-  if (d?.thisWeek) {
-    return {
-      cookingDays: Math.max(0, Math.round(d.thisWeek.cookingDays ?? 0)),
-      diningReviews: Math.max(0, Math.round(d.thisWeek.diningReviews ?? 0)),
-      weekStart: d.thisWeek.weekStart ?? null,
-    }
-  }
-  // Fallback: derive from the calendar in the current response (browser-local Monday).
-  if (!d) return { cookingDays: 0, diningReviews: 0, weekStart: null as string | null }
-  const mondayLocal = startOfWeekMondayLocal(new Date())
-  const yyyy = mondayLocal.getFullYear()
-  const mm = String(mondayLocal.getMonth() + 1).padStart(2, '0')
-  const dd = String(mondayLocal.getDate()).padStart(2, '0')
-  const mondayIso = `${yyyy}-${mm}-${dd}`
-  let cookingDays = 0
-  let diningReviews = 0
-  for (const row of d.progress.calendar ?? []) {
-    if (row.date < mondayIso) continue
-    if ((row.recipes ?? 0) > 0) cookingDays += 1
-    diningReviews += row.dining ?? 0
-  }
-  return { cookingDays, diningReviews, weekStart: mondayIso }
+const rangeActivityStats = computed(() => rangeActivityBreakdown())
+
+const rangeGaugeMax = computed(() => {
+  const { cookedRecipes, dinedOut } = rangeActivityStats.value
+  return Math.max(cookedRecipes, dinedOut, 1)
 })
 
 function clampGaugeValue(value: number): number {
@@ -270,22 +293,49 @@ function gaugePercent(value: number, max: number): number {
   return Math.min(GAUGE_ARC_LENGTH_PERCENT, (value / max) * GAUGE_ARC_LENGTH_PERCENT)
 }
 
-const cookingThisWeek = computed(() => clampGaugeValue(thisWeekStats.value.cookingDays))
-const diningThisWeek = computed(() => clampGaugeValue(thisWeekStats.value.diningReviews))
+const cookedRecipesInRange = computed(() => clampGaugeValue(rangeActivityStats.value.cookedRecipes))
+const dinedOutInRange = computed(() => clampGaugeValue(rangeActivityStats.value.dinedOut))
 
-const cookingGaugePercent = computed(() => gaugePercent(cookingThisWeek.value, COOKING_GAUGE_MAX))
-const diningGaugePercent = computed(() => gaugePercent(diningThisWeek.value, DINING_GAUGE_MAX))
+const cookedRecipesGaugePercent = computed(() => gaugePercent(cookedRecipesInRange.value, rangeGaugeMax.value))
+const dinedOutGaugePercent = computed(() => gaugePercent(dinedOutInRange.value, rangeGaugeMax.value))
 
-const cookingThisWeekDisplay = computed(() => String(cookingThisWeek.value))
-const diningThisWeekDisplay = computed(() => String(diningThisWeek.value))
+const cookedRecipesDisplay = computed(() => String(cookedRecipesInRange.value))
+const dinedOutDisplay = computed(() => String(dinedOutInRange.value))
 
-const cookingUnitLabel = computed(() => (cookingThisWeek.value === 1 ? 'day' : 'days'))
-const diningUnitLabel = computed(() => (diningThisWeek.value === 1 ? 'review' : 'reviews'))
+const cookedRecipesUnitLabel = computed(() => (cookedRecipesInRange.value === 1 ? 'recipe' : 'recipes'))
+const dinedOutUnitLabel = computed(() => (dinedOutInRange.value === 1 ? 'review' : 'reviews'))
 
-const weekStartPretty = computed(() => {
-  const iso = thisWeekStats.value.weekStart
-  if (!iso) return ''
-  return isoToPretty(iso)
+const breakdownBarDenominator = computed(() => {
+  const { cookedRecipes, dinedOut } = rangeActivityStats.value
+  return Math.max(1, cookedRecipes, dinedOut)
+})
+
+const cookedRecipesBarPct = computed(
+  () => (rangeActivityStats.value.cookedRecipes / breakdownBarDenominator.value) * 100,
+)
+const dinedOutBarPct = computed(() => (rangeActivityStats.value.dinedOut / breakdownBarDenominator.value) * 100)
+
+const cookingWorksUnlocked = computed(
+  () => (data.value?.thresholds.cooking.have ?? 0) >= (data.value?.thresholds.cooking.need ?? 3),
+)
+const cookingDoesntWorkUnlocked = computed(() => cookingWorksUnlocked.value)
+const diningWorksUnlocked = computed(
+  () => (data.value?.thresholds.dining.have ?? 0) >= (data.value?.thresholds.dining.need ?? 2),
+)
+
+const cookingWorksEmptyMessage = computed(() => {
+  if (!data.value || !cookingWorksUnlocked.value || data.value.cooking.works.length > 0) return ''
+  return "Let's keep cooking — BiteBud is still learning what tends to work well for you."
+})
+
+const cookingDoesntWorkEmptyMessage = computed(() => {
+  if (!data.value || !cookingDoesntWorkUnlocked.value || data.value.cooking.doesntWork.length > 0) return ''
+  return "Let's keep cooking — BiteBud is still learning what tends not to work for you."
+})
+
+const diningWorksEmptyMessage = computed(() => {
+  if (!data.value || !diningWorksUnlocked.value || data.value.dining.works.length > 0) return ''
+  return "Let's keep dining out — BiteBud is still learning what tends to suit you."
 })
 
 const dowFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' })
@@ -426,7 +476,9 @@ function addUtcDays(d: Date, days: number): Date {
 const calendarMap = computed(() => {
   const m = new Map<string, { recipes: number; reviews: number }>()
   for (const row of data.value?.progress.calendar ?? []) {
-    m.set(row.date, { recipes: row.recipes ?? 0, reviews: row.dining ?? 0 })
+    const iso = row.date.trim().slice(0, 10)
+    if (!iso) continue
+    m.set(iso, { recipes: row.recipes ?? 0, reviews: row.dining ?? 0 })
   }
   return m
 })
@@ -448,13 +500,12 @@ const monthGrids = computed<MonthGrid[]>(() => {
     while (d.getTime() <= gridEnd.getTime()) {
       const iso = d.toISOString().slice(0, 10)
       const inMonth = d.getUTCMonth() === cur.getUTCMonth()
-      const withinRange = iso >= data.value.range.from && iso <= data.value.range.to
-      const counts = withinRange ? calendarMap.value.get(iso) : null
+      const counts = calendarMap.value.get(iso)
       const recipes = counts?.recipes ?? 0
       const reviews = counts?.reviews ?? 0
       days.push({
         date: iso,
-        inMonth: inMonth && withinRange,
+        inMonth,
         recipes,
         reviews,
         total: recipes + reviews,
@@ -469,6 +520,11 @@ const monthGrids = computed<MonthGrid[]>(() => {
     cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 1))
   }
   return grids
+})
+
+watch(monthGrids, (grids) => {
+  const maxPage = Math.max(0, Math.ceil(grids.length / monthPageSize()) - 1)
+  if (monthPage.value > maxPage) monthPage.value = maxPage
 })
 
 function exportPdf() {
@@ -673,8 +729,8 @@ function exportPdf() {
 
       y += 1
       subHeading('Type breakdown')
-      bodyLine(`Recipes: ${d.progress.typeBreakdown.recipes}`)
-      bodyLine(`Dining: ${d.progress.typeBreakdown.dining}`)
+      bodyLine(`Cooked recipes: ${d.progress.typeBreakdown.recipes}`)
+      bodyLine(`Dined out: ${d.progress.typeBreakdown.dining}`)
       y += 1
     }
     drawHR()
@@ -782,28 +838,35 @@ function exportPdf() {
       <section class="band">
         <h2>My Progress</h2>
 
-        <div v-if="data.thresholds.progress.have < data.thresholds.progress.need" class="guidance">
-          After {{ data.thresholds.progress.need - data.thresholds.progress.have }}
-          {{ data.thresholds.progress.need - data.thresholds.progress.have === 1 ? 'more activity' : 'more activities' }},
-          your progress view will fill in.
+        <div v-if="!showProgressCalendar" class="guidance">
+          Log cooking or dining to see your activity calendar.
         </div>
         <div v-else class="progress-grid">
-          <div class="calendar">
+          <p
+            v-if="data.thresholds.progress.have < data.thresholds.progress.need"
+            class="calendar-note"
+            role="status"
+          >
+            After {{ data.thresholds.progress.need - data.thresholds.progress.have }}
+            {{ data.thresholds.progress.need - data.thresholds.progress.have === 1 ? 'more activity' : 'more activities' }},
+            your weekly charts and breakdown will fill in.
+          </p>
+          <div class="calendar calendar-panel">
             <div class="calendar-title">{{ isoToPretty(data.range.from) }} to {{ isoToPretty(data.range.to) }}</div>
             <p class="calendar-hint">Hover over any day to see details.</p>
             <div class="months">
-              <section v-for="m in visibleMonthGrids" :key="m.monthKey" class="month">
-                <div class="month-title">{{ m.label }}</div>
+              <section v-if="visibleMonthGrid" class="month">
+                <div class="month-title">{{ visibleMonthGrid.label }}</div>
                 <div class="dow" aria-hidden="true">
                   <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
                 </div>
-                <div class="grid" :aria-label="`Calendar: ${m.label}`">
+                <div class="grid" :aria-label="`Calendar: ${visibleMonthGrid.label}`">
                   <button
-                    v-for="d in m.days"
-                    :key="`${m.monthKey}-${d.date}`"
+                    v-for="d in visibleMonthGrid.days"
+                    :key="`${visibleMonthGrid.monthKey}-${d.date}`"
                     type="button"
                     class="cell"
-                    :class="[{ 'cell--out': !d.inMonth }, d.total === 0 ? 'cell--0' : d.total === 1 ? 'cell--1' : d.total === 2 ? 'cell--2' : d.total === 3 ? 'cell--3' : 'cell--4']"
+                    :class="[{ 'cell--out': !d.inMonth }, d.total > 0 ? 'cell--active' : 'cell--idle']"
                     :data-tip="calendarCellTooltip(d.date, d.recipes, d.reviews)"
                     :aria-label="calendarCellTooltip(d.date, d.recipes, d.reviews)"
                   >
@@ -814,21 +877,23 @@ function exportPdf() {
               </section>
             </div>
 
-            <div class="month-nav" aria-label="Calendar paging">
-              <button class="bb-btn bb-btn--secondary" type="button" :disabled="!canPrevMonths" @click="prevMonths">Previous</button>
-              <button class="bb-btn bb-btn--secondary" type="button" :disabled="!canNextMonths" @click="nextMonths">Next</button>
+            <div v-if="monthGrids.length > 1" class="month-nav" aria-label="Calendar month navigation">
+              <button class="bb-btn bb-btn--secondary" type="button" :disabled="!canPrevMonths" @click="prevMonths">Previous month</button>
+              <span v-if="monthNavLabel" class="month-nav-label" aria-live="polite">{{ monthNavLabel }}</span>
+              <button class="bb-btn bb-btn--secondary" type="button" :disabled="!canNextMonths" @click="nextMonths">Next month</button>
             </div>
           </div>
 
           <div class="weekly-gauges">
             <article class="gauge-card gauge-card--cooking">
               <h3 class="gauge-title">
-                You cooked <strong>{{ cookingThisWeekDisplay }}</strong> {{ cookingUnitLabel }} this week
+                Cooked recipes: <strong>{{ cookedRecipesDisplay }}</strong>
+                {{ cookedRecipesUnitLabel }} in {{ insightsRangeCaption }}
               </h3>
               <div
                 class="gauge"
                 role="img"
-                :aria-label="`Cooking days this week: ${cookingThisWeekDisplay} ${cookingUnitLabel} out of ${COOKING_GAUGE_MAX}`"
+                :aria-label="`Cooked recipes in ${insightsRangeCaption}: ${cookedRecipesDisplay} ${cookedRecipesUnitLabel}`"
               >
                 <svg viewBox="0 0 120 120" class="gauge-svg" aria-hidden="true">
                   <path
@@ -842,27 +907,26 @@ function exportPdf() {
                     d="M 28.18 91.82 A 45 45 0 1 1 91.82 91.82"
                     pathLength="100"
                     fill="none"
-                    :stroke-dasharray="`${cookingGaugePercent} 100`"
+                    :stroke-dasharray="`${cookedRecipesGaugePercent} 100`"
                   />
                 </svg>
                 <div class="gauge-readout">
-                  <span class="gauge-value">{{ cookingThisWeekDisplay }}</span>
-                  <span class="gauge-unit">{{ cookingUnitLabel }} / week</span>
+                  <span class="gauge-value">{{ cookedRecipesDisplay }}</span>
+                  <span class="gauge-unit">{{ cookedRecipesUnitLabel }} total</span>
                 </div>
               </div>
-              <p class="gauge-caption">
-                Resets every Monday<span v-if="weekStartPretty"> — week of {{ weekStartPretty }}</span>
-              </p>
+              <p class="gauge-caption">{{ insightsRangeCaption }}</p>
             </article>
 
             <article class="gauge-card gauge-card--dining">
               <h3 class="gauge-title">
-                You left <strong>{{ diningThisWeekDisplay }}</strong> dining {{ diningUnitLabel }} this week
+                Dined out: <strong>{{ dinedOutDisplay }}</strong>
+                {{ dinedOutUnitLabel }} in {{ insightsRangeCaption }}
               </h3>
               <div
                 class="gauge"
                 role="img"
-                :aria-label="`Dining reviews this week: ${diningThisWeekDisplay} ${diningUnitLabel} out of ${DINING_GAUGE_MAX}`"
+                :aria-label="`Dined out in ${insightsRangeCaption}: ${dinedOutDisplay} ${dinedOutUnitLabel}`"
               >
                 <svg viewBox="0 0 120 120" class="gauge-svg" aria-hidden="true">
                   <path
@@ -876,29 +940,42 @@ function exportPdf() {
                     d="M 28.18 91.82 A 45 45 0 1 1 91.82 91.82"
                     pathLength="100"
                     fill="none"
-                    :stroke-dasharray="`${diningGaugePercent} 100`"
+                    :stroke-dasharray="`${dinedOutGaugePercent} 100`"
                   />
                 </svg>
                 <div class="gauge-readout">
-                  <span class="gauge-value">{{ diningThisWeekDisplay }}</span>
-                  <span class="gauge-unit">{{ diningUnitLabel }} / week</span>
+                  <span class="gauge-value">{{ dinedOutDisplay }}</span>
+                  <span class="gauge-unit">{{ dinedOutUnitLabel }} total</span>
                 </div>
               </div>
-              <p class="gauge-caption">
-                Resets every Monday<span v-if="weekStartPretty"> — week of {{ weekStartPretty }}</span>
-              </p>
+              <p class="gauge-caption">{{ insightsRangeCaption }}</p>
             </article>
           </div>
 
-          <div class="breakdown">
+          <div class="breakdown breakdown-panel">
             <div class="calendar-title">Type breakdown</div>
+            <p class="breakdown-caption">{{ insightsRangeCaption }}</p>
             <div class="breakdown-row">
-              <span>Recipes</span>
-              <strong>{{ data.progress.typeBreakdown.recipes }}</strong>
+              <div class="breakdown-main">
+                <div class="breakdown-top">
+                  <span>Cooked recipes</span>
+                  <strong>{{ rangeActivityStats.cookedRecipes }}</strong>
+                </div>
+                <div class="breakdown-bar-track">
+                  <div class="breakdown-bar-fill breakdown-bar-fill--cooking" :style="{ width: `${cookedRecipesBarPct}%` }" />
+                </div>
+              </div>
             </div>
             <div class="breakdown-row">
-              <span>Dining</span>
-              <strong>{{ data.progress.typeBreakdown.dining }}</strong>
+              <div class="breakdown-main">
+                <div class="breakdown-top">
+                  <span>Dined out</span>
+                  <strong>{{ rangeActivityStats.dinedOut }}</strong>
+                </div>
+                <div class="breakdown-bar-track">
+                  <div class="breakdown-bar-fill breakdown-bar-fill--dining" :style="{ width: `${dinedOutBarPct}%` }" />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -913,6 +990,7 @@ function exportPdf() {
           {{ data.thresholds.cooking.need - data.thresholds.cooking.have === 1 ? 'more rated recipe' : 'more rated recipes' }},
           I can show you what your favourites have in common.
         </div>
+        <p v-else-if="cookingWorksEmptyMessage" class="guidance" role="status">{{ cookingWorksEmptyMessage }}</p>
         <div v-else class="cards">
           <article v-for="c in data.cooking.works" :key="c.id" class="card">
             <div class="card-top">
@@ -933,6 +1011,7 @@ function exportPdf() {
           {{ data.thresholds.cooking.need - data.thresholds.cooking.have === 1 ? 'more rated recipe' : 'more rated recipes' }},
           I can show you what your favourites have in common.
         </div>
+        <p v-else-if="cookingDoesntWorkEmptyMessage" class="guidance" role="status">{{ cookingDoesntWorkEmptyMessage }}</p>
         <div v-else class="cards">
           <article v-for="c in data.cooking.doesntWork" :key="c.id" class="card">
             <div class="card-top">
@@ -957,6 +1036,7 @@ function exportPdf() {
           {{ data.thresholds.dining.need - data.thresholds.dining.have === 1 ? 'more restaurant review' : 'more restaurant reviews' }},
           I can show you which places tend to suit you best.
         </div>
+        <p v-else-if="diningWorksEmptyMessage" class="guidance" role="status">{{ diningWorksEmptyMessage }}</p>
         <div v-else class="cards">
           <article v-for="c in data.dining.works" :key="c.id" class="card">
             <div class="card-top">
@@ -1020,7 +1100,7 @@ function exportPdf() {
                       v-for="d in m.days"
                       :key="`pdf-${m.monthKey}-${d.date}`"
                       class="pdf-cell"
-                      :class="[{ 'pdf-cell--out': !d.inMonth }, d.total === 0 ? 'pdf-cell--0' : d.total === 1 ? 'pdf-cell--1' : d.total === 2 ? 'pdf-cell--2' : d.total === 3 ? 'pdf-cell--3' : 'pdf-cell--4']"
+                      :class="[{ 'pdf-cell--out': !d.inMonth }, d.total > 0 ? 'pdf-cell--active' : 'pdf-cell--idle']"
                     />
                   </div>
                 </section>
@@ -1043,8 +1123,8 @@ function exportPdf() {
             <div class="pdf-breakdown">
               <div class="pdf-label">Type breakdown</div>
               <div class="pdf-kv">
-                <div>Recipes: <strong>{{ data.progress.typeBreakdown.recipes }}</strong></div>
-                <div>Dining: <strong>{{ data.progress.typeBreakdown.dining }}</strong></div>
+                <div>Cooked recipes: <strong>{{ data.progress.typeBreakdown.recipes }}</strong></div>
+                <div>Dined out: <strong>{{ data.progress.typeBreakdown.dining }}</strong></div>
               </div>
             </div>
           </section>
@@ -1230,9 +1310,18 @@ function exportPdf() {
 
 .progress-grid {
   display: grid;
-  grid-template-columns: 1.6fr 1.1fr 0.7fr;
-  gap: 0.9rem;
-  align-items: start;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.8fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+.calendar-panel,
+.breakdown-panel {
+  min-width: 0;
+  padding: 0.85rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--bb-border) 70%, transparent);
+  background: var(--bb-surface-lowest);
+  overflow: visible;
 }
 .calendar-title {
   font-weight: 800;
@@ -1249,8 +1338,12 @@ function exportPdf() {
 
 .months {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 0.9rem;
+}
+.month {
+  min-width: 0;
+  overflow: visible;
 }
 .month-title {
   font-weight: 900;
@@ -1259,20 +1352,26 @@ function exportPdf() {
 }
 .dow {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 0.25rem;
-  margin-bottom: 0.25rem;
+  grid-template-columns: repeat(7, minmax(2rem, 1fr));
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
   color: color-mix(in srgb, var(--bb-text) 65%, var(--bb-muted));
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
+.dow span {
+  text-align: center;
+}
 .grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 0.25rem;
+  grid-template-columns: repeat(7, minmax(2rem, 1fr));
+  gap: 0.35rem;
+  overflow: visible;
 }
 .cell {
   width: 100%;
+  min-width: 0;
+  min-height: 2.15rem;
   aspect-ratio: 1 / 1;
   border-radius: 10px;
   border: 1px solid var(--bb-border);
@@ -1281,47 +1380,58 @@ function exportPdf() {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  overflow: visible;
+  overflow-wrap: normal;
+  word-break: keep-all;
+  white-space: nowrap;
 }
 .cell:hover,
 .cell:focus-visible {
-  z-index: 5;
+  z-index: 20;
 }
 .day {
-  font-size: 0.72rem;
+  font-size: clamp(0.72rem, 1.6vw, 0.84rem);
   font-weight: 800;
   color: var(--bb-text);
   line-height: 1;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
+  flex-shrink: 0;
 }
 .cell--out {
   opacity: 0.35;
 }
-.cell--0 {
+.cell--idle {
   background: transparent;
 }
-.cell--1 {
-  background: color-mix(in srgb, var(--bb-primary-container) 25%, transparent);
-  border-color: color-mix(in srgb, var(--bb-primary) 28%, var(--bb-border));
+.cell--active {
+  background: #d9e8f0;
+  border-color: #8fb0c4;
 }
-.cell--2 {
-  background: color-mix(in srgb, var(--bb-primary-container) 50%, transparent);
-  border-color: color-mix(in srgb, var(--bb-primary) 38%, var(--bb-border));
+.cell--active .day {
+  color: var(--bb-text);
 }
-.cell--3 {
-  background: color-mix(in srgb, var(--bb-primary-container) 75%, transparent);
-  border-color: color-mix(in srgb, var(--bb-primary) 50%, var(--bb-border));
-}
-.cell--4 {
-  background: var(--bb-primary-container);
-  border-color: color-mix(in srgb, var(--bb-primary) 60%, var(--bb-border));
+.calendar-note {
+  grid-column: 1 / -1;
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  color: var(--bb-muted);
 }
 
 .month-nav {
-  margin-top: 0.75rem;
+  margin-top: 0.85rem;
   display: flex;
   gap: 0.5rem;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.month-nav-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--bb-muted);
+  font-variant-numeric: tabular-nums;
 }
 .cell::after,
 .cell::before {
@@ -1462,13 +1572,41 @@ function exportPdf() {
 }
 
 .breakdown-row {
-  display: flex;
-  justify-content: space-between;
   padding: 0.35rem 0;
   border-bottom: 1px solid color-mix(in srgb, var(--bb-border) 65%, transparent);
 }
 .breakdown-row:last-child {
   border-bottom: none;
+}
+.breakdown-caption {
+  margin: 0 0 0.65rem;
+  font-size: 0.8rem;
+  color: var(--bb-muted);
+}
+.breakdown-main {
+  width: 100%;
+}
+.breakdown-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+.breakdown-bar-track {
+  height: 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bb-border) 55%, transparent);
+  overflow: hidden;
+}
+.breakdown-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+}
+.breakdown-bar-fill--cooking {
+  background: color-mix(in srgb, var(--bb-primary) 70%, white);
+}
+.breakdown-bar-fill--dining {
+  background: color-mix(in srgb, var(--bb-primary-container) 75%, white);
 }
 
 .section h2 {
@@ -1666,20 +1804,12 @@ function exportPdf() {
 .pdf-cell--out {
   opacity: 0.35;
 }
-.pdf-cell--0 {
+.pdf-cell--idle {
   background: transparent;
 }
-.pdf-cell--1 {
-  background: rgba(17, 24, 39, 0.08);
-}
-.pdf-cell--2 {
-  background: rgba(17, 24, 39, 0.16);
-}
-.pdf-cell--3 {
-  background: rgba(17, 24, 39, 0.24);
-}
-.pdf-cell--4 {
-  background: rgba(17, 24, 39, 0.34);
+.pdf-cell--active {
+  background: #d9e8f0;
+  border-color: #9eb8c8;
 }
 .pdf-bars {
   display: grid;

@@ -257,7 +257,7 @@ function onFoodEditThumbError(e: Event) {
     </section>
 
     <div class="footer">
-      <button type="button" class="bb-btn bb-btn--secondary" @click="router.push({ name: 'home' })">Skip for now</button>
+      <button type="button" class="bb-btn bb-btn--secondary" @click="router.push({ name: 'cookingStart' })">Skip for now</button>
       <button type="button" class="bb-btn bb-btn--primary" :disabled="profileLoading" @click="saveAndViewSummary">Save &amp; Continue to Summary</button>
     </div>
 

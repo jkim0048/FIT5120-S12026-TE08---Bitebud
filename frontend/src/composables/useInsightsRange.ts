@@ -7,6 +7,13 @@ type Stored =
   | { preset: Exclude<InsightsRangePreset, 'custom'> }
   | { preset: 'custom'; from: string; to: string }
 
+const MELBOURNE_CALENDAR = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Australia/Melbourne',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
 function isoDateOnly(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
@@ -23,8 +30,10 @@ function parseIsoDateOnly(s: string): Date | null {
 }
 
 function todayUtc(): Date {
-  const t = new Date()
-  return new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate(), 0, 0, 0, 0))
+  const todayStr = MELBOURNE_CALENDAR.format(new Date())
+  const parsed = parseIsoDateOnly(todayStr)
+  if (!parsed) throw new Error('Failed to resolve Melbourne calendar date')
+  return parsed
 }
 
 function addDays(d: Date, days: number): Date {

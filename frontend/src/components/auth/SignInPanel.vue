@@ -72,14 +72,6 @@ async function onSubmit() {
     />
     <p v-if="error" class="err" role="alert">{{ error }}</p>
 
-    <div class="row">
-      <label class="remember">
-        <input type="checkbox" disabled />
-        Remember me
-      </label>
-      <span class="muted">Forgot ID? Contact support.</span>
-    </div>
-
     <button type="button" class="bb-btn bb-btn--primary btn-signin" :disabled="loading" @click="onSubmit">
       {{ loading ? 'Signing in…' : 'Sign In' }}
     </button>
