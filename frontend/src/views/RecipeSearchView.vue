@@ -984,7 +984,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
         </details>
       </fieldset>
       <div v-else class="profile profile-note" role="note">
-        Set up your sensory profile to enable safety filters.
+        Set up your food preferences to enable safety filters.
       </div>
 
       <div class="divider" aria-hidden="true" />

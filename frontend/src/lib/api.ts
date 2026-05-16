@@ -44,8 +44,15 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     let message = bodyText || `${response.status} ${response.statusText}`
     let code: string | undefined
     try {
-      const parsedBody = JSON.parse(bodyText) as { error?: string; code?: string }
-      if (typeof parsedBody.error === 'string' && parsedBody.error.trim()) message = parsedBody.error
+      const parsedBody = JSON.parse(bodyText) as { error?: string; message?: string; code?: string }
+      const detail =
+        typeof parsedBody.message === 'string' && parsedBody.message.trim()
+          ? parsedBody.message
+          : ''
+      const errLabel =
+        typeof parsedBody.error === 'string' && parsedBody.error.trim() ? parsedBody.error : ''
+      if (errLabel === 'Not Found' && detail) message = detail
+      else if (errLabel) message = errLabel
       if (typeof parsedBody.code === 'string' && parsedBody.code.trim()) code = parsedBody.code
     } catch {
       /* plain text body */

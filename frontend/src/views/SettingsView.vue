@@ -120,8 +120,8 @@ function setTint(v: BackgroundTint) {
 
       <div class="row">
         <div class="row-left">
-          <div class="row-title">Show personal insights</div>
-          <div class="row-sub">Controls the My Insights link and page</div>
+          <div class="row-title">Show my patterns</div>
+          <div class="row-sub">Controls the See my patterns link and page</div>
         </div>
         <div class="row-right">
           <label class="switch">

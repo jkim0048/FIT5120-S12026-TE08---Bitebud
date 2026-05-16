@@ -44,6 +44,31 @@ const sensoryRoute = computed(() => ({
 }))
 const toast = useGentleToast()
 
+/** e.g. 1 → "1 day streak", 2 → "2nd day streak", 11 → "11th day streak" */
+function streakDayPhrase(dayCount: number): string {
+  if (!Number.isFinite(dayCount) || dayCount <= 0) return '0 day streak'
+  if (dayCount === 1) return '1 day streak'
+  const mod100 = dayCount % 100
+  let ordinalBody: string
+  if (mod100 >= 11 && mod100 <= 13) ordinalBody = `${dayCount}th`
+  else {
+    switch (dayCount % 10) {
+      case 1:
+        ordinalBody = `${dayCount}st`
+        break
+      case 2:
+        ordinalBody = `${dayCount}nd`
+        break
+      case 3:
+        ordinalBody = `${dayCount}rd`
+        break
+      default:
+        ordinalBody = `${dayCount}th`
+    }
+  }
+  return `${ordinalBody} day streak`
+}
+
 /** Same source as the former home hero streak: Epic 7 `/api/motivation/summary` (not `/api/me/activity`, which is 0 unless you logged today). */
 const navMotivationLoaded = ref(false)
 const navMotivationHasActivity = ref(false)
@@ -91,11 +116,9 @@ const showNavStreakPill = computed(() => {
   return navMotivationHasActivity.value
 })
 
-const navStreakAria = computed(() => {
-  const n = navMotivationStreak.value
-  const unit = n === 1 ? 'day' : 'days'
-  return `Activity streak: ${n} ${unit}`
-})
+const navStreakLabel = computed(() => streakDayPhrase(navMotivationStreak.value))
+
+const navStreakAria = computed(() => `Activity streak: ${navStreakLabel.value}`)
 
 const showInsightsLink = computed(() => {
   if (!isSignedIn.value) return false
@@ -159,10 +182,10 @@ watchEffect(() => {
             <summary class="nav-dropdown__summary">My profile</summary>
             <div class="nav-dropdown__panel" role="group" aria-label="My profile">
               <RouterLink class="nav-dropdown__link" :to="sensoryRoute" @click="closeNavDropdowns">
-                Update sensory profile
+                Update my food preferences
               </RouterLink>
               <RouterLink class="nav-dropdown__link" to="/progress" @click="closeNavDropdowns">
-                My Progress
+                See my activity
               </RouterLink>
               <RouterLink
                 v-if="showInsightsLink"
@@ -170,7 +193,7 @@ watchEffect(() => {
                 to="/insights"
                 @click="closeNavDropdowns"
               >
-                My Insights
+                See my patterns
               </RouterLink>
             </div>
           </details>
@@ -188,7 +211,7 @@ watchEffect(() => {
               :aria-label="navStreakAria"
             >
               <span class="nav-streak-pill__icon" aria-hidden="true">&#128293;</span>
-              <span class="nav-streak-pill__n">{{ navMotivationStreak }}</span>
+              <span class="nav-streak-pill__label">{{ navStreakLabel }}</span>
             </RouterLink>
           </div>
         </nav>
@@ -447,8 +470,9 @@ watchEffect(() => {
   font-size: 0.95rem;
   line-height: 1;
 }
-.nav-streak-pill__n {
+.nav-streak-pill__label {
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .gentle-toast {

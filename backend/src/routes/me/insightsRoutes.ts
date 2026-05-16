@@ -1,14 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { parseBiteBudUserId } from "../../biteBudUserId.js";
-import {
-  addDays,
-  parseIsoDateOnly,
-  todayMelbourneDate,
-} from "../../calendarDate.js";
+import { parseIsoDateOnly, todayMelbourneDate } from "../../calendarDate.js";
+import { findLifetimeActivityStats } from "../../database/userActivityDatabase.js";
 import { buildInsightsPayload } from "../../services/insightsService.js";
 import { insightsQuerySchema } from "./meSchemas.js";
-
-const DEFAULT_INSIGHTS_DAYS = 90;
 
 /** Register `GET /api/me/insights` — multi-card cooking + dining insights for the user's recent activity. */
 export async function registerInsightsRoutes(app: FastifyInstance): Promise<void> {
@@ -21,11 +16,25 @@ export async function registerInsightsRoutes(app: FastifyInstance): Promise<void
     );
 
     const todayUtc = todayMelbourneDate();
-    const defaultFrom = addDays(todayUtc, -(DEFAULT_INSIGHTS_DAYS - 1));
     const parsedFrom = parsedQuery.from ? parseIsoDateOnly(parsedQuery.from) : null;
     const parsedTo = parsedQuery.to ? parseIsoDateOnly(parsedQuery.to) : null;
-    const rangeFrom = parsedFrom ?? defaultFrom;
-    const rangeTo = parsedTo ?? todayUtc;
+    let rangeFrom: Date | null = null;
+    let rangeTo: Date | null = null;
+    let fullHistoryInsights = false;
+    if (parsedFrom && parsedTo) {
+      rangeFrom = parsedFrom;
+      rangeTo = parsedTo;
+      fullHistoryInsights = false;
+    } else {
+      const lifetimeRow = await findLifetimeActivityStats(userId);
+      const firstDay = lifetimeRow.first_activity_day ?? null;
+      rangeFrom =
+        firstDay?.trim()?.length ?
+          (parseIsoDateOnly(firstDay.trim()) ?? todayUtc)
+        : todayUtc;
+      rangeTo = todayUtc;
+      fullHistoryInsights = true;
+    }
     if (!rangeFrom || !rangeTo) {
       return reply.status(400).send({ error: "Invalid from/to date" });
     }
@@ -48,6 +57,7 @@ export async function registerInsightsRoutes(app: FastifyInstance): Promise<void
       rangeFromInclusive: rangeFrom,
       rangeTo,
       dismissedCardIds,
+      fullHistoryInsights,
     });
 
     return reply.send(payload);

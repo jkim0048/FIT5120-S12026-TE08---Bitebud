@@ -71,7 +71,7 @@ function scrollToTop() {
             <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
           </summary>
           <p class="tile-copy">
-            Customise your sensory profile and filter by dietary and cultural requirements.
+            Customise your food preferences and filter by dietary and cultural requirements.
           </p>
           <div class="tile-demo tile-demo--compact" aria-hidden="true">
             <div class="demo-k">Example profile</div>

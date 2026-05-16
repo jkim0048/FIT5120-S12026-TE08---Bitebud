@@ -38,7 +38,7 @@ function goSignUp() {
 
       <div class="create-row">
         <span class="create-label">New here?</span>
-        <button type="button" class="bb-btn bb-btn--secondary create-btn" @click="goSignUp">Create Sensory Profile</button>
+        <button type="button" class="bb-btn bb-btn--secondary create-btn" @click="goSignUp">Set up food preferences</button>
       </div>
     </div>
   </div>

@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { jsPDF } from 'jspdf'
+import { computed, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { apiFetch } from '../lib/api'
 import { useSession } from '../composables/useSession'
 import { useSettings } from '../composables/useSettings'
-import { useInsightsRange } from '../composables/useInsightsRange'
 
 type InsightCard = {
   id: string
@@ -13,6 +11,7 @@ type InsightCard = {
   headline: string
   detail: string
   recordCount: number
+  takeaway?: string
 }
 
 type InsightsResponse = {
@@ -23,11 +22,13 @@ type InsightsResponse = {
     typeBreakdown: { recipes: number; dining: number }
   }
   cooking: { works: InsightCard[]; doesntWork: InsightCard[] }
-  dining: { works: InsightCard[] }
+  dining: { works: InsightCard[]; doesntWork: InsightCard[] }
   thresholds: {
-    cooking: { have: number; need: 3 }
-    dining: { have: number; need: 2 }
-    progress: { have: number; need: 3 }
+    cooking: { have: number; need: 3 },
+    dining: { have: number; need: 2 },
+    progress: { have: number; need: 3 },
+    cookingLowRated: { have: number; need: 3 },
+    diningLowRated: { have: number; need: 3 },
   }
   lifetime?: {
     cookingDaysTotal: number
@@ -43,80 +44,44 @@ type InsightsResponse = {
   }
 }
 
+/** Older APIs may omit `doesntWork`; missing fields would crash the template. */
+function normalizeInsightsResponse(raw: InsightsResponse): InsightsResponse {
+  const cooking = raw.cooking ?? { works: [], doesntWork: [] }
+  const dining = raw.dining ?? { works: [], doesntWork: [] }
+  const th = raw.thresholds
+  const thresholds: InsightsResponse['thresholds'] = {
+    cooking: th?.cooking ?? { have: 0, need: 3 },
+    dining: th?.dining ?? { have: 0, need: 2 },
+    progress: th?.progress ?? { have: 0, need: 3 },
+    cookingLowRated: th?.cookingLowRated ?? { have: 0, need: 3 },
+    diningLowRated: th?.diningLowRated ?? { have: 0, need: 3 },
+  }
+  return {
+    ...raw,
+    thresholds,
+    cooking: {
+      works: Array.isArray(cooking.works) ? cooking.works : [],
+      doesntWork: Array.isArray(cooking.doesntWork) ? cooking.doesntWork : [],
+    },
+    dining: {
+      works: Array.isArray(dining.works) ? dining.works : [],
+      doesntWork: Array.isArray(dining.doesntWork) ? dining.doesntWork : [],
+    },
+  }
+}
+
 const router = useRouter()
 const { userId, isSignedIn } = useSession()
 const { settings } = useSettings()
-const insightsRange = useInsightsRange()
-
 const loading = ref(false)
 const error = ref('')
 const data = ref<InsightsResponse | null>(null)
-const exporting = ref(false)
-const pdfVisible = ref(false)
-const pdfEl = ref<HTMLElement | null>(null)
-const monthPage = ref(0)
-
-function usesSingleMonthCalendar(): boolean {
-  const preset = insightsRange.preset.value
-  return preset === '30d' || preset === '90d' || preset === '12m' || preset === 'custom'
-}
-
-function monthPageSize(): number {
-  if (usesSingleMonthCalendar()) return 1
-  // Keep this calm and compact for short ranges; show 4 months per page on wide screens, 3 on narrow.
-  return window.matchMedia?.('(max-width: 900px)')?.matches ? 3 : 4
-}
 
 function isoToPretty(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim())
   if (!m) return iso
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
   return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
-}
-
-const MELBOURNE_CALENDAR = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Australia/Melbourne',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-})
-
-function isoToday(): string {
-  return MELBOURNE_CALENDAR.format(new Date())
-}
-
-function toIso(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
-const canExport = computed(() => {
-  const d = data.value
-  if (!d) return false
-  const hasProgress =
-    (d.progress.calendar?.length ?? 0) > 0 || (d.progress.weeklyBars?.length ?? 0) > 0
-  const hasCooking = (d.cooking.works?.length ?? 0) + (d.cooking.doesntWork?.length ?? 0) > 0
-  const hasDining = (d.dining.works?.length ?? 0) > 0
-  const hasAnyGuidance =
-    d.thresholds.progress.have < d.thresholds.progress.need ||
-    d.thresholds.cooking.have < d.thresholds.cooking.need ||
-    d.thresholds.dining.have < d.thresholds.dining.need
-  // Export only when at least one section has content (not guidance-only).
-  return hasProgress || hasCooking || hasDining || !hasAnyGuidance
-})
-
-function pdfFileName(fromIso: string, toIsoStr: string): string {
-  return `bitebud-insights-${fromIso}-to-${toIsoStr}.pdf`
-}
-
-function activitySummary() {
-  const d = data.value
-  if (!d) return { recipes: 0, reviews: 0, daysAny: 0 }
-  const recipes = d.progress.typeBreakdown.recipes ?? 0
-  const reviews = d.progress.typeBreakdown.dining ?? 0
-  const daysAny = Array.isArray(d.progress.calendar)
-    ? d.progress.calendar.filter((x) => (x.recipes ?? 0) + (x.dining ?? 0) > 0).length
-    : 0
-  return { recipes, reviews, daysAny }
 }
 
 const cookingWorksUnlocked = computed(
@@ -127,14 +92,26 @@ const diningWorksUnlocked = computed(
   () => (data.value?.thresholds.dining.have ?? 0) >= (data.value?.thresholds.dining.need ?? 2),
 )
 
-const cookingWorksEmptyMessage = computed(() => {
-  if (!data.value || !cookingWorksUnlocked.value || data.value.cooking.works.length > 0) return ''
-  return "Let's keep cooking — BiteBud is still learning what tends to work well for you."
+/** Unlocked cooking insights but no “works” cards yet — show friendly still-learning block. */
+const cookingWorksStillLearning = computed(() => {
+  if (!data.value || !cookingWorksUnlocked.value || data.value.cooking.works.length > 0) return false
+  return true
+})
+
+/** Enough rated recipes, but fewer than 3 with stars ≤3 — friendly still-learning for watch-outs. */
+const cookingDoesntWorkInsufficientLowRated = computed(() => {
+  const d = data.value
+  if (!d) return false
+  if (d.thresholds.cooking.have < d.thresholds.cooking.need) return false
+  if (d.cooking.doesntWork.length > 0) return false
+  return d.thresholds.cookingLowRated.have < d.thresholds.cookingLowRated.need
 })
 
 const cookingDoesntWorkEmptyMessage = computed(() => {
   if (!data.value || !cookingDoesntWorkUnlocked.value || data.value.cooking.doesntWork.length > 0) return ''
-  return 'Keep cooking — patterns will appear here as you complete more recipes.'
+  const { have, need } = data.value.thresholds.cookingLowRated
+  if (have < need) return ''
+  return `You already have ${have} lower-rated meals here, but none of the repeat patterns (for example very long recipes, very large ingredient lists, or repeated “didn’t work” tags) crossed the bar for a card yet.`
 })
 
 const diningWorksEmptyMessage = computed(() => {
@@ -142,11 +119,55 @@ const diningWorksEmptyMessage = computed(() => {
   return "Let's keep dining out — BiteBud is still learning what tends to suit you."
 })
 
+/** Enough dining reviews in range, but fewer than 3 with overall ≤3 — show friendly “still learning” block. */
+const diningDoesntWorkInsufficientLowRated = computed(() => {
+  const d = data.value
+  if (!d) return false
+  if (d.thresholds.dining.have < d.thresholds.dining.need) return false
+  return d.thresholds.diningLowRated.have < d.thresholds.diningLowRated.need
+})
+
+const diningDoesntWorkEmptyMessage = computed(() => {
+  if (!data.value || !diningWorksUnlocked.value || data.value.dining.doesntWork.length > 0) return ''
+  const { have, need } = data.value.thresholds.diningLowRated
+  if (have < need) return ''
+  return `You already have ${have} lower-rated reviews here, but none of the repeat patterns (for example sensory mismatch or the same cuisine on low scores) crossed the bar for a card yet.`
+})
+
+const insightsNoActivityYet = computed(
+  () => (data.value?.thresholds.progress.have ?? 0) === 0,
+)
+
+/** Enough low-rated data to analyse watch-outs, but API returned zero negative cards */
+const cookingDoesntWorkNothingToAvoid = computed(() => {
+  const d = data.value
+  if (!d || !cookingWorksUnlocked.value) return false
+  if (d.cooking.doesntWork.length > 0) return false
+  return d.thresholds.cookingLowRated.have >= d.thresholds.cookingLowRated.need
+})
+
+const diningDoesntWorkNothingToAvoid = computed(() => {
+  const d = data.value
+  if (!d || !diningWorksUnlocked.value) return false
+  if (d.dining.doesntWork.length > 0) return false
+  return d.thresholds.diningLowRated.have >= d.thresholds.diningLowRated.need
+})
+
+function pctPart(have: number, need: number): number {
+  if (need <= 0) return 0
+  return Math.min(100, Math.round((have / need) * 100))
+}
+
 /** Total insight cards returned for this range (real API counts). */
 const patternsFoundCount = computed(() => {
   const d = data.value
   if (!d) return 0
-  return d.cooking.works.length + d.cooking.doesntWork.length + d.dining.works.length
+  return (
+    d.cooking.works.length +
+    d.cooking.doesntWork.length +
+    d.dining.works.length +
+    d.dining.doesntWork.length
+  )
 })
 
 /** Activity events in range (recipes completed + reviews) — same basis as progress threshold. */
@@ -163,60 +184,79 @@ const cookingInsightCardTotal = computed(() => {
 const diningInsightCardTotal = computed(() => {
   const d = data.value
   if (!d) return 0
-  return d.dining.works.length
+  return d.dining.works.length + d.dining.doesntWork.length
 })
 
-function insightShortTitle(card: InsightCard): string {
-  const quoted = /^"([^"]+)"/.exec(card.headline)
-  if (quoted) return quoted[1]
-  const segs = card.id.split('.').filter(Boolean)
-  const last = segs[segs.length - 1] ?? ''
-  if (last && !/^(works|dine|noise|music|light|crowds|smells)$/i.test(last)) {
-    return last.replace(/-/g, ' ')
+/** Extra line under the headline; omit when empty or identical to headline. */
+function insightCardDetail(card: InsightCard): string {
+  const detail = card.detail?.trim() ?? ''
+  if (!detail) return ''
+  if (detail === card.headline.trim()) return ''
+  return detail
+}
+
+const INSIGHT_CATEGORY_LABELS: Record<string, string> = {
+  'ingredient-count': 'Recipe size',
+  'prep-time': 'Cook time',
+  'worked-tag': 'Your tags',
+  'didnt-work-tag': 'Your tags',
+  'ingredient-affinity': 'Ingredients',
+  'time-of-week': 'When you cook',
+  flavour: 'Flavours',
+  'cooking-method': 'Cooking style',
+  'sensory-match': 'Noise & vibe',
+  'sensory-mismatch': 'Noise & vibe',
+  cuisine: 'Cuisine',
+  'cuisine-mismatch': 'Cuisine',
+  'best-windows': 'Best times',
+}
+
+function insightCategoryLabel(category: string): string {
+  return INSIGHT_CATEGORY_LABELS[category] ?? 'Pattern'
+}
+
+/** Matches how `recordCount` is produced in insightsService — see category when reading API. */
+function insightRecordCountLabel(category: string, n: number): string {
+  if (category === 'worked-tag' || category === 'didnt-work-tag') {
+    return n === 1 ? 'time' : 'times'
   }
-  if (card.headline.length > 36) return `${card.headline.slice(0, 36)}…`
-  return card.headline
-}
-
-function cookingWorksRingMax(): number {
-  const ws = data.value?.cooking.works ?? []
-  return Math.max(1, ...ws.map((c) => c.recordCount))
-}
-function cookingDoesntRingMax(): number {
-  const ws = data.value?.cooking.doesntWork ?? []
-  return Math.max(1, ...ws.map((c) => c.recordCount))
-}
-function diningWorksRingMax(): number {
-  const ws = data.value?.dining.works ?? []
-  return Math.max(1, ...ws.map((c) => c.recordCount))
-}
-
-function ringStrokePct(recordCount: number, maxCount: number): number {
-  const m = Math.max(1, maxCount)
-  const pct = Math.round((recordCount / m) * 88 + 10)
-  return Math.min(100, Math.max(12, pct))
-}
-
-const dowFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' })
-
-function mostActiveDow() {
-  const d = data.value
-  if (!d) return null
-  const counts = new Map<string, number>()
-  for (const day of d.progress.calendar ?? []) {
-    const total = (day.recipes ?? 0) + (day.dining ?? 0)
-    if (total <= 0) continue
-    const dow = dowFormatter.format(new Date(`${day.date}T00:00:00.000Z`))
-    counts.set(dow, (counts.get(dow) ?? 0) + total)
+  if (
+    category === 'sensory-match' ||
+    category === 'sensory-mismatch' ||
+    category === 'cuisine' ||
+    category === 'cuisine-mismatch'
+  ) {
+    return n === 1 ? 'review' : 'reviews'
   }
-  const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])
-  const top = sorted[0]
-  if (!top) return null
-  // Only show if it is meaningfully higher than the runner up.
-  const second = sorted[1]?.[1] ?? 0
-  if (top[1] < 3) return null
-  if (second > 0 && top[1] / second < 1.35) return null
-  return top[0]
+  if (category === 'best-windows') {
+    return n === 1 ? 'pick' : 'picks'
+  }
+  return n === 1 ? 'rated completion' : 'rated completions'
+}
+
+/** Top meta line, e.g. INGREDIENTS · 4 rated completions */
+function insightCardMetaLine(card: InsightCard): string {
+  const label = insightCategoryLabel(card.category).toUpperCase()
+  const n = card.recordCount
+  const suffix = insightRecordCountLabel(card.category, n)
+  return `${label} · ${n} ${suffix}`
+}
+
+const MELBOURNE_ISO_CALENDAR = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Australia/Melbourne',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+/** Melbourne “today” for display (aligned with insight range ending on this calendar day). */
+const insightsMelbourneTodayPretty = computed(() => {
+  const iso = MELBOURNE_ISO_CALENDAR.format(new Date())
+  return isoToPretty(iso)
+})
+
+function insightCardTakeaway(card: InsightCard): string {
+  return card.takeaway?.trim() ?? ''
 }
 
 async function load() {
@@ -232,14 +272,11 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const base = `/api/me/insights`
-    const params = new URLSearchParams()
-    params.set('from', toIso(insightsRange.from.value))
-    params.set('to', toIso(insightsRange.to.value))
-    const url = `${base}?${params.toString()}`
-    data.value = await apiFetch<InsightsResponse>(url, {
+    const url = `/api/me/insights`
+    const payload = await apiFetch<InsightsResponse>(url, {
       headers: { 'X-User-Id': userId.value },
     })
+    data.value = normalizeInsightsResponse(payload)
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Could not load'
   } finally {
@@ -247,379 +284,14 @@ async function load() {
   }
 }
 
-onMounted(() => {
-  void load()
-})
-
 watch(
-  () => [insightsRange.preset.value, insightsRange.from.value.getTime(), insightsRange.to.value.getTime()],
+  () => [userId.value, isSignedIn.value],
   () => {
-    monthPage.value = 0
+    if (!isSignedIn.value || !userId.value) return
     void load()
   },
+  { immediate: true },
 )
-
-type MonthGrid = {
-  monthKey: string
-  label: string
-  days: Array<{
-    date: string
-    inMonth: boolean
-    recipes: number
-    reviews: number
-    total: number
-  }>
-}
-
-function monthLabel(d: Date): string {
-  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-}
-
-function startOfWeekMonday(d: Date): Date {
-  const out = new Date(d)
-  out.setUTCHours(0, 0, 0, 0)
-  const day = out.getUTCDay() // Sun=0
-  const diff = (day + 6) % 7 // Mon=0
-  out.setUTCDate(out.getUTCDate() - diff)
-  return out
-}
-
-function endOfWeekMonday(d: Date): Date {
-  const start = startOfWeekMonday(d)
-  const out = new Date(start)
-  out.setUTCDate(out.getUTCDate() + 6)
-  return out
-}
-
-function addUtcDays(d: Date, days: number): Date {
-  const out = new Date(d)
-  out.setUTCDate(out.getUTCDate() + days)
-  return out
-}
-
-const calendarMap = computed(() => {
-  const m = new Map<string, { recipes: number; reviews: number }>()
-  for (const row of data.value?.progress.calendar ?? []) {
-    const iso = row.date.trim().slice(0, 10)
-    if (!iso) continue
-    m.set(iso, { recipes: row.recipes ?? 0, reviews: row.dining ?? 0 })
-  }
-  return m
-})
-
-const monthGrids = computed<MonthGrid[]>(() => {
-  if (!data.value) return []
-  const from = new Date(`${data.value.range.from}T00:00:00.000Z`)
-  const to = new Date(`${data.value.range.to}T00:00:00.000Z`)
-  const grids: MonthGrid[] = []
-  let cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1))
-  const endMonth = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), 1))
-  while (cur.getTime() <= endMonth.getTime()) {
-    const monthStart = new Date(cur)
-    const monthEnd = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 0))
-    const gridStart = startOfWeekMonday(monthStart)
-    const gridEnd = endOfWeekMonday(monthEnd)
-    const days: MonthGrid['days'] = []
-    let d = gridStart
-    while (d.getTime() <= gridEnd.getTime()) {
-      const iso = d.toISOString().slice(0, 10)
-      const inMonth = d.getUTCMonth() === cur.getUTCMonth()
-      const counts = calendarMap.value.get(iso)
-      const recipes = counts?.recipes ?? 0
-      const reviews = counts?.reviews ?? 0
-      days.push({
-        date: iso,
-        inMonth,
-        recipes,
-        reviews,
-        total: recipes + reviews,
-      })
-      d = addUtcDays(d, 1)
-    }
-    grids.push({
-      monthKey: `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`,
-      label: monthLabel(cur),
-      days,
-    })
-    cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 1))
-  }
-  return grids
-})
-
-watch(monthGrids, (grids) => {
-  const maxPage = Math.max(0, Math.ceil(grids.length / monthPageSize()) - 1)
-  if (monthPage.value > maxPage) monthPage.value = maxPage
-})
-
-function exportPdf() {
-  if (!canExport.value) return
-  if (exporting.value) return
-  const d = data.value
-  if (!d) return
-
-  exporting.value = true
-  try {
-    void pdfVisible.value
-    void pdfEl.value
-
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-    const pageW = doc.internal.pageSize.getWidth()
-    const pageH = doc.internal.pageSize.getHeight()
-    const mL = 20
-    const mR = 20
-    const mT = 15
-    const mB = 15
-    const reserve = 15
-    const cw = pageW - mL - mR
-    let y = mT
-
-    const bottomLimit = () => pageH - mB - reserve
-
-    function ensure(mm: number) {
-      if (y + mm > bottomLimit()) {
-        doc.addPage()
-        y = mT
-      }
-    }
-
-    function drawHR() {
-      ensure(5)
-      doc.setDrawColor(200, 200, 200)
-      doc.setLineWidth(0.07)
-      doc.line(mL, y, pageW - mR, y)
-      y += 4
-    }
-
-    function writeRawLines(lines: string[], x: number, fontSize: number, style: 'normal' | 'bold' | 'italic', lineGapMm: number, rgb?: [number, number, number]) {
-      doc.setFont('helvetica', style)
-      doc.setFontSize(fontSize)
-      if (rgb) doc.setTextColor(rgb[0], rgb[1], rgb[2])
-      else doc.setTextColor(0, 0, 0)
-      const maxW = pageW - mR - x
-      for (const raw of lines) {
-        const wrapped = doc.splitTextToSize(raw, maxW) as string[]
-        for (const line of wrapped) {
-          ensure(lineGapMm + 1)
-          doc.text(line, x, y, { baseline: 'top' })
-          y += lineGapMm
-        }
-      }
-    }
-
-    function sectionHeading(text: string) {
-      ensure(6)
-      writeRawLines([text], mL, 12, 'bold', 4)
-      y += 1
-    }
-
-    function subHeading(text: string) {
-      ensure(5)
-      writeRawLines([text], mL, 10, 'bold', 3)
-    }
-
-    function bodyLine(text: string, indent = 0) {
-      writeRawLines([text], mL + indent, 9, 'normal', 3)
-    }
-
-    function bodyParagraph(text: string, indent = 0) {
-      const maxW = cw - indent
-      const lines = doc.splitTextToSize(text, maxW) as string[]
-      writeRawLines(lines, mL + indent, 9, 'normal', 3)
-    }
-
-    function writeCookingBullet(card: InsightCard) {
-      const bi = 5
-      const di = 10
-      const head = `- "${card.headline}"`
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(9)
-      doc.setTextColor(0, 0, 0)
-      const hLines = doc.splitTextToSize(head, cw - bi) as string[]
-      for (const ln of hLines) {
-        ensure(4)
-        doc.text(ln, mL + bi, y, { baseline: 'top' })
-        y += 3
-      }
-      doc.setFont('helvetica', 'normal')
-      const tail = `Based on ${card.recordCount} recipe${card.recordCount === 1 ? '' : 's'}.`
-      const rest = `${card.detail} ${tail}`
-      const dLines = doc.splitTextToSize(rest, cw - di) as string[]
-      for (const ln of dLines) {
-        ensure(4)
-        doc.text(ln, mL + di, y, { baseline: 'top' })
-        y += 3
-      }
-      y += 1
-    }
-
-    function writeDiningBullet(card: InsightCard) {
-      const bi = 5
-      const di = 10
-      const head = `- "${card.headline}"`
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(9)
-      doc.setTextColor(0, 0, 0)
-      const hLines = doc.splitTextToSize(head, cw - bi) as string[]
-      for (const ln of hLines) {
-        ensure(4)
-        doc.text(ln, mL + bi, y, { baseline: 'top' })
-        y += 3
-      }
-      doc.setFont('helvetica', 'normal')
-      const tail = `Based on ${card.recordCount} review${card.recordCount === 1 ? '' : 's'}.`
-      const rest = `${card.detail} ${tail}`
-      const dLines = doc.splitTextToSize(rest, cw - di) as string[]
-      for (const ln of dLines) {
-        ensure(4)
-        doc.text(ln, mL + di, y, { baseline: 'top' })
-        y += 3
-      }
-      y += 1
-    }
-
-    function fmtCalCell(cell: MonthGrid['days'][number]): string {
-      if (!cell.inMonth) return ' · '
-      const n = Number(cell.date.slice(8, 10))
-      const mark = cell.total > 0 ? '*' : ' '
-      return `${String(n).padStart(2, ' ')}${mark}`
-    }
-
-    // — Cover
-    ensure(12)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(16)
-    doc.setTextColor(0, 0, 0)
-    doc.text('BiteBud — My Insights', mL, y, { baseline: 'top' })
-    y += 6
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    doc.setTextColor(100, 100, 100)
-    doc.text('Personal food and dining patterns', mL, y, { baseline: 'top' })
-    y += 4
-    doc.setTextColor(0, 0, 0)
-    doc.text(`Date range: ${isoToPretty(d.range.from)} to ${isoToPretty(d.range.to)}`, mL, y, { baseline: 'top' })
-    y += 3
-    doc.text(`Generated on: ${isoToday()}`, mL, y, { baseline: 'top' })
-    y += 4
-    drawHR()
-
-    // — Summary
-    sectionHeading('Summary')
-    const sum = activitySummary()
-    bodyLine(`Recipes completed in this period: ${sum.recipes}`)
-    bodyLine(`Restaurant reviews in this period: ${sum.reviews}`)
-    bodyLine(`Days with any activity: ${sum.daysAny}`)
-    const dow = mostActiveDow()
-    if (dow) bodyLine(`Most active day of week: ${dow}`)
-    y += 1
-    drawHR()
-
-    // — My Progress
-    sectionHeading('My Progress')
-    if (d.thresholds.progress.have < d.thresholds.progress.need) {
-      const remainingCount = d.thresholds.progress.need - d.thresholds.progress.have
-      const remainingLabel = remainingCount === 1 ? 'more activity' : 'more activities'
-      bodyParagraph(`After ${remainingCount} ${remainingLabel}, your progress view will fill in.`)
-      y += 1
-    } else {
-      for (const month of monthGrids.value) {
-        subHeading(`Calendar: ${month.label}`)
-        writeRawLines(['Mon Tue Wed Thu Fri Sat Sun'], mL, 9, 'bold', 3)
-        const DAYS_PER_WEEK = 7
-        for (let weekStartIndex = 0; weekStartIndex < month.days.length; weekStartIndex += DAYS_PER_WEEK) {
-          const week = month.days.slice(weekStartIndex, weekStartIndex + DAYS_PER_WEEK)
-          bodyLine(week.map(fmtCalCell).join('  '))
-        }
-        y += 2
-      }
-
-      subHeading('Weekly activity')
-      const bars = d.progress.weeklyBars ?? []
-      const maxWeeklyTotal = Math.max(1, ...bars.map((weekBar) => weekBar.recipes + weekBar.dining))
-      const labelW = 32
-      const barH = 4
-      const barMaxW = cw - labelW - 2
-      for (const weekBar of bars) {
-        ensure(barH + 4)
-        doc.setFont('helvetica', 'normal')
-        doc.setFontSize(8)
-        doc.setTextColor(0, 0, 0)
-        doc.text(weekBar.weekStart, mL, y, { baseline: 'top' })
-        const weeklyTotal = weekBar.recipes + weekBar.dining
-        const barWidth = (weeklyTotal / maxWeeklyTotal) * barMaxW
-        doc.setFillColor(210, 210, 210)
-        doc.rect(mL + labelW, y, barWidth, barH, 'F')
-        y += barH + 2
-      }
-
-      y += 1
-      subHeading('Type breakdown')
-      bodyLine(`Cooked recipes: ${d.progress.typeBreakdown.recipes}`)
-      bodyLine(`Dined out: ${d.progress.typeBreakdown.dining}`)
-      y += 1
-    }
-    drawHR()
-
-    // — Cooking
-    sectionHeading('Cooking')
-    subHeading('What works well for you')
-    if (d.thresholds.cooking.have < d.thresholds.cooking.need) {
-      const remainingCount = d.thresholds.cooking.need - d.thresholds.cooking.have
-      const remainingLabel = remainingCount === 1 ? 'more rated recipe' : 'more rated recipes'
-      bodyParagraph(`After ${remainingCount} ${remainingLabel}, I can show you what your favourites have in common.`)
-    } else {
-      for (const cookingCard of d.cooking.works) writeCookingBullet(cookingCard)
-    }
-    y += 1
-    subHeading("What doesn't seem to work")
-    if (d.thresholds.cooking.have < d.thresholds.cooking.need) {
-      const remainingCount = d.thresholds.cooking.need - d.thresholds.cooking.have
-      const remainingLabel = remainingCount === 1 ? 'more rated recipe' : 'more rated recipes'
-      bodyParagraph(`After ${remainingCount} ${remainingLabel}, I can show you what your favourites have in common.`)
-    } else if (d.cooking.doesntWork.length === 0) {
-      bodyLine('None recorded.')
-    } else {
-      for (const cookingCard of d.cooking.doesntWork) writeCookingBullet(cookingCard)
-    }
-    y += 1
-    drawHR()
-
-    // — Dining
-    sectionHeading('Dining')
-    subHeading('What works well for you when you dine out')
-    if (d.thresholds.dining.have < d.thresholds.dining.need) {
-      const remainingCount = d.thresholds.dining.need - d.thresholds.dining.have
-      const remainingLabel = remainingCount === 1 ? 'more restaurant review' : 'more restaurant reviews'
-      bodyParagraph(`After ${remainingCount} ${remainingLabel}, I can show you which places tend to suit you best.`)
-    } else {
-      for (const diningCard of d.dining.works) writeDiningBullet(diningCard)
-    }
-    y += 1
-    drawHR()
-
-    // — About + footer
-    sectionHeading('About this report')
-    bodyParagraph(
-      'BiteBud is a tool for finding and preparing food in a calm, sensory-aware way. The patterns above are drawn only from this user\'s own recorded activity over the selected date range. They are observations, not medical advice or a clinical assessment. Share this report with anyone you choose — your data stays on your device unless you do.',
-    )
-    y += 1
-    drawHR()
-    writeRawLines(
-      ['Generated from your own activity. Not shared with anyone unless you choose to share this file.'],
-      mL,
-      8,
-      'normal',
-      3,
-      [110, 110, 110],
-    )
-
-    doc.save(pdfFileName(d.range.from, d.range.to))
-  } catch (e) {
-    console.error('[BiteBud PDF] jsPDF export failed', e)
-  } finally {
-    exporting.value = false
-  }
-}
 
 </script>
 
@@ -630,7 +302,7 @@ function exportPdf() {
     </p>
     <header class="assign-head">
       <div class="assign-head__brand">
-        <h1 class="assign-head__h1">My Insights</h1>
+        <h1 class="assign-head__h1">See my patterns</h1>
         <p class="assign-head__lede">A quiet mirror of your own patterns.</p>
       </div>
       <span class="assign-privacy-pill">
@@ -644,7 +316,7 @@ function exportPdf() {
       </span>
     </header>
 
-    <p v-if="loading" class="sr-only">Loading insights</p>
+    <p v-if="loading" class="sr-only">Loading patterns</p>
     <div v-if="loading" class="assign-skel" aria-hidden="true">
       <div class="sk sk-sum" />
       <div class="sk sk-panel" />
@@ -663,7 +335,7 @@ function exportPdf() {
           </div>
           <div class="assign-summary__item">
             <span class="assign-summary__num">{{ INSIGHT_UI_CATEGORIES }}</span>
-            <span class="assign-summary__lbl">Categories</span>
+            <span class="assign-summary__lbl">{{ insightsNoActivityYet ? 'Available' : 'Categories' }}</span>
           </div>
           <div class="assign-summary__item">
             <span class="assign-summary__num">{{ completionsInRange }}</span>
@@ -671,8 +343,41 @@ function exportPdf() {
           </div>
         </section>
 
-        <p class="assign-period">{{ isoToPretty(data.range.from) }} – {{ isoToPretty(data.range.to) }}</p>
+        <p class="assign-period-caption">{{ insightsMelbourneTodayPretty }}</p>
 
+        <div v-if="insightsNoActivityYet" class="insights-onboarding">
+          <p class="insights-onboarding__lead">
+            Complete and rate at least {{ data.thresholds.cooking.need }} recipes and leave
+            {{ data.thresholds.dining.need }} restaurant reviews to unlock patterns.
+          </p>
+          <div class="insights-onboarding__track" aria-hidden="true">
+            <div class="insights-onboarding__fill" style="width: 0%" />
+          </div>
+          <article class="onboard-panel onboard-panel--cook">
+            <h3 class="onboard-panel__h">Cooking</h3>
+            <p class="onboard-panel__text">
+              Your cooking patterns will appear after you finish and rate
+              {{ data.thresholds.cooking.need }} recipes—we look at ingredients, tags, timing, and more.
+            </p>
+            <div class="onboard-panel__actions">
+              <RouterLink class="onboard-panel__btn primary" :to="{ name: 'home' }">Cook a recipe</RouterLink>
+            </div>
+          </article>
+          <article class="onboard-panel onboard-panel--dine">
+            <h3 class="onboard-panel__h">Dining</h3>
+            <p class="onboard-panel__text">
+              Add {{ data.thresholds.dining.need }} restaurant reviews to unlock dining patterns (noise,
+              cuisine, and best times).
+            </p>
+            <div class="onboard-panel__actions">
+              <RouterLink class="onboard-panel__btn primary" :to="{ name: 'restaurantSearch' }">
+                Find restaurants
+              </RouterLink>
+            </div>
+          </article>
+        </div>
+
+        <template v-else>
         <!-- Cooking -->
         <section class="assign-cat assign-cat--cook" aria-labelledby="assign-cook-title">
           <div class="assign-cat__head">
@@ -698,19 +403,29 @@ function exportPdf() {
             {{ data.thresholds.cooking.need - data.thresholds.cooking.have === 1 ? 'more rated recipe' : 'more rated recipes' }},
             I can show you what your favourites have in common.
           </div>
-          <p v-else-if="cookingWorksEmptyMessage" class="assign-guidance" role="status">{{ cookingWorksEmptyMessage }}</p>
+          <div v-else-if="cookingWorksStillLearning" class="assign-empty" role="status">
+            <div class="assign-empty__mascot" aria-hidden="true">
+              <svg viewBox="0 0 64 72" width="56" height="63" class="assign-empty__robot">
+                <ellipse cx="32" cy="66" rx="18" ry="5" fill="#e2e8f0" />
+                <rect x="14" y="18" width="36" height="40" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="2" />
+                <circle cx="26" cy="36" r="4" fill="#446271" />
+                <circle cx="38" cy="36" r="4" fill="#446271" />
+                <path d="M26 48h12" stroke="#446271" stroke-width="2" stroke-linecap="round" />
+                <rect x="24" y="8" width="16" height="12" rx="3" fill="#cbd5e1" stroke="#94a3b8" stroke-width="1.5" />
+              </svg>
+            </div>
+            <p class="assign-empty__title">BiteBud is still learning.</p>
+            <p class="assign-empty__text">
+              Keep cooking — patterns will appear here as you complete more recipes.
+            </p>
+          </div>
           <div v-else class="assign-card-list">
             <article v-for="c in data.cooking.works" :key="c.id" class="assign-card">
-              <div
-                class="assign-card__ring assign-card__ring--cook"
-                aria-hidden="true"
-                :style="{ '--ring-pct': String(ringStrokePct(c.recordCount, cookingWorksRingMax())) }"
-              >
-                <span class="assign-card__ring-n">{{ c.recordCount }}</span>
-              </div>
               <div class="assign-card__main">
-                <h4 class="assign-card__slug">{{ insightShortTitle(c) }}</h4>
-                <p class="assign-card__detail">{{ c.detail || c.headline }}</p>
+                <p class="assign-card__meta">{{ insightCardMetaLine(c) }}</p>
+                <h4 class="assign-card__slug">{{ c.headline }}</h4>
+                <p v-if="insightCardDetail(c)" class="assign-card__detail">{{ insightCardDetail(c) }}</p>
+                <p v-if="insightCardTakeaway(c)" class="assign-card__takeaway">{{ insightCardTakeaway(c) }}</p>
                 <span class="assign-chip assign-chip--cook-ok">
                   <svg class="assign-chip__tick" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">
                     <path
@@ -740,20 +455,43 @@ function exportPdf() {
           </div>
           <div v-else-if="data.cooking.doesntWork.length" class="assign-card-list">
             <article v-for="c in data.cooking.doesntWork" :key="c.id" class="assign-card">
-              <div
-                class="assign-card__ring assign-card__ring--cook-warn"
-                aria-hidden="true"
-                :style="{ '--ring-pct': String(ringStrokePct(c.recordCount, cookingDoesntRingMax())) }"
-              >
-                <span class="assign-card__ring-n">{{ c.recordCount }}</span>
-              </div>
               <div class="assign-card__main">
-                <h4 class="assign-card__slug">{{ insightShortTitle(c) }}</h4>
-                <p class="assign-card__detail">{{ c.detail || c.headline }}</p>
+                <p class="assign-card__meta">{{ insightCardMetaLine(c) }}</p>
+                <h4 class="assign-card__slug">{{ c.headline }}</h4>
+                <p v-if="insightCardDetail(c)" class="assign-card__detail">{{ insightCardDetail(c) }}</p>
+                <p v-if="insightCardTakeaway(c)" class="assign-card__takeaway">{{ insightCardTakeaway(c) }}</p>
                 <span class="assign-chip assign-chip--cook-warn">Watch-out</span>
               </div>
             </article>
           </div>
+          <article
+            v-else-if="cookingDoesntWorkInsufficientLowRated"
+            class="assign-watch-pending"
+            role="status"
+          >
+            <p class="assign-watch-pending__title">Still building your picture…</p>
+            <p class="assign-watch-pending__text">
+              Watch-outs need at least {{ data.thresholds.cookingLowRated.need }} recipe completions rated 3 stars or
+              below in this period.
+            </p>
+            <div class="assign-watch-pending__bar" role="progressbar" :aria-valuenow="data.thresholds.cookingLowRated.have" :aria-valuemax="data.thresholds.cookingLowRated.need" aria-label="Lower-rated completions progress">
+              <div
+                class="assign-watch-pending__fill"
+                :style="{ width: `${pctPart(data.thresholds.cookingLowRated.have, data.thresholds.cookingLowRated.need)}%` }"
+              />
+            </div>
+            <p class="assign-watch-pending__foot">
+              {{ data.thresholds.cookingLowRated.have }} of {{ data.thresholds.cookingLowRated.need }} lower‑rated
+              completions
+            </p>
+          </article>
+          <article v-else-if="cookingDoesntWorkNothingToAvoid" class="assign-watch-positive">
+            <p class="assign-watch-positive__title">Nothing to avoid — you&apos;re doing well</p>
+            <p class="assign-watch-positive__text">
+              We checked your lower-rated meals in this range and didn&apos;t find a strong repeat signal. Keep
+              cooking and rating to keep this fresh.
+            </p>
+          </article>
           <div v-else class="assign-empty">
             <div class="assign-empty__mascot" aria-hidden="true">
               <svg viewBox="0 0 64 72" width="56" height="63" class="assign-empty__robot">
@@ -765,7 +503,7 @@ function exportPdf() {
                 <rect x="24" y="8" width="16" height="12" rx="3" fill="#cbd5e1" stroke="#94a3b8" stroke-width="1.5" />
               </svg>
             </div>
-            <p class="assign-empty__title">BiteBud is still learning.</p>
+            <p class="assign-empty__title">No watch-outs in this range.</p>
             <p class="assign-empty__text">{{ cookingDoesntWorkEmptyMessage }}</p>
           </div>
         </section>
@@ -804,16 +542,11 @@ function exportPdf() {
           <p v-else-if="diningWorksEmptyMessage" class="assign-guidance" role="status">{{ diningWorksEmptyMessage }}</p>
           <div v-else class="assign-card-list">
             <article v-for="c in data.dining.works" :key="c.id" class="assign-card">
-              <div
-                class="assign-card__ring assign-card__ring--dine"
-                aria-hidden="true"
-                :style="{ '--ring-pct': String(ringStrokePct(c.recordCount, diningWorksRingMax())) }"
-              >
-                <span class="assign-card__ring-n">{{ c.recordCount }}</span>
-              </div>
               <div class="assign-card__main">
-                <h4 class="assign-card__slug">{{ insightShortTitle(c) }}</h4>
-                <p class="assign-card__detail">{{ c.detail || c.headline }}</p>
+                <p class="assign-card__meta">{{ insightCardMetaLine(c) }}</p>
+                <h4 class="assign-card__slug">{{ c.headline }}</h4>
+                <p v-if="insightCardDetail(c)" class="assign-card__detail">{{ insightCardDetail(c) }}</p>
+                <p v-if="insightCardTakeaway(c)" class="assign-card__takeaway">{{ insightCardTakeaway(c) }}</p>
                 <span class="assign-chip assign-chip--dine-ok">
                   <svg class="assign-chip__tick" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">
                     <path
@@ -825,7 +558,7 @@ function exportPdf() {
                       d="M2.5 6l2.5 2.5L9.5 3.5"
                     />
                   </svg>
-                  Pattern found
+                  Works for you
                 </span>
               </div>
             </article>
@@ -836,7 +569,49 @@ function exportPdf() {
             <span class="assign-rule__text">What doesn't seem to work</span>
             <span class="assign-rule__line" aria-hidden="true" />
           </div>
-          <div class="assign-empty assign-empty--dine">
+          <div v-if="data.thresholds.dining.have < data.thresholds.dining.need" class="assign-guidance">
+            After {{ data.thresholds.dining.need - data.thresholds.dining.have }}
+            {{ data.thresholds.dining.need - data.thresholds.dining.have === 1 ? 'more restaurant review' : 'more restaurant reviews' }},
+            I can show you which places tend to suit you best.
+          </div>
+          <div v-else-if="data.dining.doesntWork.length" class="assign-card-list">
+            <article v-for="c in data.dining.doesntWork" :key="c.id" class="assign-card">
+              <div class="assign-card__main">
+                <p class="assign-card__meta">{{ insightCardMetaLine(c) }}</p>
+                <h4 class="assign-card__slug">{{ c.headline }}</h4>
+                <p v-if="insightCardDetail(c)" class="assign-card__detail">{{ insightCardDetail(c) }}</p>
+                <p v-if="insightCardTakeaway(c)" class="assign-card__takeaway">{{ insightCardTakeaway(c) }}</p>
+                <span class="assign-chip assign-chip--cook-warn">Watch-out</span>
+              </div>
+            </article>
+          </div>
+          <article
+            v-else-if="diningDoesntWorkInsufficientLowRated"
+            class="assign-watch-pending assign-watch-pending--dine"
+            role="status"
+          >
+            <p class="assign-watch-pending__title">Still building your picture…</p>
+            <p class="assign-watch-pending__text">
+              Watch-outs need at least {{ data.thresholds.diningLowRated.need }} restaurant reviews with overall rating
+              3 stars or below in this period.
+            </p>
+            <div class="assign-watch-pending__bar" role="progressbar" :aria-valuenow="data.thresholds.diningLowRated.have" :aria-valuemax="data.thresholds.diningLowRated.need" aria-label="Lower-rated reviews progress">
+              <div
+                class="assign-watch-pending__fill"
+                :style="{ width: `${pctPart(data.thresholds.diningLowRated.have, data.thresholds.diningLowRated.need)}%` }"
+              />
+            </div>
+            <p class="assign-watch-pending__foot">
+              {{ data.thresholds.diningLowRated.have }} of {{ data.thresholds.diningLowRated.need }} lower‑rated reviews
+            </p>
+          </article>
+          <article v-else-if="diningDoesntWorkNothingToAvoid" class="assign-watch-positive">
+            <p class="assign-watch-positive__title">Nothing to avoid — you&apos;re doing well</p>
+            <p class="assign-watch-positive__text">
+              We checked your lower-rated dining reviews here and didn&apos;t find a strong repeat signal yet.
+            </p>
+          </article>
+          <div v-else class="assign-empty assign-empty--dine">
             <div class="assign-empty__mascot" aria-hidden="true">
               <svg viewBox="0 0 64 72" width="56" height="63" class="assign-empty__robot">
                 <ellipse cx="32" cy="66" rx="18" ry="5" fill="#e2e8f0" />
@@ -847,157 +622,12 @@ function exportPdf() {
                 <rect x="24" y="8" width="16" height="12" rx="3" fill="#cbd5e1" stroke="#94a3b8" stroke-width="1.5" />
               </svg>
             </div>
-            <p class="assign-empty__title">BiteBud is still learning.</p>
-            <p class="assign-empty__text">
-              Rate more dining experiences — patterns will appear here as you complete more reviews.
-            </p>
+            <p class="assign-empty__title">No watch-outs in this range.</p>
+            <p class="assign-empty__text">{{ diningDoesntWorkEmptyMessage }}</p>
           </div>
         </section>
-
-        <div class="assign-export">
-          <button v-if="canExport" type="button" class="assign-export-btn" :disabled="exporting" @click="exportPdf">
-            {{ exporting ? 'Preparing PDF…' : 'Export as PDF' }}
-          </button>
-          <p v-else class="assign-export-hint">Log a bit more activity to enable PDF export.</p>
-        </div>
+        </template>
       </div>
-
-      <section v-if="pdfVisible && data" ref="pdfEl" class="pdf-export" aria-hidden="true">
-        <div class="pdf-page">
-          <header class="pdf-cover">
-            <div class="pdf-h1">BiteBud — My Insights</div>
-            <div class="pdf-subhead">Personal food and dining patterns</div>
-            <div class="pdf-meta">
-              <div><strong>Date range:</strong> {{ isoToPretty(data.range.from) }} to {{ isoToPretty(data.range.to) }}</div>
-              <div><strong>Generated on:</strong> {{ isoToday() }}</div>
-            </div>
-          </header>
-
-          <section class="pdf-block">
-            <div class="pdf-h2">Summary</div>
-            <div class="pdf-kv">
-              <div>Recipes completed in this period: <strong>{{ activitySummary().recipes }}</strong></div>
-              <div>Restaurant reviews in this period: <strong>{{ activitySummary().reviews }}</strong></div>
-              <div>Days with any activity: <strong>{{ activitySummary().daysAny }}</strong></div>
-              <div v-if="mostActiveDow()">Most active day of week: <strong>{{ mostActiveDow() }}</strong></div>
-            </div>
-          </section>
-
-          <footer class="pdf-note">
-            Generated from your own activity. Not shared with anyone unless you choose to share this file.
-          </footer>
-        </div>
-
-        <div class="pdf-page">
-          <div class="pdf-h2">My Progress</div>
-          <section class="pdf-progress">
-            <div class="pdf-calendar">
-              <div class="pdf-label">Calendar</div>
-              <div class="pdf-months">
-                <section v-for="m in monthGrids" :key="`pdf-${m.monthKey}`" class="pdf-month">
-                  <div class="pdf-month-title">{{ m.label }}</div>
-                  <div class="pdf-dow">
-                    <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
-                  </div>
-                  <div class="pdf-grid">
-                    <div
-                      v-for="d in m.days"
-                      :key="`pdf-${m.monthKey}-${d.date}`"
-                      class="pdf-cell"
-                      :class="[{ 'pdf-cell--out': !d.inMonth }, d.total > 0 ? 'pdf-cell--active' : 'pdf-cell--idle']"
-                    />
-                  </div>
-                </section>
-              </div>
-            </div>
-
-            <div class="pdf-weekly">
-              <div class="pdf-label">Weekly activity</div>
-              <div class="pdf-bars">
-                <div v-for="w in data.progress.weeklyBars" :key="`pdfw-${w.weekStart}`" class="pdf-bar">
-                  <div class="pdf-bar-label">{{ w.weekStart }}</div>
-                  <div class="pdf-bar-track">
-                    <div class="pdf-bar-seg pdf-bar-seg--recipes" :style="{ width: `${Math.min(100, w.recipes * 18)}%` }" />
-                    <div class="pdf-bar-seg pdf-bar-seg--dining" :style="{ width: `${Math.min(100, w.dining * 18)}%` }" />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="pdf-breakdown">
-              <div class="pdf-label">Type breakdown</div>
-              <div class="pdf-kv">
-                <div>Cooked recipes: <strong>{{ data.progress.typeBreakdown.recipes }}</strong></div>
-                <div>Dined out: <strong>{{ data.progress.typeBreakdown.dining }}</strong></div>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <div class="pdf-page">
-          <div class="pdf-h2">Cooking</div>
-
-          <section class="pdf-section">
-            <div class="pdf-h3">What works well for you</div>
-            <div v-if="data.thresholds.cooking.have < data.thresholds.cooking.need" class="pdf-guidance">
-              After {{ data.thresholds.cooking.need - data.thresholds.cooking.have }}
-              {{ data.thresholds.cooking.need - data.thresholds.cooking.have === 1 ? 'more rated recipe' : 'more rated recipes' }},
-              I can show you what your favourites have in common.
-            </div>
-            <div v-else class="pdf-cards">
-              <article v-for="c in data.cooking.works" :key="`pdfcw-${c.id}`" class="pdf-card">
-                <div class="pdf-card-h">{{ c.headline }}</div>
-                <div class="pdf-card-d">{{ c.detail }}</div>
-              </article>
-            </div>
-          </section>
-
-          <section class="pdf-section">
-            <div class="pdf-h3">What doesn't seem to work</div>
-            <div v-if="data.thresholds.cooking.have < data.thresholds.cooking.need" class="pdf-guidance">
-              After {{ data.thresholds.cooking.need - data.thresholds.cooking.have }}
-              {{ data.thresholds.cooking.need - data.thresholds.cooking.have === 1 ? 'more rated recipe' : 'more rated recipes' }},
-              I can show you what your favourites have in common.
-            </div>
-            <div v-else class="pdf-cards">
-              <article v-for="c in data.cooking.doesntWork" :key="`pdfcd-${c.id}`" class="pdf-card">
-                <div class="pdf-card-h">{{ c.headline }}</div>
-                <div class="pdf-card-d">{{ c.detail }}</div>
-              </article>
-            </div>
-          </section>
-        </div>
-
-        <div class="pdf-page">
-          <div class="pdf-h2">Dining</div>
-
-          <section class="pdf-section">
-            <div class="pdf-h3">What works well for you when you dine out</div>
-            <div v-if="data.thresholds.dining.have < data.thresholds.dining.need" class="pdf-guidance">
-              After {{ data.thresholds.dining.need - data.thresholds.dining.have }}
-              {{ data.thresholds.dining.need - data.thresholds.dining.have === 1 ? 'more restaurant review' : 'more restaurant reviews' }},
-              I can show you which places tend to suit you best.
-            </div>
-            <div v-else class="pdf-cards">
-              <article v-for="c in data.dining.works" :key="`pdfdw-${c.id}`" class="pdf-card">
-                <div class="pdf-card-h">{{ c.headline }}</div>
-                <div class="pdf-card-d">{{ c.detail }}</div>
-              </article>
-            </div>
-          </section>
-        </div>
-
-        <div class="pdf-page">
-          <section class="pdf-about">
-            <div class="pdf-h2">About this report</div>
-            <p>
-              BiteBud is a tool for finding and preparing food in a calm, sensory-aware way. The patterns above are drawn only from this user's own
-              recorded activity over the selected date range. They are observations, not medical advice or a clinical assessment. Share this report
-              with anyone you choose — your data stays on your device unless you do.
-            </p>
-          </section>
-        </div>
-      </section>
     </template>
   </section>
 </template>
@@ -1117,11 +747,138 @@ function exportPdf() {
   flex-direction: column;
   gap: 1rem;
 }
-.assign-period {
-  margin: -0.15rem 0 0;
+.assign-period-caption {
+  margin: -0.15rem 0 0.65rem;
   text-align: center;
-  font-size: 0.76rem;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--assign-navy);
+}
+
+.insights-onboarding__lead {
+  margin: 0 0 0.85rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 14px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--bb-text);
+  background: color-mix(in srgb, var(--assign-navy) 8%, white);
+}
+.insights-onboarding__track {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(26, 45, 66, 0.1);
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+.insights-onboarding__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--assign-dine-icon), var(--assign-navy));
+  opacity: 0.85;
+}
+
+.onboard-panel {
+  border-radius: 16px;
+  padding: 1rem 0.85rem;
+  margin-bottom: 0.85rem;
+  border: 1px solid #e8e2d8;
+  background: #fffefb;
+  box-shadow: 0 2px 12px rgba(30, 25, 20, 0.05);
+}
+.onboard-panel--cook {
+  border-top: 3px solid var(--assign-cook-icon);
+}
+.onboard-panel--dine {
+  border-top: 3px solid var(--assign-dine-icon);
+}
+.onboard-panel__h {
+  margin: 0 0 0.45rem;
+  font-size: 1.08rem;
+  font-weight: 800;
+  color: var(--assign-navy);
+}
+.onboard-panel__text {
+  margin: 0 0 0.85rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--bb-text);
+}
+.onboard-panel__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.onboard-panel__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: none;
+  border: 1.5px solid var(--assign-navy);
+}
+.onboard-panel__btn.primary {
+  background: var(--assign-navy);
+  color: #fff;
+}
+
+.assign-watch-pending {
+  padding: 0.92rem 0.88rem;
+  border-radius: 14px;
+  border: 2px dashed rgba(74, 85, 104, 0.35);
+  background: color-mix(in srgb, #f1f5f9 70%, white);
+}
+.assign-watch-pending__title {
+  margin: 0 0 0.38rem;
+  font-size: 0.93rem;
+  font-weight: 800;
+  color: var(--assign-navy);
+}
+.assign-watch-pending__text {
+  margin: 0 0 0.65rem;
+  font-size: 0.79rem;
+  line-height: 1.42;
   color: var(--bb-muted);
+}
+.assign-watch-pending__bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(26, 45, 66, 0.1);
+  overflow: hidden;
+  margin-bottom: 0.4rem;
+}
+.assign-watch-pending__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--assign-cook-icon), var(--assign-navy));
+}
+.assign-watch-pending__foot {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--bb-text);
+  font-variant-numeric: tabular-nums;
+}
+.assign-watch-positive {
+  padding: 0.92rem 0.88rem;
+  border-radius: 14px;
+  border: 2px solid color-mix(in srgb, var(--assign-green) 45%, #c8ebd4);
+  background: color-mix(in srgb, var(--assign-green) 9%, white);
+}
+.assign-watch-positive__title {
+  margin: 0 0 0.38rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #166534;
+}
+.assign-watch-positive__text {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.42;
+  color: var(--bb-text);
 }
 
 .assign-summary {
@@ -1262,9 +1019,6 @@ function exportPdf() {
   gap: 0.6rem;
 }
 .assign-card {
-  display: flex;
-  gap: 0.7rem;
-  align-items: flex-start;
   padding: 0.78rem 0.65rem;
   border-radius: 14px;
   border: 1px solid #ece6de;
@@ -1310,7 +1064,23 @@ function exportPdf() {
 
 .assign-card__main {
   min-width: 0;
-  flex: 1;
+}
+.assign-card__meta {
+  margin: 0 0 0.35rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bb-muted);
+}
+.assign-card__type {
+  display: inline-block;
+  margin: 0 0 0.35rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bb-muted);
 }
 .assign-card__slug {
   margin: 0;
@@ -1318,12 +1088,23 @@ function exportPdf() {
   font-weight: 800;
   letter-spacing: 0.01em;
   color: var(--assign-navy);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
 }
 .assign-card__detail {
   margin: 0.28rem 0 0.42rem;
   font-size: 0.78rem;
   line-height: 1.45;
   color: var(--bb-muted);
+}
+.assign-card__takeaway {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--bb-text) 78%, var(--bb-muted));
 }
 .assign-chip {
   display: inline-flex;
@@ -1378,40 +1159,6 @@ function exportPdf() {
   line-height: 1.45;
 }
 
-.assign-export {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.15rem;
-}
-.assign-export-btn {
-  padding: 0.55rem 1.2rem;
-  border-radius: 999px;
-  border: 1px solid var(--bb-border);
-  background: var(--bb-surface-lowest);
-  font: inherit;
-  font-weight: 700;
-  font-size: 0.88rem;
-  color: var(--bb-text);
-  cursor: pointer;
-}
-.assign-export-btn:hover:not(:disabled) {
-  background: var(--bb-surface-low);
-}
-.assign-export-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.assign-export-hint {
-  margin: 0;
-  text-align: center;
-  font-size: 0.8rem;
-  color: var(--bb-muted);
-  max-width: 20rem;
-  line-height: 1.4;
-}
-
 @media (max-width: 380px) {
   .assign-summary__num {
     font-size: 1.2rem;
@@ -1449,195 +1196,6 @@ function exportPdf() {
   color: #b42318;
   font-weight: 600;
   line-height: 1.45;
-}
-
-.pdf-export {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 794px;
-  max-width: 794px;
-  box-sizing: border-box;
-  height: auto;
-  min-height: max-content;
-  overflow: visible;
-  display: block;
-  color: #111;
-  background: #fff;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  opacity: 0.01;
-  pointer-events: none;
-  z-index: 0;
-}
-.pdf-page {
-  padding: 18mm;
-  min-height: 297mm;
-  box-sizing: border-box;
-  page-break-after: always;
-}
-.pdf-page:last-child {
-  page-break-after: auto;
-}
-.pdf-h1 {
-  font-family: var(--bb-font-headline);
-  font-weight: 900;
-  font-size: 22px;
-}
-.pdf-subhead {
-  margin-top: 6px;
-  font-size: 14px;
-  color: #374151;
-}
-.pdf-meta {
-  margin-top: 10px;
-  font-size: 12.5px;
-  color: #111;
-  display: grid;
-  gap: 4px;
-}
-.pdf-h2 {
-  font-family: var(--bb-font-headline);
-  font-weight: 900;
-  font-size: 16px;
-  margin-bottom: 8px;
-}
-.pdf-h3 {
-  font-family: var(--bb-font-headline);
-  font-weight: 900;
-  font-size: 13.5px;
-  margin: 12px 0 8px;
-}
-.pdf-block {
-  margin-top: 16px;
-  border-top: 1px solid #e5e7eb;
-  padding-top: 12px;
-}
-.pdf-kv {
-  display: grid;
-  gap: 6px;
-  font-size: 12.5px;
-}
-.pdf-note {
-  margin-top: 18px;
-  font-size: 12px;
-  color: #374151;
-  border-top: 1px solid #e5e7eb;
-  padding-top: 10px;
-}
-.pdf-progress {
-  display: grid;
-  gap: 12px;
-}
-.pdf-label {
-  font-weight: 900;
-  font-size: 12px;
-  margin-bottom: 6px;
-}
-.pdf-months {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-.pdf-month-title {
-  font-weight: 900;
-  font-size: 12px;
-  margin-bottom: 4px;
-}
-.pdf-dow {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 3px;
-  font-size: 9.5px;
-  color: #6b7280;
-  margin-bottom: 4px;
-}
-.pdf-grid {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 3px;
-}
-.pdf-cell {
-  aspect-ratio: 1 / 1;
-  border-radius: 6px;
-  border: 1px solid #d1d5db;
-  background: transparent;
-}
-.pdf-cell--out {
-  opacity: 0.35;
-}
-.pdf-cell--idle {
-  background: transparent;
-}
-.pdf-cell--active {
-  background: #d9e8f0;
-  border-color: #9eb8c8;
-}
-.pdf-bars {
-  display: grid;
-  gap: 6px;
-}
-.pdf-bar {
-  display: grid;
-  grid-template-columns: 120px 1fr;
-  gap: 8px;
-  align-items: center;
-}
-.pdf-bar-label {
-  font-size: 11px;
-  color: #374151;
-  font-variant-numeric: tabular-nums;
-}
-.pdf-bar-track {
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(17, 24, 39, 0.08);
-  overflow: hidden;
-  display: flex;
-}
-.pdf-bar-seg {
-  height: 100%;
-}
-.pdf-bar-seg--recipes {
-  background: rgba(17, 24, 39, 0.22);
-}
-.pdf-bar-seg--dining {
-  background: rgba(17, 24, 39, 0.14);
-}
-.pdf-section {
-  margin-top: 10px;
-}
-.pdf-guidance {
-  font-size: 12.5px;
-  color: #374151;
-  border: 1px solid #e5e7eb;
-  padding: 10px;
-}
-.pdf-cards {
-  display: grid;
-  gap: 10px;
-}
-.pdf-card {
-  break-inside: avoid;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 10px;
-  background: rgba(17, 24, 39, 0.03);
-}
-.pdf-card-h {
-  font-weight: 900;
-  font-size: 12.5px;
-}
-.pdf-card-d {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #374151;
-  line-height: 1.4;
-}
-.pdf-about p {
-  margin: 8px 0 0;
-  font-size: 12.5px;
-  color: #374151;
-  line-height: 1.5;
 }
 </style>
 

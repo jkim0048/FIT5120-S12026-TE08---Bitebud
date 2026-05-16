@@ -26,9 +26,14 @@ const WEEK_DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", 
 
 const COOKING_THRESHOLD = 3;
 const DINING_THRESHOLD = 2;
+/** Minimum reviews with overall rating at/below `MAX_LOW_RATING` needed to show dining "doesn't work" cards. */
+const DINING_NEGATIVE_MIN_REVIEWS = 3;
 const PROGRESS_THRESHOLD = 3;
 const COMPLETION_FETCH_LIMIT = 250;
 const REVIEW_FETCH_LIMIT = 250;
+/** When insights run over lifetime (no dated window), fetch more rows for patterns (still capped). */
+const COMPLETION_FETCH_LIMIT_FULL_HISTORY = 5000;
+const REVIEW_FETCH_LIMIT_FULL_HISTORY = 5000;
 const MIN_HIGH_RATING = 4;
 const MAX_LOW_RATING = 3;
 const WEEKS_OF_WEEKLY_BARS = 12;
@@ -54,6 +59,8 @@ export type InsightCard = {
   headline: string;
   detail: string;
   recordCount: number;
+  /** Optional gentle suggestion for the user (plain language). */
+  takeaway?: string;
 };
 
 export type InsightsPayload = {
@@ -64,11 +71,15 @@ export type InsightsPayload = {
     typeBreakdown: { recipes: number; dining: number };
   };
   cooking: { works: InsightCard[]; doesntWork: InsightCard[] };
-  dining: { works: InsightCard[] };
+  dining: { works: InsightCard[]; doesntWork: InsightCard[] };
   thresholds: {
     cooking: { have: number; need: number };
     dining: { have: number; need: number };
     progress: { have: number; need: number };
+    /** Rated recipe completions in range with stars at/below `MAX_LOW_RATING` (watch-out gate). */
+    cookingLowRated: { have: number; need: number };
+    /** Restaurant reviews in range with overall at/below `MAX_LOW_RATING` (dining watch-out gate). */
+    diningLowRated: { have: number; need: number };
   };
   lifetime: {
     cookingDaysTotal: number;
@@ -102,6 +113,196 @@ export function countTopN(
   );
 }
 
+/** Lower sort key = higher priority when picking diverse insight cards. */
+const INSIGHT_CATEGORY_PRIORITY: Record<string, number> = {
+  "worked-tag": 1,
+  "didnt-work-tag": 1,
+  "ingredient-affinity": 2,
+  "ingredient-count": 3,
+  "prep-time": 4,
+  "sensory-match": 4,
+  "sensory-mismatch": 4,
+  cuisine: 5,
+  "cuisine-mismatch": 5,
+  "time-of-week": 6,
+  "best-windows": 6,
+  flavour: 7,
+  "cooking-method": 8,
+};
+
+/** Skip noisy ingredient labels before ingredient-affinity cards (e.g. "to taste salt"). */
+export function isUsableIngredientInsightLabel(normalizedLabel: string): boolean {
+  const label = normalizedLabel.trim();
+  if (label.length < 3) return false;
+  if (/^to taste\b/.test(label)) return false;
+  if (/\bto taste\b/.test(label) && label.split(/\s+/).length <= 4) return false;
+  if (/^(optional|garnish|serving|as needed)$/.test(label)) return false;
+  return true;
+}
+
+function capitalizeWord(word: string): string {
+  if (!word.length) return "";
+  return `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`;
+}
+
+/**
+ * Readable title-style phrase for user-facing insight copy: spaces, hyphens, underscores,
+ * and camelCase boundaries (e.g. `lowPrep`, `low-prep`, `chicken breast` → `Low Prep`, `Chicken Breast`).
+ */
+function formatInsightLabelPhrase(raw: string): string {
+  const withCamelSplits = raw
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+  return withCamelSplits
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map(capitalizeWord)
+    .join(" ");
+}
+
+function humanizeChipLabel(chipKey: string): string {
+  return formatInsightLabelPhrase(chipKey);
+}
+
+function titleCaseWords(value: string): string {
+  return formatInsightLabelPhrase(value);
+}
+
+function humanizeFlavorSignature(signature: string): string {
+  return signature
+    .split("+")
+    .filter(Boolean)
+    .map((part) => humanizeChipLabel(part.trim()))
+    .join(" and ");
+}
+
+function mealsRatedDetail(count: number, highRated: boolean): string {
+  const band = highRated ? "4–5 stars" : "3 stars or below";
+  const mealWord = count === 1 ? "meal" : "meals";
+  return `Based on ${count} ${mealWord} you rated ${band} in this period.`;
+}
+
+function reviewsDetail(count: number, highRated: boolean): string {
+  const band = highRated ? "4 or above" : "3 or below";
+  const reviewWord = count === 1 ? "review" : "reviews";
+  return `Based on ${count} ${reviewWord} you rated ${band} overall in this period.`;
+}
+
+function ingredientAppearedDetail(
+  ingredientLabel: string,
+  mealCount: number,
+  highRated: boolean,
+): string {
+  const name = titleCaseWords(ingredientLabel);
+  const mealWord = mealCount === 1 ? "meal" : "meals";
+  const band = highRated ? "4–5 stars" : "3 stars or below";
+  return `${name} appeared in ${mealCount} ${mealWord} you rated ${band} in this period.`;
+}
+
+function cuisineAppearedDetail(cuisineLabel: string, reviewCount: number, highRated: boolean): string {
+  const name = titleCaseWords(cuisineLabel);
+  const reviewWord = reviewCount === 1 ? "review" : "reviews";
+  const band = highRated ? "4 or above" : "3 or below";
+  return `${name} showed up in ${reviewCount} ${reviewWord} you rated ${band} overall in this period.`;
+}
+
+const INSIGHT_TAKEAWAYS: Record<string, { works: string; doesnt: string }> = {
+  "ingredient-count": {
+    works: "When you plan meals, shorter ingredient lists may feel more manageable.",
+    doesnt: "Consider simpler recipes or splitting a big shop across two sessions.",
+  },
+  "prep-time": {
+    works: "Quick wins on busy days may suit you better than long cooks.",
+    doesnt: "On tougher days, look for recipes under an hour or prep ahead.",
+  },
+  "worked-tag": {
+    works: "If this keeps showing up, lean on it when you plan your next meal.",
+    doesnt: "",
+  },
+  "didnt-work-tag": {
+    works: "",
+    doesnt: "If this keeps coming up, factor it in before you start cooking.",
+  },
+  "ingredient-affinity": {
+    works: "This may be a reliable ingredient when planning simple meals.",
+    doesnt: "You might simplify the dish or try a different protein or main ingredient.",
+  },
+  "time-of-week": {
+    works: "You could batch prep or plan favourites for that day and time.",
+    doesnt: "",
+  },
+  flavour: {
+    works: "Meals with these flavour notes tended to land well for you.",
+    doesnt: "",
+  },
+  "cooking-method": {
+    works: "Recipes using this method showed up in meals you loved.",
+    doesnt: "",
+  },
+  "sensory-match": {
+    works: "Quieter or calmer settings on this dimension may suit you best.",
+    doesnt: "",
+  },
+  "sensory-mismatch": {
+    works: "",
+    doesnt: "Check reviews or photos for noise and vibe before you book.",
+  },
+  cuisine: {
+    works: "This cuisine has lined up with your higher scores recently.",
+    doesnt: "",
+  },
+  "cuisine-mismatch": {
+    works: "",
+    doesnt: "You might try a different cuisine or a more familiar option next time.",
+  },
+  "best-windows": {
+    works: "Going at these times may improve how a meal out feels.",
+    doesnt: "",
+  },
+};
+
+function takeawayFor(category: string, works: boolean): string | undefined {
+  const row = INSIGHT_TAKEAWAYS[category];
+  if (!row) return undefined;
+  const text = (works ? row.works : row.doesnt).trim();
+  return text || undefined;
+}
+
+/**
+ * Pick up to `maxCount` cards: prefer one per category, then highest recordCount,
+ * then fill remaining slots.
+ */
+export function selectDiverseInsightCards(
+  cards: InsightCard[],
+  maxCount: number,
+): InsightCard[] {
+  if (cards.length <= maxCount) return cards;
+  const sorted = [...cards].sort((first, second) => {
+    const priorityDiff =
+      (INSIGHT_CATEGORY_PRIORITY[first.category] ?? 99) -
+      (INSIGHT_CATEGORY_PRIORITY[second.category] ?? 99);
+    if (priorityDiff !== 0) return priorityDiff;
+    return second.recordCount - first.recordCount;
+  });
+  const picked: InsightCard[] = [];
+  const seenCategories = new Set<string>();
+  for (const card of sorted) {
+    if (picked.length >= maxCount) break;
+    if (seenCategories.has(card.category)) continue;
+    seenCategories.add(card.category);
+    picked.push(card);
+  }
+  if (picked.length < maxCount) {
+    for (const card of sorted) {
+      if (picked.length >= maxCount) break;
+      if (picked.some((existing) => existing.id === card.id)) continue;
+      picked.push(card);
+    }
+  }
+  return picked;
+}
+
 /** Pearson correlation between two equal-length numeric series; returns 0 for degenerate input. */
 export function pearson(xs: number[], ys: number[]): number {
   if (xs.length !== ys.length || xs.length < 2) return 0;
@@ -128,16 +329,28 @@ export type InsightsRequest = {
   rangeFromInclusive: Date;
   rangeTo: Date;
   dismissedCardIds: Set<string>;
+  /** Omitted-range insights: widen rows pulled for completions/reviews pattern mining. */
+  fullHistoryInsights?: boolean;
 };
 
 /** Build the full `/api/me/insights` response payload from the user's recent activity. */
 export async function buildInsightsPayload(request: InsightsRequest): Promise<InsightsPayload> {
-  const { userId, rangeFromInclusive, rangeTo, dismissedCardIds } = request;
+  const {
+    userId,
+    rangeFromInclusive,
+    rangeTo,
+    dismissedCardIds,
+    fullHistoryInsights = false,
+  } = request;
   const rangeToExclusive = addDays(rangeTo, 1);
+  const completionTake = fullHistoryInsights ? COMPLETION_FETCH_LIMIT_FULL_HISTORY : COMPLETION_FETCH_LIMIT;
+  const reviewTake = fullHistoryInsights ? REVIEW_FETCH_LIMIT_FULL_HISTORY : REVIEW_FETCH_LIMIT;
 
   const [
     ratedCompletionsCount,
+    ratedCompletionsLowCount,
     reviewsCount,
+    reviewsLowCount,
     completionsCount,
     lifetimeStats,
     thisWeekRow,
@@ -149,8 +362,22 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         completedAt: { gte: rangeFromInclusive, lt: rangeToExclusive },
       },
     }),
+    recipeDatabase.recipeCompletionCount({
+      where: {
+        userId,
+        rating: { not: null, lte: MAX_LOW_RATING },
+        completedAt: { gte: rangeFromInclusive, lt: rangeToExclusive },
+      },
+    }),
     restaurantDatabase.restaurantReviewCount({
       where: { userId, createdAt: { gte: rangeFromInclusive, lt: rangeToExclusive } },
+    }),
+    restaurantDatabase.restaurantReviewCount({
+      where: {
+        userId,
+        overallRating: { lte: MAX_LOW_RATING },
+        createdAt: { gte: rangeFromInclusive, lt: rangeToExclusive },
+      },
     }),
     recipeDatabase.recipeCompletionCount({
       where: { userId, completedAt: { gte: rangeFromInclusive, lt: rangeToExclusive } },
@@ -164,6 +391,8 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
     cooking: { have: ratedCompletionsCount, need: COOKING_THRESHOLD },
     dining: { have: reviewsCount, need: DINING_THRESHOLD },
     progress: { have: totalActivities, need: PROGRESS_THRESHOLD },
+    cookingLowRated: { have: ratedCompletionsLowCount, need: COOKING_THRESHOLD },
+    diningLowRated: { have: reviewsLowCount, need: DINING_NEGATIVE_MIN_REVIEWS },
   };
 
   const progressEnabled = thresholds.progress.have >= thresholds.progress.need;
@@ -221,7 +450,7 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         completedAt: { gte: rangeFromInclusive, lt: rangeToExclusive },
       },
       orderBy: { completedAt: "desc" },
-      take: COMPLETION_FETCH_LIMIT,
+      take: completionTake,
       select: {
         id: true,
         rating: true,
@@ -257,9 +486,10 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         cardsWorks.push({
           id: "cooking.ingredient-count.le6",
           category: "ingredient-count",
-          headline: "You finish recipes with 6 or fewer ingredients.",
-          detail: `Drawn from your higher-rated recipe completions (n=${higherRatedCompletions.length}).`,
+          headline: "Simpler recipes suit you (usually 6 ingredients or fewer).",
+          detail: mealsRatedDetail(higherRatedCompletions.length, true),
           recordCount: higherRatedCompletions.length,
+          takeaway: takeawayFor("ingredient-count", true),
         });
       }
 
@@ -274,9 +504,10 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
           cardsWorks.push({
             id: "cooking.prep-time.le30",
             category: "prep-time",
-            headline: "You tend to finish recipes that take 30 minutes or less.",
-            detail: `Based on average total time across higher-rated recipe completions (n=${totalTimeMinutesList.length}).`,
+            headline: "Quicker meals suit you (often under 30 minutes).",
+            detail: mealsRatedDetail(totalTimeMinutesList.length, true),
             recordCount: totalTimeMinutesList.length,
+            takeaway: takeawayFor("prep-time", true),
           });
         }
       }
@@ -294,9 +525,10 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         cardsWorks.push({
           id: `cooking.worked-tag.${topWorkedTag.key}`,
           category: "worked-tag",
-          headline: `“${topWorkedTag.key}” comes up often in what worked for you.`,
-          detail: `You’ve tagged this as working ${topWorkedTag.count} times in your recipe completions.`,
+          headline: `What you said helped: ${humanizeChipLabel(topWorkedTag.key)}`,
+          detail: `You chose this ${topWorkedTag.count} time${topWorkedTag.count === 1 ? "" : "s"} when finishing a recipe in this period.`,
           recordCount: topWorkedTag.count,
+          takeaway: takeawayFor("worked-tag", true),
         });
       }
 
@@ -305,7 +537,7 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         const recipeGraph = parseRecipeGraph(completion.recipe.graph);
         for (const ingredient of ingredientNodes(recipeGraph)) {
           const normalizedLabel = normalizeIngredientLabel(ingredient.label);
-          if (!normalizedLabel) continue;
+          if (!normalizedLabel || !isUsableIngredientInsightLabel(normalizedLabel)) continue;
           ingredientCounts.set(
             normalizedLabel,
             (ingredientCounts.get(normalizedLabel) ?? 0) + 1,
@@ -316,9 +548,10 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         cardsWorks.push({
           id: `cooking.ingredient-affinity.${topIngredient.key}`,
           category: "ingredient-affinity",
-          headline: `“${topIngredient.key}” shows up often in recipes you rate highly.`,
-          detail: `Counted across your higher-rated recipe completions.`,
+          headline: `Often in meals you loved: ${titleCaseWords(topIngredient.key)}`,
+          detail: ingredientAppearedDetail(topIngredient.key, topIngredient.count, true),
           recordCount: topIngredient.count,
+          takeaway: takeawayFor("ingredient-affinity", true),
         });
       }
 
@@ -341,9 +574,10 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         cardsWorks.push({
           id: `cooking.time-cluster.${weekdayIndex}.${timeOfDayLabel}`,
           category: "time-of-week",
-          headline: `Many of your recipe completions land on ${WEEK_DAY_NAMES[weekdayIndex]} ${timeOfDayLabel}.`,
-          detail: `This pattern appears in ${busiestDayTimeBucket.count} of your recipe completions.`,
+          headline: `You often cook on ${WEEK_DAY_NAMES[weekdayIndex]} ${humanizeChipLabel(timeOfDayLabel)}.`,
+          detail: `${busiestDayTimeBucket.count} of your rated completions in this period were at that time.`,
           recordCount: busiestDayTimeBucket.count,
+          takeaway: takeawayFor("time-of-week", true),
         });
       }
 
@@ -386,9 +620,10 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         cardsWorks.push({
           id: `cooking.flavour.${topFlavorSignature.key}`,
           category: "flavour",
-          headline: `Certain flavour profiles show up often in recipes you rate highly.`,
-          detail: `“${topFlavorSignature.key}” appears in ${topFlavorSignature.count} of your higher-rated completions.`,
+          headline: `Flavours you enjoy: ${humanizeFlavorSignature(topFlavorSignature.key)}`,
+          detail: mealsRatedDetail(topFlavorSignature.count, true),
           recordCount: topFlavorSignature.count,
+          takeaway: takeawayFor("flavour", true),
         });
       }
 
@@ -410,9 +645,10 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         cardsWorks.push({
           id: `cooking.method.${topHighRatingMethod.key}.works`,
           category: "cooking-method",
-          headline: `Recipes involving “${topHighRatingMethod.key}” show up often in your higher ratings.`,
-          detail: `Based on tags inferred from your recipe steps.`,
+          headline: `Cooking style that suits you: ${humanizeChipLabel(topHighRatingMethod.key)}`,
+          detail: `Found in ${topHighRatingMethod.count} highly rated meal${topHighRatingMethod.count === 1 ? "" : "s"} from your recipe steps.`,
           recordCount: topHighRatingMethod.count,
+          takeaway: takeawayFor("cooking-method", true),
         });
       }
     }
@@ -432,9 +668,10 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         cardsDoesnt.push({
           id: "cooking.ingredient-count.ge10",
           category: "ingredient-count",
-          headline: "Recipes with 10 or more ingredients often rate lower for you.",
-          detail: `Drawn from your lower-rated recipe completions (n=${lowerRatedCompletions.length}).`,
+          headline: "Big shopping lists are harder (10+ ingredients).",
+          detail: mealsRatedDetail(lowerRatedCompletions.length, false),
           recordCount: lowerRatedCompletions.length,
+          takeaway: takeawayFor("ingredient-count", false),
         });
       }
 
@@ -449,9 +686,10 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
           cardsDoesnt.push({
             id: "cooking.prep-time.ge60",
             category: "prep-time",
-            headline: "Longer recipes often rate lower for you.",
-            detail: `Based on average total time across lower-rated recipe completions (n=${lowerRatedTimeMinutesList.length}).`,
+            headline: "Long cooks are harder (often over 60 minutes).",
+            detail: mealsRatedDetail(lowerRatedTimeMinutesList.length, false),
             recordCount: lowerRatedTimeMinutesList.length,
+            takeaway: takeawayFor("prep-time", false),
           });
         }
       }
@@ -471,9 +709,10 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         cardsDoesnt.push({
           id: `cooking.didnt-work-tag.${topDidntWorkTag.key}`,
           category: "didnt-work-tag",
-          headline: `“${topDidntWorkTag.key}” comes up often in what didn’t work for you.`,
-          detail: `You’ve tagged this ${topDidntWorkTag.count} times in your recipe completions.`,
+          headline: `What you said didn’t help: ${humanizeChipLabel(topDidntWorkTag.key)}`,
+          detail: `You chose this ${topDidntWorkTag.count} time${topDidntWorkTag.count === 1 ? "" : "s"} when finishing a recipe in this period.`,
           recordCount: topDidntWorkTag.count,
+          takeaway: takeawayFor("didnt-work-tag", false),
         });
       }
 
@@ -482,7 +721,7 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         const recipeGraph = parseRecipeGraph(completion.recipe.graph);
         for (const ingredient of ingredientNodes(recipeGraph)) {
           const normalizedLabel = normalizeIngredientLabel(ingredient.label);
-          if (!normalizedLabel) continue;
+          if (!normalizedLabel || !isUsableIngredientInsightLabel(normalizedLabel)) continue;
           lowerRatedIngredientCounts.set(
             normalizedLabel,
             (lowerRatedIngredientCounts.get(normalizedLabel) ?? 0) + 1,
@@ -496,29 +735,41 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
         cardsDoesnt.push({
           id: `cooking.ingredient-avoid.${topLowerRatedIngredient.key}`,
           category: "ingredient-affinity",
-          headline: `“${topLowerRatedIngredient.key}” shows up often in recipes you rate lower.`,
-          detail: `Counted across your lower-rated recipe completions.`,
+          headline: `Often in meals you found harder: ${titleCaseWords(topLowerRatedIngredient.key)}`,
+          detail: ingredientAppearedDetail(
+            topLowerRatedIngredient.key,
+            topLowerRatedIngredient.count,
+            false,
+          ),
           recordCount: topLowerRatedIngredient.count,
+          takeaway: takeawayFor("ingredient-affinity", false),
         });
       }
     }
 
     const filterDismissedCards = (cards: InsightCard[]) =>
       cards.filter((card) => !dismissedCardIds.has(card.id));
-    cooking.works = clampTopN(filterDismissedCards(cardsWorks), TOP_INSIGHT_CARDS);
-    cooking.doesntWork = clampTopN(filterDismissedCards(cardsDoesnt), TOP_INSIGHT_CARDS);
+    cooking.works = selectDiverseInsightCards(
+      filterDismissedCards(cardsWorks),
+      TOP_INSIGHT_CARDS,
+    );
+    cooking.doesntWork = selectDiverseInsightCards(
+      filterDismissedCards(cardsDoesnt),
+      TOP_INSIGHT_CARDS,
+    );
   }
 
-  const dining = { works: [] as InsightCard[] };
+  const dining = { works: [] as InsightCard[], doesntWork: [] as InsightCard[] };
   if (diningEnabled) {
     const restaurantReviewsInRange = await restaurantDatabase.restaurantReviewFindMany({
       where: { userId, createdAt: { gte: rangeFromInclusive, lt: rangeToExclusive } },
       orderBy: { createdAt: "desc" },
-      take: REVIEW_FETCH_LIMIT,
+      take: reviewTake,
       include: { place: true },
     });
 
-    const diningInsightCards: InsightCard[] = [];
+    const diningWorksCards: InsightCard[] = [];
+    const diningDoesntCards: InsightCard[] = [];
 
     const sensoryDimensions: Array<{
       key: "noise" | "music" | "light" | "crowds" | "smells";
@@ -548,12 +799,14 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
       .sort((first, second) => second.correlation - first.correlation);
     for (const sensoryCorrelation of sensoryCorrelationRows.slice(0, 2)) {
       if (sensoryCorrelation.correlation < SENSORY_MIN_CORRELATION) continue;
-      diningInsightCards.push({
+      const dimLabel = humanizeChipLabel(sensoryCorrelation.label);
+      diningWorksCards.push({
         id: `dining.sensory.${sensoryCorrelation.key}`,
         category: "sensory-match",
-        headline: `You tend to rate places higher when ${sensoryCorrelation.label} is lower.`,
-        detail: `This card is based on patterns across your restaurant reviews.`,
+        headline: `Calmer ${dimLabel} suits you when dining out.`,
+        detail: `Across ${restaurantReviewsInRange.length} review${restaurantReviewsInRange.length === 1 ? "" : "s"} in this period, higher scores line up with lower ${dimLabel}.`,
         recordCount: restaurantReviewsInRange.length,
+        takeaway: takeawayFor("sensory-match", true),
       });
     }
 
@@ -567,12 +820,13 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
     }
     const topCuisine = countTopN(cuisineCounts, 1)[0];
     if (topCuisine && topCuisine.count >= CUISINE_REPEAT_THRESHOLD) {
-      diningInsightCards.push({
+      diningWorksCards.push({
         id: `dining.cuisine.${topCuisine.key}`,
         category: "cuisine",
-        headline: `You often rate ${topCuisine.key} places highly.`,
-        detail: `Based on ${topCuisine.count} reviews with higher overall ratings.`,
+        headline: `Cuisine you enjoy: ${titleCaseWords(topCuisine.key)}`,
+        detail: cuisineAppearedDetail(topCuisine.key, topCuisine.count, true),
         recordCount: topCuisine.count,
+        takeaway: takeawayFor("cuisine", true),
       });
     }
 
@@ -595,22 +849,82 @@ export async function buildInsightsPayload(request: InsightsRequest): Promise<In
       (timeBucket) => timeBucket.count >= TIME_BUCKET_REPEAT_THRESHOLD,
     );
     if (topPreferredTimeSlots.length) {
-      const combinedTimeLabels = topPreferredTimeSlots.map((timeBucket) => timeBucket.key).join(" and ");
+      const combinedTimeLabels = topPreferredTimeSlots
+        .map((timeBucket) => humanizeChipLabel(timeBucket.key))
+        .join(" and ");
       const totalBestTimeSelections = topPreferredTimeSlots.reduce(
         (runningTotal, timeBucket) => runningTotal + timeBucket.count,
         0,
       );
-      diningInsightCards.push({
+      diningWorksCards.push({
         id: `dining.best-windows.${topPreferredTimeSlots.map((timeBucket) => timeBucket.key).join("+")}`,
         category: "best-windows",
-        headline: `You often choose ${combinedTimeLabels} as a good time to go.`,
-        detail: `Based on what you’ve picked in your reviews.`,
+        headline: `Good times to go out: ${combinedTimeLabels}`,
+        detail: `You picked these as best times in ${totalBestTimeSelections} review${totalBestTimeSelections === 1 ? "" : "s"} in this period.`,
         recordCount: totalBestTimeSelections,
+        takeaway: takeawayFor("best-windows", true),
       });
     }
 
-    dining.works = clampTopN(
-      diningInsightCards.filter((card) => !dismissedCardIds.has(card.id)),
+    const lowRatedReviews = restaurantReviewsInRange.filter(
+      (review) => Number(review.overallRating) <= MAX_LOW_RATING,
+    );
+    if (lowRatedReviews.length >= DINING_NEGATIVE_MIN_REVIEWS) {
+      const inverseSensoryRows = sensoryDimensions
+        .map((dimension) => {
+          const stressValues = restaurantReviewsInRange.map(
+            (review) =>
+              Number((review as unknown as Record<string, number>)[`${dimension.key}Rating`] ?? 0),
+          );
+          return {
+            key: dimension.key,
+            label: dimension.label,
+            correlation: pearson(stressValues, overallRatings),
+            sampleSize: stressValues.length,
+          };
+        })
+        .filter((row) => row.sampleSize >= SENSORY_MIN_SAMPLE_SIZE)
+        .sort((first, second) => first.correlation - second.correlation);
+      for (const row of inverseSensoryRows.slice(0, 2)) {
+        if (row.correlation > -SENSORY_MIN_CORRELATION) continue;
+        const dimLabel = humanizeChipLabel(row.label);
+        diningDoesntCards.push({
+          id: `dining.negsensory.${row.key}`,
+          category: "sensory-mismatch",
+          headline: `Higher ${dimLabel} can make dining harder for you.`,
+          detail: `Across ${restaurantReviewsInRange.length} review${restaurantReviewsInRange.length === 1 ? "" : "s"} in this period, lower scores line up with higher ${dimLabel}.`,
+          recordCount: restaurantReviewsInRange.length,
+          takeaway: takeawayFor("sensory-mismatch", false),
+        });
+      }
+
+      const lowCuisineCounts = new Map<string, number>();
+      for (const review of lowRatedReviews) {
+        const cuisineLabel = (review.place.cuisine ?? "").trim();
+        if (!cuisineLabel) continue;
+        lowCuisineCounts.set(cuisineLabel, (lowCuisineCounts.get(cuisineLabel) ?? 0) + 1);
+      }
+      const topLowCuisine = countTopN(lowCuisineCounts, 1)[0];
+      if (topLowCuisine && topLowCuisine.count >= CUISINE_REPEAT_THRESHOLD) {
+        diningDoesntCards.push({
+          id: `dining.low-cuisine.${topLowCuisine.key}`,
+          category: "cuisine-mismatch",
+          headline: `Cuisine that’s been harder: ${titleCaseWords(topLowCuisine.key)}`,
+          detail: cuisineAppearedDetail(topLowCuisine.key, topLowCuisine.count, false),
+          recordCount: topLowCuisine.count,
+          takeaway: takeawayFor("cuisine-mismatch", false),
+        });
+      }
+    }
+
+    const filterDismissedDining = (cards: InsightCard[]) =>
+      cards.filter((card) => !dismissedCardIds.has(card.id));
+    dining.works = selectDiverseInsightCards(
+      filterDismissedDining(diningWorksCards),
+      TOP_INSIGHT_CARDS,
+    );
+    dining.doesntWork = selectDiverseInsightCards(
+      filterDismissedDining(diningDoesntCards),
       TOP_INSIGHT_CARDS,
     );
   }

@@ -56,7 +56,7 @@ const hasConflictWarnings = computed(() => {
 
 const profileMatchText = computed(() => {
   if (!conflicts.value?.hasProfile) return 'No profile linked yet. You can still cook this recipe.'
-  if (!hasConflictWarnings.value) return 'This recipe matches your sensory profile — all ingredients appear safe or sometimes OK.'
+  if (!hasConflictWarnings.value) return 'This recipe matches your food preferences — all ingredients appear safe or sometimes OK.'
   const conflict = conflicts.value
   const messages: string[] = []
   if (conflict.dietary.length) {
