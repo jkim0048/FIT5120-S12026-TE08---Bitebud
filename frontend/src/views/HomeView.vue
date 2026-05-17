@@ -14,17 +14,21 @@ function scrollToTop() {
     <section class="hero">
       <div class="hero-copy">
         <h1 class="h1">
-          Cooking,<br />
-          <span class="h1-sub">Made simple.</span>
+          Cooking and Dining,<br />
+          <span class="h1-sub">made simple.</span>
         </h1>
         <p class="lead">
-          BiteBud helps neurodiverse people find and prepare meals in a calm, simple way.
+          <strong class="lead-brand">BiteBud</strong> is for anyone who wants food to feel more predictable. We turn recipes into short, visual steps, help you capture dietary and
+          sensory needs, and surface dining options that match you when you eat out.
         </p>
         <div class="ctas">
-          <RouterLink to="/search" class="bb-btn bb-btn--primary cta">Let's Start Cooking</RouterLink>
-          <RouterLink to="/restaurants" class="bb-btn bb-btn--secondary cta">Let's dine out</RouterLink>
-          <RouterLink v-if="!isSignedIn" to="/auth" class="bb-btn bb-btn--secondary cta">Customise sensory profile</RouterLink>
-          <RouterLink v-else to="/sensory/setup" class="bb-btn bb-btn--secondary cta">Customise sensory profile</RouterLink>
+          <RouterLink
+            :to="isSignedIn ? '/start' : { path: '/auth', query: { redirect: '/start' } }"
+            class="bb-btn bb-btn--primary cta"
+          >
+            Let's get started
+          </RouterLink>
+          <RouterLink :to="{ name: 'aboutUs' }" class="bb-btn bb-btn--secondary cta">Learn more</RouterLink>
         </div>
       </div>
     </section>
@@ -32,18 +36,60 @@ function scrollToTop() {
     <section class="section section-soft">
       <div class="section-head">
         <div class="intro-head">
-          <h2 class="h2">Introducing BiteBud</h2>
+          <h2 class="h2">Explore what you can do with BiteBud</h2>
         </div>
         <p class="subhead">
-          BiteBud turns recipes into calm, step-by-step flows and helps you set up a sensory profile—so cooking feels more
-          predictable and comfortable.
+          Everything below is here to explain how BiteBud works. Open a tile for a quick peek—no pressure to remember it all before
+          you sign in.
         </p>
       </div>
 
+      <div class="intro-pillars" role="list">
+        <div class="pillar" role="listitem">
+          <span class="pillar-ico" aria-hidden="true">🌿</span>
+          <h3 class="pillar-title">Built around you</h3>
+          <p class="pillar-copy">Save ingredients that feel safe so searches and recipes respect your reality.</p>
+        </div>
+        <div class="pillar" role="listitem">
+          <span class="pillar-ico" aria-hidden="true">🍳</span>
+          <h3 class="pillar-title">Guided at home</h3>
+          <p class="pillar-copy">Browse or paste a recipe, then cook with a clear flow instead of juggling timers and long paragraphs.</p>
+        </div>
+        <div class="pillar" role="listitem">
+          <span class="pillar-ico" aria-hidden="true">🍽️</span>
+          <h3 class="pillar-title">Support when dining out</h3>
+          <p class="pillar-copy">Explore venues with sensory signals noise, light, crowds before you commit to going.</p>
+        </div>
+      </div>
+
+      <p class="explore-hint">Explore each area in more detail:</p>
+
       <div class="bento">
+        <details class="tile tile-green">
+          <summary class="tile-summary">
+            <h3 class="h3">Sensory</h3>
+            <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <p class="tile-copy">
+            Customise your food preferences and filter by dietary and cultural requirements.
+          </p>
+          <div class="tile-demo tile-demo--compact" aria-hidden="true">
+            <div class="demo-k">Example profile</div>
+            <div class="pill-grid">
+              <span class="pill-chip on">Vegan</span>
+              <span class="pill-chip">Halal</span>
+              <span class="pill-chip">No dairy</span>
+            </div>
+            <div class="warn-card">
+              <div class="warn-title">We’ll flag conflicts</div>
+              <div class="warn-title">So you are aware exactly what you should watch out for</div>
+            </div>
+          </div>
+        </details>
+
         <details class="tile tile-wide">
           <summary class="tile-summary">
-            <h3 class="h3">Visual Recipe Flow</h3>
+            <h3 class="h3">Visualise</h3>
             <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
           </summary>
           <p class="tile-copy">
@@ -78,6 +124,29 @@ function scrollToTop() {
           </div>
         </details>
 
+        <details class="tile tile-dark">
+          <summary class="tile-summary">
+            <h3 class="h3">Guided</h3>
+            <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <p class="tile-copy">
+            Cook with one clear step at a time. Track progress, stay oriented, and move at your pace.
+          </p>
+          <div class="tile-demo tile-demo--dark tile-demo--compact" aria-hidden="true">
+            <div class="step-demo">
+              <div class="step-badge">Step 2 of 5</div>
+              <div class="step-line">
+                <span class="emo">🍳</span>
+                <span class="txt">Heat pan on low</span>
+              </div>
+              <div class="progress">
+                <div class="bar" />
+              </div>
+              <div class="step-hint">One calm instruction at a time.</div>
+            </div>
+          </div>
+        </details>
+
         <details class="tile tile-softblue">
           <summary class="tile-summary">
             <h3 class="h3">Find sensory‑friendly restaurants</h3>
@@ -108,6 +177,52 @@ function scrollToTop() {
                 <span class="rest-badge">Light</span>
                 <span class="rest-badge">Crowds</span>
                 <span class="rest-badge">Smells</span>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="tile tile-profile">
+          <summary class="tile-summary">
+            <h3 class="h3">My progress &amp; my insights</h3>
+            <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <p class="tile-copy">
+            See what you have cooked and reviewed over time, then spot gentle patterns—what tends to work at home and
+            when dining out—so the next choice feels a little clearer.
+          </p>
+          <div class="tile-demo tile-demo--compact" aria-hidden="true">
+            <div class="profile-bento-demo">
+              <div class="profile-bento-panel profile-bento-panel--progress">
+                <div class="demo-k">My progress</div>
+                <div class="progress-mini-stats">
+                  <div class="progress-mini-stat">
+                    <span class="progress-mini-value">12</span>
+                    <span class="progress-mini-label">Recipes</span>
+                  </div>
+                  <div class="progress-mini-stat">
+                    <span class="progress-mini-value">5</span>
+                    <span class="progress-mini-label">Reviews</span>
+                  </div>
+                  <div class="progress-mini-stat">
+                    <span class="progress-mini-value">8</span>
+                    <span class="progress-mini-label">Active days</span>
+                  </div>
+                </div>
+                <div class="progress-mini-calendar" aria-hidden="true">
+                  <span v-for="day in 14" :key="day" class="progress-mini-day" :class="{ on: day % 3 !== 0 }" />
+                </div>
+              </div>
+              <div class="profile-bento-panel profile-bento-panel--insights">
+                <div class="demo-k">My insights</div>
+                <div class="insight-mini-card">
+                  <span class="insight-mini-tag">Cooking</span>
+                  <p class="insight-mini-headline">One-pan meals show up often in your wins</p>
+                </div>
+                <div class="insight-mini-card insight-mini-card--soft">
+                  <span class="insight-mini-tag">Dining</span>
+                  <p class="insight-mini-headline">Quieter lunch slots match your reviews</p>
+                </div>
               </div>
             </div>
           </div>
@@ -153,51 +268,6 @@ function scrollToTop() {
             </div>
           </div>
         </details>
-
-        <details class="tile tile-green">
-          <summary class="tile-summary">
-            <h3 class="h3">Sensory Profiling</h3>
-            <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
-          </summary>
-          <p class="tile-copy">
-            Customise your sensory profile and filter by dietary and cultural requirements.
-          </p>
-          <div class="tile-demo tile-demo--compact" aria-hidden="true">
-            <div class="demo-k">Example profile</div>
-            <div class="pill-grid">
-              <span class="pill-chip on">Vegan</span>
-              <span class="pill-chip">Halal</span>
-              <span class="pill-chip">No dairy</span>
-            </div>
-            <div class="warn-card">
-              <div class="warn-title">We’ll flag conflicts</div>
-              <div class="warn-title">So you are aware exactly what you should watch out for</div>
-            </div>
-          </div>
-        </details>
-
-        <details class="tile tile-dark">
-          <summary class="tile-summary">
-            <h3 class="h3">Guided cooking</h3>
-            <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
-          </summary>
-          <p class="tile-copy">
-            Cook with one clear step at a time. Track progress, stay oriented, and move at your pace.
-          </p>
-          <div class="tile-demo tile-demo--dark tile-demo--compact" aria-hidden="true">
-            <div class="step-demo">
-              <div class="step-badge">Step 2 of 5</div>
-              <div class="step-line">
-                <span class="emo">🍳</span>
-                <span class="txt">Heat pan on low</span>
-              </div>
-              <div class="progress">
-                <div class="bar" />
-              </div>
-              <div class="step-hint">One calm instruction at a time.</div>
-            </div>
-          </div>
-        </details>
       </div>
     </section>
 
@@ -224,6 +294,24 @@ function scrollToTop() {
 .hero-copy {
   min-width: 0;
 }
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0;
+  font-family: var(--bb-font-label);
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--bb-accent);
+}
+.hero-mark {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
 .badge {
   display: inline-flex;
   align-items: center;
@@ -246,26 +334,63 @@ function scrollToTop() {
   letter-spacing: -0.04em;
   color: var(--bb-primary);
 }
+.hero-eyebrow ~ .h1 {
+  margin-top: 0.65rem;
+}
 .h1-sub {
   color: var(--bb-primary-container);
 }
 .lead {
   margin: 0;
-  max-width: 38rem;
+  max-width: 40rem;
   color: var(--bb-muted);
-  font-size: 1.1rem;
-  line-height: 1.7;
+  font-size: 1.05rem;
+  line-height: 1.75;
+}
+.lead-brand {
+  color: var(--bb-text);
+  font-weight: 800;
+  font-family: var(--bb-font-headline);
+}
+.hero-points {
+  margin: 1.15rem 0 0;
+  padding: 0;
+  list-style: none;
+  max-width: 40rem;
+  display: grid;
+  gap: 0.45rem;
+}
+.hero-points li {
+  position: relative;
+  padding-left: 1.35rem;
+  font-size: 0.98rem;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--bb-text) 88%, var(--bb-muted));
+}
+.hero-points li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--bb-primary);
+  opacity: 0.85;
 }
 .ctas {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 1rem;
   margin-top: 1.25rem;
 }
 .cta {
-  padding: 0.85rem 1.15rem;
+  padding: 1.15rem 2rem;
+  min-height: 3.25rem;
   font-family: var(--bb-font-headline);
-  font-weight: 700;
+  font-size: 1.15rem;
+  font-weight: 800;
+  border-radius: 999px;
 }
 
 .section {
@@ -307,6 +432,51 @@ function scrollToTop() {
   line-height: 1.7;
 }
 
+.intro-pillars {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin: 1.35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.pillar {
+  background: var(--bb-surface-lowest);
+  border-radius: 14px;
+  padding: 1rem 1rem 1.05rem;
+  border: 1px solid color-mix(in srgb, var(--bb-border) 70%, transparent);
+  box-shadow: 0 8px 24px rgba(26, 28, 25, 0.04);
+}
+.pillar-ico {
+  display: block;
+  font-size: 1.35rem;
+  line-height: 1;
+  margin-bottom: 0.45rem;
+}
+.pillar-title {
+  margin: 0 0 0.35rem;
+  font-family: var(--bb-font-headline);
+  font-weight: 800;
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+  color: var(--bb-primary);
+}
+.pillar-copy {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--bb-muted);
+}
+.explore-hint {
+  margin: 1.25rem 0 0.35rem;
+  font-family: var(--bb-font-label);
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--bb-muted) 92%, transparent);
+}
+
 .bento {
   max-width: 68rem;
   margin: 0 auto;
@@ -345,6 +515,16 @@ function scrollToTop() {
 }
 .tile-peach {
   background: color-mix(in srgb, var(--bb-accent) 18%, var(--bb-surface-lowest));
+}
+.tile-profile {
+  background: color-mix(in srgb, #b89ac8 42%, var(--bb-surface-lowest));
+  color: color-mix(in srgb, #3d2a4a 88%, var(--bb-primary));
+}
+.tile-profile .tile-copy {
+  color: color-mix(in srgb, #3d2a4a 72%, var(--bb-muted));
+}
+.tile-profile .demo-k {
+  color: color-mix(in srgb, #5c4370 75%, var(--bb-muted));
 }
 .tile:not(.tile-wide):not(.tile-green):not(.tile-dark) {
   /* default tile */
@@ -594,6 +774,96 @@ function scrollToTop() {
   opacity: 0.9;
 }
 
+/* My progress & insights demo */
+.profile-bento-demo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+.profile-bento-panel {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.65rem 0.7rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  min-width: 0;
+}
+.progress-mini-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+.progress-mini-stat {
+  text-align: center;
+  padding: 0.35rem 0.2rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+}
+.progress-mini-value {
+  display: block;
+  font-family: var(--bb-font-headline);
+  font-weight: 900;
+  font-size: 1rem;
+  line-height: 1.1;
+  color: var(--bb-primary);
+}
+.progress-mini-label {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.58rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--bb-muted) 90%, transparent);
+}
+.progress-mini-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.2rem;
+}
+.progress-mini-day {
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.35);
+}
+.progress-mini-day.on {
+  background: color-mix(in srgb, #9f7bb3 55%, #b89ac8);
+}
+.insight-mini-card {
+  padding: 0.5rem 0.55rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+.insight-mini-card--soft {
+  opacity: 0.92;
+}
+.insight-mini-tag {
+  display: inline-flex;
+  padding: 0.18rem 0.4rem;
+  border-radius: 999px;
+  font-family: var(--bb-font-label);
+  font-weight: 850;
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: color-mix(in srgb, #9f7bb3 25%, white);
+  color: color-mix(in srgb, #5c4370 90%, var(--bb-primary));
+}
+.insight-mini-headline {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.35;
+  color: color-mix(in srgb, #3d2a4a 85%, var(--bb-text));
+}
+
+@media (max-width: 980px) {
+  .profile-bento-demo {
+    grid-template-columns: 1fr;
+  }
+}
 
 /* Guided cooking demo */
 .tile-demo--dark {
@@ -732,15 +1002,21 @@ function scrollToTop() {
     grid-template-columns: 1fr;
     gap: 1.75rem;
   }
+  .intro-pillars {
+    grid-template-columns: 1fr;
+  }
   .ctas {
     width: 100%;
     flex-direction: column;
     align-items: center;
   }
   .ctas .bb-btn {
-    width: min(60%, 22rem);
+    width: min(92%, 28rem);
     justify-content: center;
     text-align: center;
+    padding: 1.15rem 1.75rem;
+    min-height: 3.25rem;
+    font-size: 1.15rem;
   }
   .bento {
     grid-template-columns: 1fr;
@@ -759,6 +1035,16 @@ function scrollToTop() {
     text-align: center;
     max-width: 56rem;
     margin: 0 auto;
+  }
+  .hero-eyebrow {
+    justify-content: center;
+  }
+  .hero-points {
+    margin-left: auto;
+    margin-right: auto;
+    text-align: left;
+    width: fit-content;
+    max-width: 100%;
   }
   .badge {
     margin-left: auto;

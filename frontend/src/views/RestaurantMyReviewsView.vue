@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { getBiteBudUserId } from '../composables/useUserId'
 import { apiFetch } from '../lib/api'
 
@@ -72,6 +72,9 @@ onMounted(() => {
 
 <template>
   <section class="page">
+    <p class="page-back">
+      <RouterLink class="page-back-link" :to="{ name: 'restaurantSearch' }">Back to restaurant search</RouterLink>
+    </p>
     <header class="hero">
       <h1>My restaurant reviews</h1>
       <p class="hint">Your saved ratings and best-time tags.</p>
@@ -107,6 +110,18 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.page-back {
+  margin: 0;
+}
+.page-back-link {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--bb-accent);
+  text-decoration: none;
+}
+.page-back-link:hover {
+  text-decoration: underline;
+}
 .page { max-width: 60rem; margin: 0 auto; padding: 1rem; display: grid; gap: 0.75rem; }
 .hero h1 { margin: 0; color: var(--bb-primary); font-family: var(--bb-font-headline); }
 .hint { margin: 0; color: var(--bb-muted); }

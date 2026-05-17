@@ -43,6 +43,16 @@ export type LocationSuggestion = {
   areaSearch: string
 }
 
+export type PlaceSuggestion = {
+  id: string
+  name: string
+  subtitle: string | null
+  source: 'bitebud' | 'nominatim'
+  latitude: number
+  longitude: number
+  nominatimPlaceId?: string
+}
+
 export type RestaurantDetails = {
   place: {
     id: string
@@ -86,16 +96,17 @@ export type RestaurantDetails = {
 }
 
 function withUserHeaders(init?: RequestInit): RequestInit {
-  const uid = getBiteBudUserId()
+  const userId = getBiteBudUserId()
   return {
     ...init,
     headers: {
       ...(init?.headers ?? {}),
-      ...(uid ? { 'X-User-Id': uid } : {}),
+      ...(userId ? { 'X-User-Id': userId } : {}),
     },
   }
 }
 
+/** Search restaurants by text + optional location filters, merging BiteBud places with Nominatim hits. */
 export async function searchRestaurants(params: {
   q?: string
   lat?: number
@@ -110,6 +121,7 @@ export async function searchRestaurants(params: {
   return apiFetch(`/api/restaurants/search?${search.toString()}`, withUserHeaders())
 }
 
+/** Autocomplete suggestions for the location box; returns suggestions ordered by relevance. */
 export async function suggestRestaurantLocations(
   q: string,
   limit = 8,
@@ -118,6 +130,41 @@ export async function suggestRestaurantLocations(
   return apiFetch(`/api/restaurants/location-suggest?${search.toString()}`, withUserHeaders())
 }
 
+/** Autocomplete suggestions for restaurant/cuisine names, optionally scoped to an area. */
+export async function suggestRestaurantPlaces(params: {
+  q: string
+  lat?: number
+  lon?: number
+  suburb?: string
+  limit?: number
+}): Promise<{ suggestions: PlaceSuggestion[]; warning?: { code: string; error: string } }> {
+  const search = new URLSearchParams({ q: params.q, limit: String(params.limit ?? 8) })
+  if (typeof params.lat === 'number') search.set('lat', String(params.lat))
+  if (typeof params.lon === 'number') search.set('lon', String(params.lon))
+  if (params.suburb) search.set('suburb', params.suburb)
+  return apiFetch(`/api/restaurants/place-suggest?${search.toString()}`, withUserHeaders())
+}
+
+/** Unified area + restaurant suggestions for one search bar. */
+export async function suggestRestaurantUnified(params: {
+  q: string
+  lat?: number
+  lon?: number
+  suburb?: string
+  limit?: number
+}): Promise<{
+  areas: LocationSuggestion[]
+  places: PlaceSuggestion[]
+  warning?: { code: string; error: string }
+}> {
+  const search = new URLSearchParams({ q: params.q, limit: String(params.limit ?? 8) })
+  if (typeof params.lat === 'number') search.set('lat', String(params.lat))
+  if (typeof params.lon === 'number') search.set('lon', String(params.lon))
+  if (params.suburb) search.set('suburb', params.suburb)
+  return apiFetch(`/api/restaurants/search-suggest?${search.toString()}`, withUserHeaders())
+}
+
+/** Upsert a BiteBud restaurant record from a Nominatim selection so users can rate it locally. */
 export async function createRestaurantFromNominatim(payload: {
   nominatimPlaceId: string
   osmType?: string
@@ -134,10 +181,12 @@ export async function createRestaurantFromNominatim(payload: {
   return apiFetch('/api/restaurants/from-nominatim', withUserHeaders({ method: 'POST', body: JSON.stringify(payload) }))
 }
 
+/** Fetch the full details payload (place + summary + favourite + reviews) for a restaurant. */
 export async function fetchRestaurantDetails(placeId: string): Promise<RestaurantDetails> {
   return apiFetch(`/api/restaurants/${placeId}/details`, withUserHeaders())
 }
 
+/** Submit the user's 5-axis comfort rating for a restaurant; returns the new/updated review id. */
 export async function submitRestaurantRating(
   placeId: string,
   payload: {
@@ -155,6 +204,7 @@ export async function submitRestaurantRating(
   )
 }
 
+/** Fetch a single review by id (for the active user) including the best-time arrays. */
 export async function fetchRestaurantReviewRating(reviewId: string): Promise<{
   reviewId: string
   placeId: string
@@ -171,6 +221,7 @@ export async function fetchRestaurantReviewRating(reviewId: string): Promise<{
   return apiFetch(`/api/restaurants/reviews/${reviewId}`, withUserHeaders())
 }
 
+/** Update the best-time arrays (meal blocks / time-of-day / days-of-week) on an existing review. */
 export async function patchRestaurantBestTime(
   reviewId: string,
   payload: { bestMealBlocks: string[]; bestTimesOfDay: string[]; bestDaysOfWeek: string[] },
@@ -181,6 +232,7 @@ export async function patchRestaurantBestTime(
   )
 }
 
+/** Add a restaurant to the user's favourites list. */
 export async function favoriteRestaurant(placeId: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/restaurants/${placeId}/favorite`, withUserHeaders({ method: 'POST' }))
 }

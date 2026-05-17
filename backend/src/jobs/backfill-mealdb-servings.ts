@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { prisma } from "../prisma.js";
-import { lookupMealById, mealToRecipeText, type MealDbMeal } from "../services/themealdb.js";
+import { lookupMealById, mealToRecipeText, MEALDB_MAX_INGREDIENT_SLOTS, type MealDbMeal } from "../services/themealdb.js";
 
 type MealDbRow = {
   mealdb_id: string;
@@ -26,9 +26,9 @@ function asInt(v: unknown): number | null {
 
 function ingredientCount(meal: MealDbMeal): number {
   let count = 0;
-  for (let i = 1; i <= 20; i++) {
-    const ing = String((meal as Record<string, unknown>)[`strIngredient${i}`] ?? "").trim();
-    if (ing) count += 1;
+  for (let ingredientSlot = 1; ingredientSlot <= MEALDB_MAX_INGREDIENT_SLOTS; ingredientSlot++) {
+    const ingredient = String((meal as Record<string, unknown>)[`strIngredient${ingredientSlot}`] ?? "").trim();
+    if (ingredient) count += 1;
   }
   return count;
 }
@@ -55,9 +55,9 @@ function parseServingsFromText(meal: MealDbMeal): number | null {
   const title = String(meal.strMeal ?? "");
   const instructions = String(meal.strInstructions ?? "");
   const measures: string[] = [];
-  for (let i = 1; i <= 20; i++) {
-    const m = String((meal as Record<string, unknown>)[`strMeasure${i}`] ?? "").trim();
-    if (m) measures.push(m);
+  for (let ingredientSlot = 1; ingredientSlot <= MEALDB_MAX_INGREDIENT_SLOTS; ingredientSlot++) {
+    const measure = String((meal as Record<string, unknown>)[`strMeasure${ingredientSlot}`] ?? "").trim();
+    if (measure) measures.push(measure);
   }
   const blob = `${title}\n${instructions}\n${measures.join("\n")}`.toLowerCase();
   const patterns = [
