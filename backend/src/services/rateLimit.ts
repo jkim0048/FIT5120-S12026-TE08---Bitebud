@@ -12,6 +12,7 @@ type Bucket = { windowStart: number; count: number };
 // Note: in a multi-instance deployment you’d want Redis/Upstash/etc so limits are shared.
 const buckets = new Map<string, Bucket>();
 
+/** Compose the in-memory bucket key from route prefix and client IP. */
 function rateLimitKey(req: FastifyRequest, prefix: string): string {
   // Rate limit is intentionally keyed by IP (not user id) to prevent easy header spoofing.
   const identity = req.ip || "unknown";

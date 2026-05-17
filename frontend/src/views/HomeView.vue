@@ -182,6 +182,52 @@ function scrollToTop() {
           </div>
         </details>
 
+        <details class="tile tile-profile">
+          <summary class="tile-summary">
+            <h3 class="h3">My progress &amp; my insights</h3>
+            <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <p class="tile-copy">
+            See what you have cooked and reviewed over time, then spot gentle patterns—what tends to work at home and
+            when dining out—so the next choice feels a little clearer.
+          </p>
+          <div class="tile-demo tile-demo--compact" aria-hidden="true">
+            <div class="profile-bento-demo">
+              <div class="profile-bento-panel profile-bento-panel--progress">
+                <div class="demo-k">My progress</div>
+                <div class="progress-mini-stats">
+                  <div class="progress-mini-stat">
+                    <span class="progress-mini-value">12</span>
+                    <span class="progress-mini-label">Recipes</span>
+                  </div>
+                  <div class="progress-mini-stat">
+                    <span class="progress-mini-value">5</span>
+                    <span class="progress-mini-label">Reviews</span>
+                  </div>
+                  <div class="progress-mini-stat">
+                    <span class="progress-mini-value">8</span>
+                    <span class="progress-mini-label">Active days</span>
+                  </div>
+                </div>
+                <div class="progress-mini-calendar" aria-hidden="true">
+                  <span v-for="day in 14" :key="day" class="progress-mini-day" :class="{ on: day % 3 !== 0 }" />
+                </div>
+              </div>
+              <div class="profile-bento-panel profile-bento-panel--insights">
+                <div class="demo-k">My insights</div>
+                <div class="insight-mini-card">
+                  <span class="insight-mini-tag">Cooking</span>
+                  <p class="insight-mini-headline">One-pan meals show up often in your wins</p>
+                </div>
+                <div class="insight-mini-card insight-mini-card--soft">
+                  <span class="insight-mini-tag">Dining</span>
+                  <p class="insight-mini-headline">Quieter lunch slots match your reviews</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+
         <details class="tile tile-peach">
           <summary class="tile-summary">
             <h3 class="h3">Adjust your recipe to your sensory preferences</h3>
@@ -335,13 +381,16 @@ function scrollToTop() {
 .ctas {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 1rem;
   margin-top: 1.25rem;
 }
 .cta {
-  padding: 0.85rem 1.15rem;
+  padding: 1.15rem 2rem;
+  min-height: 3.25rem;
   font-family: var(--bb-font-headline);
-  font-weight: 700;
+  font-size: 1.15rem;
+  font-weight: 800;
+  border-radius: 999px;
 }
 
 .section {
@@ -466,6 +515,16 @@ function scrollToTop() {
 }
 .tile-peach {
   background: color-mix(in srgb, var(--bb-accent) 18%, var(--bb-surface-lowest));
+}
+.tile-profile {
+  background: color-mix(in srgb, #b89ac8 42%, var(--bb-surface-lowest));
+  color: color-mix(in srgb, #3d2a4a 88%, var(--bb-primary));
+}
+.tile-profile .tile-copy {
+  color: color-mix(in srgb, #3d2a4a 72%, var(--bb-muted));
+}
+.tile-profile .demo-k {
+  color: color-mix(in srgb, #5c4370 75%, var(--bb-muted));
 }
 .tile:not(.tile-wide):not(.tile-green):not(.tile-dark) {
   /* default tile */
@@ -715,6 +774,96 @@ function scrollToTop() {
   opacity: 0.9;
 }
 
+/* My progress & insights demo */
+.profile-bento-demo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+.profile-bento-panel {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.65rem 0.7rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  min-width: 0;
+}
+.progress-mini-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+.progress-mini-stat {
+  text-align: center;
+  padding: 0.35rem 0.2rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+}
+.progress-mini-value {
+  display: block;
+  font-family: var(--bb-font-headline);
+  font-weight: 900;
+  font-size: 1rem;
+  line-height: 1.1;
+  color: var(--bb-primary);
+}
+.progress-mini-label {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.58rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--bb-muted) 90%, transparent);
+}
+.progress-mini-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.2rem;
+}
+.progress-mini-day {
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.35);
+}
+.progress-mini-day.on {
+  background: color-mix(in srgb, #9f7bb3 55%, #b89ac8);
+}
+.insight-mini-card {
+  padding: 0.5rem 0.55rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+.insight-mini-card--soft {
+  opacity: 0.92;
+}
+.insight-mini-tag {
+  display: inline-flex;
+  padding: 0.18rem 0.4rem;
+  border-radius: 999px;
+  font-family: var(--bb-font-label);
+  font-weight: 850;
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: color-mix(in srgb, #9f7bb3 25%, white);
+  color: color-mix(in srgb, #5c4370 90%, var(--bb-primary));
+}
+.insight-mini-headline {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.35;
+  color: color-mix(in srgb, #3d2a4a 85%, var(--bb-text));
+}
+
+@media (max-width: 980px) {
+  .profile-bento-demo {
+    grid-template-columns: 1fr;
+  }
+}
 
 /* Guided cooking demo */
 .tile-demo--dark {
@@ -862,9 +1011,12 @@ function scrollToTop() {
     align-items: center;
   }
   .ctas .bb-btn {
-    width: min(60%, 22rem);
+    width: min(92%, 28rem);
     justify-content: center;
     text-align: center;
+    padding: 1.15rem 1.75rem;
+    min-height: 3.25rem;
+    font-size: 1.15rem;
   }
   .bento {
     grid-template-columns: 1fr;

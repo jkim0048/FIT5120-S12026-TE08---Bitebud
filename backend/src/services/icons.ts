@@ -331,6 +331,7 @@ function iconIdFromUrl(url: string): string {
   return base.replace(/\.[a-z0-9]+$/i, "").replace(/[^a-z0-9_-]/gi, "-");
 }
 
+/** True when a scraped `<img alt>` is the generic Wicked landing-page label rather than a food name. */
 function isGenericWickedAltLabel(alt: string): boolean {
   const a = alt.trim().toLowerCase();
   if (!a) return true;

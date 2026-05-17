@@ -39,7 +39,7 @@ export function mealIngredientLines(meal: MealDbMeal): string[] {
   return lines;
 }
 
-/** Looser normalization for cross-source matching (ingredient names, labels), used for substring contains checks. */
+/** Lowercase alphanumeric normalization for substring matching across MealDB ingredient names and graph labels. */
 function normalizeLoose(value: string): string {
   return value
     .toLowerCase()
@@ -48,14 +48,14 @@ function normalizeLoose(value: string): string {
     .trim();
 }
 
-/** Build the canonical TheMealDB ingredient image URL for a raw ingredient name. */
+/** Public TheMealDB `-Small.png` URL for a given ingredient display name. */
 function mealDbIngredientImageUrl(name: string): string {
   // TheMealDB ingredient images use this pattern.
   // Example: https://www.themealdb.com/images/ingredients/Smoked%20Salmon-Small.png
   return `https://www.themealdb.com/images/ingredients/${encodeURIComponent(name.trim())}-Small.png`;
 }
 
-/** Fetch JSON from a TheMealDB endpoint, throwing a readable error on non-2xx responses. */
+/** GET helper for TheMealDB JSON endpoints; throws when the response is not OK. */
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {

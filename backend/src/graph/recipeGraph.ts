@@ -46,8 +46,11 @@ export const recipeGraphSchema = z.object({
   edges: z.array(recipeEdgeSchema),
 });
 
+/** Validated recipe DAG plus display metadata (title, timing, hero image). */
 export type RecipeGraph = z.infer<typeof recipeGraphSchema>;
+/** A single step or ingredient node in a recipe DAG. */
 export type RecipeNode = z.infer<typeof recipeNodeSchema>;
+/** Directed dependency between two recipe DAG nodes. */
 export type RecipeEdge = z.infer<typeof recipeEdgeSchema>;
 
 /** Parse and validate an arbitrary value as a `RecipeGraph`; throws a `ZodError` on bad shape. */

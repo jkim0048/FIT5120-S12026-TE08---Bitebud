@@ -23,16 +23,23 @@ const sensoryRoute = computed(() => ({
 
     <div class="choices" role="group" aria-label="Profile actions">
       <RouterLink class="choice bb-btn bb-btn--primary" :to="sensoryRoute">Update my food preferences</RouterLink>
-      <RouterLink class="choice choice--secondary bb-btn bb-btn--secondary" :to="{ name: 'myProgress' }">
-        See my activity
-      </RouterLink>
-      <RouterLink
-        v-if="showInsightsLink"
-        class="choice choice--secondary bb-btn bb-btn--secondary"
-        :to="{ name: 'myInsights' }"
-      >
-        See my patterns
-      </RouterLink>
+      <div class="choice-block">
+        <RouterLink class="choice choice--secondary bb-btn bb-btn--secondary" :to="{ name: 'myProgress' }">
+          See my activity
+        </RouterLink>
+        <p class="choice-hint">
+          Discover your food activity.
+        </p>
+      </div>
+
+      <div v-if="showInsightsLink" class="choice-block">
+        <RouterLink class="choice choice--profile bb-btn" :to="{ name: 'myInsights' }">
+          See my patterns
+        </RouterLink>
+        <p class="choice-hint">
+          Discover what tends to work best for you when cooking at home or dining out.
+        </p>
+      </div>
     </div>
 
     <p class="footer-nav">
@@ -72,7 +79,20 @@ const sensoryRoute = computed(() => ({
 .choices {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 1.1rem;
+}
+.choice-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.choice-hint {
+  margin: 0;
+  padding: 0 0.35rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--bb-muted);
+  text-align: center;
 }
 .choice {
   width: 100%;
@@ -87,6 +107,16 @@ const sensoryRoute = computed(() => ({
 }
 .choice--secondary {
   border-width: 2px;
+}
+.choice--profile {
+  background: #b89ac8;
+  border: 2px solid transparent;
+  color: #fff;
+}
+.choice--profile:hover {
+  background: #9f7bb3;
+  border-color: transparent;
+  color: #fff;
 }
 .footer-nav {
   margin-top: auto;

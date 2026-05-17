@@ -92,7 +92,6 @@ async function exportProfilePdf(): Promise<void> {
     exportError.value = 'Sign in and load your profile first.'
     return
   }
-
   exportBusy.value = true
   try {
     const now = new Date()
@@ -148,11 +147,6 @@ async function submitProfile(): Promise<void> {
 
 <template>
   <div class="page">
-    <div class="top-row">
-      <a class="link" href="#" @click.prevent="router.push({ name: 'sensorySetup' })">← Back</a>
-      <RouterLink to="/sensory/setup" class="link">Edit →</RouterLink>
-    </div>
-
     <div class="title-row">
       <h1 class="h1">📋 Your food preferences</h1>
     </div>
@@ -164,10 +158,7 @@ async function submitProfile(): Promise<void> {
     <div v-else class="stack">
       <!-- Textures -->
       <section class="section-card">
-        <div class="section-head">
-          <h2 class="h2">Challenging textures</h2>
-          <RouterLink to="/sensory/setup" class="section-edit">Edit</RouterLink>
-        </div>
+        <h2 class="h2 section-title">Challenging textures</h2>
         <p class="summary-line">
           You have chosen {{ unsafeTextures.length }} texture type{{
             unsafeTextures.length === 1 ? '' : 's'
@@ -186,10 +177,7 @@ async function submitProfile(): Promise<void> {
 
       <!-- Dietary -->
       <section class="section-card">
-        <div class="section-head">
-          <h2 class="h2">Dietary &amp; Cultural Restrictions</h2>
-          <RouterLink to="/sensory/setup" class="section-edit">Edit</RouterLink>
-        </div>
+        <h2 class="h2 section-title">Dietary &amp; Cultural Restrictions</h2>
         <p class="summary-line">
           You have chosen {{ dietaryCulturalCount }} dietary or cultural restriction{{
             dietaryCulturalCount === 1 ? '' : 's'
@@ -207,15 +195,12 @@ async function submitProfile(): Promise<void> {
 
       <!-- Food safety -->
       <section class="section-card">
-        <div class="section-head">
-          <h2 class="h2">Food Safety Tags</h2>
-          <RouterLink to="/sensory/setup" class="section-edit">Edit</RouterLink>
-        </div>
+        <h2 class="h2 section-title">Food Safety Tags</h2>
         <p class="summary-line">
           You have tagged {{ foodItems.length }} food{{ foodItems.length === 1 ? '' : 's' }} on your safety list.
         </p>
         <p class="food-lib-note">
-          Each tag uses a Wicked ingredient icon from your profile (same library as recipe steps).
+          Each tag uses an ingredient icon from your profile (same library as recipe steps).
         </p>
         <div v-if="foodItems.length" class="food-grid">
           <div v-for="f in foodItems" :key="f.id" class="food-row">
@@ -231,7 +216,6 @@ async function submitProfile(): Promise<void> {
             </div>
             <div class="food-meta">
               <span class="food-name">{{ f.name }}</span>
-              <span class="food-sub">Wicked food icon</span>
             </div>
             <span :class="statusPillClass(f.status)">{{ statusLabel(f.status) }}</span>
           </div>
@@ -241,19 +225,27 @@ async function submitProfile(): Promise<void> {
 
       <p v-if="submitError || exportError" class="err" role="alert">{{ exportError || submitError }}</p>
 
+      <p v-if="!hasExportableProfile" class="export-hint">
+        To export a PDF, add at least one challenging texture, dietary or cultural need, or food safety tag.
+      </p>
+
       <div class="footer-actions">
         <RouterLink to="/sensory/setup" class="bb-btn bb-btn--secondary footer-btn">Edit preferences</RouterLink>
         <button
-          v-if="hasExportableProfile"
           type="button"
           class="bb-btn bb-btn--secondary footer-btn"
-          :disabled="exportBusy || profileLoading"
+          :disabled="exportBusy || profileLoading || !hasExportableProfile"
+          :title="
+            hasExportableProfile
+              ? undefined
+              : 'Add at least one challenging texture, dietary or cultural need, or food safety tag to export.'
+          "
           @click="exportProfilePdf"
         >
           {{ exportBusy ? 'Exporting…' : 'Export to PDF' }}
         </button>
         <button type="button" class="bb-btn bb-btn--primary footer-btn" :disabled="submitBusy" @click="submitProfile">
-          {{ submitBusy ? 'Saving…' : 'Submit' }}
+          {{ submitBusy ? 'Starting…' : "Let's start" }}
         </button>
       </div>
     </div>
@@ -268,18 +260,8 @@ async function submitProfile(): Promise<void> {
   background: #f3f4f2;
   min-height: 100%;
 }
-.top-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.link {
-  color: var(--bb-primary);
-  text-decoration: none;
-  font-weight: 700;
-}
 .title-row {
-  margin-top: 0.6rem;
+  margin-top: 0;
 }
 .h1 {
   margin: 0;
@@ -305,23 +287,13 @@ async function submitProfile(): Promise<void> {
   border-radius: 14px;
   padding: 1rem 1rem 1.1rem;
 }
-.section-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.5rem;
-  margin-bottom: 0.35rem;
-}
 .h2 {
   margin: 0;
   font-size: 1.05rem;
   color: var(--bb-primary);
 }
-.section-edit {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--bb-accent);
-  text-decoration: none;
+.section-title {
+  margin-bottom: 0.35rem;
 }
 .summary-line {
   margin: 0 0 0.75rem;
@@ -421,10 +393,6 @@ async function submitProfile(): Promise<void> {
   font-size: 0.95rem;
   color: var(--bb-primary);
 }
-.food-sub {
-  font-size: 0.75rem;
-  color: var(--bb-muted);
-}
 .pill {
   font-size: 0.68rem;
   font-weight: 800;
@@ -462,5 +430,11 @@ async function submitProfile(): Promise<void> {
   color: #b91c1c;
   font-size: 0.9rem;
   margin: 0;
+}
+.export-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.88rem;
+  color: var(--bb-muted);
+  line-height: 1.45;
 }
 </style>

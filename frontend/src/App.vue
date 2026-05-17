@@ -105,6 +105,7 @@ watch(
 watch(
   () => route.fullPath,
   () => {
+    closeNavDropdowns()
     if (isSignedIn.value && userId.value) void loadNavMotivationSummary()
   },
 )
@@ -162,7 +163,12 @@ watchEffect(() => {
             <span class="brand-text">BiteBud</span>
           </RouterLink>
         </div>
-        <nav v-if="isSignedIn" class="primary-nav" aria-label="Primary">
+        <nav v-if="!isSignedIn" class="primary-nav primary-nav--guest" aria-label="Primary">
+          <RouterLink to="/">Home</RouterLink>
+          <RouterLink :to="{ name: 'aboutUs' }">Learn more</RouterLink>
+          <RouterLink to="/settings">Settings</RouterLink>
+        </nav>
+        <nav v-else class="primary-nav" aria-label="Primary">
           <RouterLink to="/">Home</RouterLink>
           <RouterLink :to="{ name: 'aboutUs' }">Learn more</RouterLink>
 
@@ -222,11 +228,25 @@ watchEffect(() => {
     </main>
 
     <div
+      v-if="toast.state.value.visible && toast.state.value.placement === 'center'"
+      class="gentle-toast-backdrop gentle-toast-backdrop--visible"
+      :class="{ 'gentle-toast-backdrop--no-motion': toast.noMotion.value }"
+      aria-hidden="true"
+      @click="toast.dismiss()"
+    />
+    <div
       class="gentle-toast"
-      :class="[{ 'gentle-toast--visible': toast.state.value.visible }, { 'gentle-toast--no-motion': toast.noMotion.value }]"
+      :class="[
+        { 'gentle-toast--visible': toast.state.value.visible },
+        { 'gentle-toast--center': toast.state.value.placement === 'center' },
+        { 'gentle-toast--no-motion': toast.noMotion.value },
+      ]"
       role="status"
       aria-live="polite"
       aria-atomic="true"
+      :aria-hidden="!toast.state.value.visible"
+      title="Tap to dismiss"
+      @click="toast.dismiss()"
     >
       <span class="gentle-toast__glyph" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -237,6 +257,7 @@ watchEffect(() => {
         </svg>
       </span>
       <span class="gentle-toast__text">{{ toast.state.value.message }}</span>
+      <span v-if="toast.state.value.placement === 'center'" class="gentle-toast__hint">Tap anywhere to dismiss</span>
     </div>
   </div>
 </template>
@@ -422,22 +443,41 @@ watchEffect(() => {
   }
   .primary-nav {
     width: 100%;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    flex-wrap: wrap;
+    align-items: flex-start;
     gap: 0.85rem 1rem;
     padding-bottom: 0.25rem;
+    overflow: visible;
   }
   .primary-nav > a,
-  .nav-dropdown,
   .nav-signout,
   .nav-user-cluster {
     white-space: nowrap;
     flex: 0 0 auto;
   }
+  .nav-dropdown {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+  .nav-dropdown[open] {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .nav-dropdown__summary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0.35rem 0.5rem;
+    touch-action: manipulation;
+  }
   .nav-dropdown__panel {
+    position: static;
     left: auto;
-    right: 0;
+    right: auto;
+    width: 100%;
+    min-width: 0;
+    margin-top: 0.35rem;
+    box-shadow: none;
   }
 }
 
@@ -496,8 +536,51 @@ watchEffect(() => {
 }
 .gentle-toast--visible {
   opacity: 1;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.gentle-toast--center {
+  top: 50%;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.65rem;
+  padding: 1.35rem 1.6rem;
+  border-radius: 18px;
+  max-width: min(400px, calc(100vw - 32px));
+  border-width: 2px;
+  background: var(--bb-surface-highest);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.28);
+  z-index: 81;
+}
+.gentle-toast--center .gentle-toast__glyph svg {
+  width: 32px;
+  height: 32px;
+}
+.gentle-toast--center .gentle-toast__text {
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.35;
 }
 .gentle-toast--no-motion {
+  transition: none;
+}
+.gentle-toast-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.42);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+.gentle-toast-backdrop--visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.gentle-toast-backdrop--no-motion {
   transition: none;
 }
 .gentle-toast__glyph {
@@ -508,6 +591,11 @@ watchEffect(() => {
   color: var(--bb-text);
   font-size: 0.95rem;
   line-height: 1.3;
+}
+.gentle-toast__hint {
+  color: var(--bb-text-muted, #64748b);
+  font-size: 0.82rem;
+  line-height: 1.2;
 }
 
 @media (max-width: 640px) {
@@ -530,8 +618,7 @@ watchEffect(() => {
     justify-content: flex-start;
     gap: 0.85rem 1rem;
   }
-  .primary-nav > a,
-  .nav-dropdown__summary {
+  .primary-nav > a {
     font-size: 0.95rem;
     padding: 0.35rem 0;
   }

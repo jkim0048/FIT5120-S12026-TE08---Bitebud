@@ -8,8 +8,10 @@ import { prisma } from "../prisma.js";
  * Prisma's typed API cannot express that in a single round-trip without a `$queryRaw`.
  */
 
+/** One Melbourne-local calendar day with any recipe or dining activity. */
 export type ActivityDayRow = { day: string };
 
+/** 30-day and all-time completion/review counts from a single SQL query. */
 export type ActivityTotalsRow = {
   completions_30: bigint;
   reviews_30: bigint;
@@ -17,23 +19,27 @@ export type ActivityTotalsRow = {
   reviews_ever: bigint;
 };
 
+/** Per-day recipe completions and restaurant reviews inside a date window. */
 export type DailyActivityAggregateRow = {
   day: string;
   recipes: bigint;
   dining: bigint;
 };
 
+/** Totals for recipe completions and reviews in one date window. */
 export type ActivityBreakdownRow = {
   recipes: bigint;
   dining: bigint;
 };
 
+/** Per ISO week (Melbourne-local) recipe and dining counts. */
 export type WeeklyActivityAggregateRow = {
   week_start: string;
   recipes: bigint;
   dining: bigint;
 };
 
+/** Distinct active days, total reviews, and first activity date for a user. */
 export type LifetimeStatsRow = {
   cooking_days_total: bigint;
   dining_days_total: bigint;
@@ -41,12 +47,14 @@ export type LifetimeStatsRow = {
   first_activity_day: string | null;
 };
 
+/** Current Melbourne week: distinct cooking days and dining review count. */
 export type ThisWeekStatsRow = {
   week_start: string;
   cooking_days: bigint;
   dining_reviews: bigint;
 };
 
+/** Per-day recipe and dining counts within one calendar month. */
 export type MonthActivityRow = {
   day: string;
   recipes: bigint;
