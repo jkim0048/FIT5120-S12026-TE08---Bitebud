@@ -10,7 +10,6 @@ const nodeTypes = z.enum([
 ]);
 const edgeTypes = z.enum(["requires", "uses"]);
 
-/** Zod schema for a single node in a recipe DAG (ingredient, prep, cook, wait, assemble, serve). */
 export const recipeNodeSchema = z.object({
   id: z.string(),
   type: nodeTypes,
@@ -27,14 +26,12 @@ export const recipeNodeSchema = z.object({
   imageUrl: z.string().optional(),
 });
 
-/** Zod schema for a directed edge between two recipe DAG nodes (`requires` or `uses`). */
 export const recipeEdgeSchema = z.object({
   source: z.string(),
   target: z.string(),
   type: edgeTypes,
 });
 
-/** Zod schema for the full recipe graph (title, metadata, nodes, edges). */
 export const recipeGraphSchema = z.object({
   id: z.string().optional(),
   title: z.string(),
@@ -46,42 +43,37 @@ export const recipeGraphSchema = z.object({
   edges: z.array(recipeEdgeSchema),
 });
 
-/** Validated recipe DAG plus display metadata (title, timing, hero image). */
 export type RecipeGraph = z.infer<typeof recipeGraphSchema>;
-/** A single step or ingredient node in a recipe DAG. */
 export type RecipeNode = z.infer<typeof recipeNodeSchema>;
-/** Directed dependency between two recipe DAG nodes. */
 export type RecipeEdge = z.infer<typeof recipeEdgeSchema>;
 
-/** Parse and validate an arbitrary value as a `RecipeGraph`; throws a `ZodError` on bad shape. */
 export function parseRecipeGraph(input: unknown): RecipeGraph {
   return recipeGraphSchema.parse(input);
 }
 
-/** Throw if the recipe graph references missing nodes or contains a directed cycle. */
 export function validateDag(graph: RecipeGraph): void {
-  const nodeIds = new Set(graph.nodes.map((node) => node.id));
-  for (const edge of graph.edges) {
-    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
+  const nodeIds = new Set(graph.nodes.map((n) => n.id));
+  for (const e of graph.edges) {
+    if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) {
       throw new Error(
-        `Invalid edge: missing node for ${edge.source} -> ${edge.target}`,
+        `Invalid edge: missing node for ${e.source} -> ${e.target}`,
       );
     }
   }
-  const adjacency = new Map<string, string[]>();
-  for (const nodeId of nodeIds) adjacency.set(nodeId, []);
-  for (const edge of graph.edges) {
-    adjacency.get(edge.source)!.push(edge.target);
+  const adj = new Map<string, string[]>();
+  for (const id of nodeIds) adj.set(id, []);
+  for (const e of graph.edges) {
+    adj.get(e.source)!.push(e.target);
   }
-  const visitState = new Map<string, "visiting" | "done">();
-  function visit(nodeId: string): void {
-    if (visitState.get(nodeId) === "visiting") throw new Error("Graph contains a cycle");
-    if (visitState.get(nodeId) === "done") return;
-    visitState.set(nodeId, "visiting");
-    for (const neighbour of adjacency.get(nodeId) ?? []) visit(neighbour);
-    visitState.set(nodeId, "done");
+  const state = new Map<string, "visiting" | "done">();
+  function visit(u: string): void {
+    if (state.get(u) === "visiting") throw new Error("Graph contains a cycle");
+    if (state.get(u) === "done") return;
+    state.set(u, "visiting");
+    for (const v of adj.get(u) ?? []) visit(v);
+    state.set(u, "done");
   }
-  for (const nodeId of nodeIds) {
-    if (!visitState.has(nodeId)) visit(nodeId);
+  for (const id of nodeIds) {
+    if (!state.has(id)) visit(id);
   }
 }

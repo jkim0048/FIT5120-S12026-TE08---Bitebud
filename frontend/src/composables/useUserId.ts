@@ -1,92 +1,32 @@
-const STORAGE_KEY = 'bitebud_user_id'
+const KEY = 'bitebud_user_id'
 
-const USER_ID_REGEX = /^[A-Z0-9]{3}$/
+const ID_RE = /^[A-Z0-9]{3}$/
 
-/** Normalise a raw user-id string to canonical form (uppercase, 3 alphanumerics); returns null if invalid. */
+/** Uppercase A–Z and 0–9, length 3. */
 export function normalizeBiteBudUserId(raw: string): string | null {
-  const normalized = raw.trim().toUpperCase()
-  return USER_ID_REGEX.test(normalized) ? normalized : null
+  const u = raw.trim().toUpperCase()
+  return ID_RE.test(u) ? u : null
 }
 
-function readSessionUserRaw(): string | null {
-  try {
-    return sessionStorage.getItem(STORAGE_KEY)
-  } catch {
-    return null
-  }
-}
-
-function readLocalUserRaw(): string | null {
-  try {
-    return localStorage.getItem(STORAGE_KEY)
-  } catch {
-    return null
-  }
-}
-
-/**
- * Session is stored in sessionStorage so a normal refresh keeps the user signed in,
- * while closing the tab or browser clears the id. Legacy values in localStorage are migrated once.
- */
 export function getBiteBudUserId(): string | null {
-  const rawSession = readSessionUserRaw()
-  if (rawSession != null && rawSession !== '') {
-    const normalized = normalizeBiteBudUserId(rawSession)
-    if (normalized) return normalized
-    try {
-      sessionStorage.removeItem(STORAGE_KEY)
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const rawLocal = readLocalUserRaw()
-  if (rawLocal == null || rawLocal === '') return null
-  const normalized = normalizeBiteBudUserId(rawLocal)
-  if (!normalized) {
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      /* ignore */
-    }
-    return null
-  }
-  try {
-    sessionStorage.setItem(STORAGE_KEY, normalized)
-    localStorage.removeItem(STORAGE_KEY)
-  } catch {
-    /* ignore */
-  }
-  return normalized
+  const raw = localStorage.getItem(KEY)
+  if (raw == null || raw === '') return null
+  const normalized = normalizeBiteBudUserId(raw)
+  if (normalized) return normalized
+  localStorage.removeItem(KEY)
+  return null
 }
 
-/** Persist the BiteBud user id after validating it; throws on invalid input. */
 export function setBiteBudUserId(id: string): void {
-  const normalized = normalizeBiteBudUserId(id)
-  if (!normalized) throw new Error('Invalid user id')
-  try {
-    sessionStorage.setItem(STORAGE_KEY, normalized)
-    localStorage.removeItem(STORAGE_KEY)
-  } catch {
-    throw new Error('Could not save session')
-  }
+  const n = normalizeBiteBudUserId(id)
+  if (!n) throw new Error('Invalid user id')
+  localStorage.setItem(KEY, n)
 }
 
-/** Remove the stored BiteBud user id from session and legacy local storage. */
 export function clearBiteBudUserId(): void {
-  try {
-    sessionStorage.removeItem(STORAGE_KEY)
-  } catch {
-    /* ignore */
-  }
-  try {
-    localStorage.removeItem(STORAGE_KEY)
-  } catch {
-    /* ignore */
-  }
+  localStorage.removeItem(KEY)
 }
 
-/** Composable returning the current BiteBud user id, or empty string when none is stored. */
 export function useUserId(): { userId: string } {
   return { userId: getBiteBudUserId() ?? '' }
 }

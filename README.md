@@ -21,8 +21,7 @@ From the repo root:
   - `npm install --prefix frontend`
 
 - **Environment**
-  - Copy [`.env.example`](.env.example) to `.env` in the repo root (used by backend scripts via `dotenv -e ../.env ...`).
-  - Apply DB migrations (includes Epic 7 motivation tables): `npm run prisma:deploy --prefix backend`
+  - Create a root env file: `.env` (used by backend scripts via `dotenv -e ../.env ...`).
   - Minimum backend vars commonly used:
     - `DATABASE_URL`
     - `DIRECT_URL`

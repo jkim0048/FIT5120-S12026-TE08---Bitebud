@@ -1,7 +1,6 @@
-import { iconCatalogDatabase } from "../database/iconCatalogDatabase.js";
+import { prisma } from "../prisma.js";
 import type { RecipeGraph } from "../graph/recipeGraph.js";
 
-/** Canonical source URL for the Wicked food icon catalog (used as the default ingest target). */
 export const DEFAULT_WICKED_SOURCE = "https://food.getwicked.app/";
 
 const PREP_WORDS_RX =
@@ -52,7 +51,7 @@ function normalizeForWickedIndex(value: string): string {
 async function getWickedNameIndex(): Promise<WickedNameIndex> {
   if (!wickedNameIndexPromise) {
     wickedNameIndexPromise = (async () => {
-      const rows = await iconCatalogDatabase.wickedIconFindMany({
+      const rows = await prisma.wickedIcon.findMany({
         select: { id: true, name: true },
       });
       const byNormalizedName = new Map<string, string>();
@@ -82,7 +81,7 @@ function tokensFromNormalized(value: string): string[] {
 async function getWickedTokenIndex(): Promise<WickedTokenIndex> {
   if (!wickedTokenIndexPromise) {
     wickedTokenIndexPromise = (async () => {
-      const rows = await iconCatalogDatabase.wickedIconFindMany({ select: { id: true, name: true } });
+      const rows = await prisma.wickedIcon.findMany({ select: { id: true, name: true } });
       const tokenFreq = new Map<string, number>();
       const tokenUniverse = new Set<string>();
       const icons = rows.map((r) => {
@@ -331,7 +330,6 @@ function iconIdFromUrl(url: string): string {
   return base.replace(/\.[a-z0-9]+$/i, "").replace(/[^a-z0-9_-]/gi, "-");
 }
 
-/** True when a scraped `<img alt>` is the generic Wicked landing-page label rather than a food name. */
 function isGenericWickedAltLabel(alt: string): boolean {
   const a = alt.trim().toLowerCase();
   if (!a) return true;
@@ -378,7 +376,7 @@ export async function ingestWickedIcons(opts?: {
         asset = null;
       }
     }
-    await iconCatalogDatabase.wickedIconUpsert({
+    await prisma.wickedIcon.upsert({
       where: { id },
       create: {
         id,
@@ -410,7 +408,7 @@ async function fuzzyFindIconIdForKey(key: string): Promise<string | null> {
     .map((t) => t.trim())
     .filter((t) => t.length >= 3);
   for (const t of tries) {
-    const hit = await iconCatalogDatabase.wickedIconFindFirst({
+    const hit = await prisma.wickedIcon.findFirst({
       where: {
         OR: [
           { id: { contains: t.replace(/\s+/g, "-"), mode: "insensitive" } },
@@ -514,18 +512,18 @@ function editDistanceLevenshtein(a: string, b: string, max: number): number {
 
   const v0 = new Array<number>(b.length + 1);
   const v1 = new Array<number>(b.length + 1);
-  for (let columnIndex = 0; columnIndex <= b.length; columnIndex++) v0[columnIndex] = columnIndex;
+  for (let i = 0; i <= b.length; i++) v0[i] = i;
 
-  for (let sourceIndex = 0; sourceIndex < a.length; sourceIndex++) {
-    v1[0] = sourceIndex + 1;
+  for (let i = 0; i < a.length; i++) {
+    v1[0] = i + 1;
     let rowMin = v1[0];
-    for (let targetIndex = 0; targetIndex < b.length; targetIndex++) {
-      const cost = a[sourceIndex] === b[targetIndex] ? 0 : 1;
-      v1[targetIndex + 1] = Math.min(v1[targetIndex] + 1, v0[targetIndex + 1] + 1, v0[targetIndex] + cost);
-      if (v1[targetIndex + 1] < rowMin) rowMin = v1[targetIndex + 1];
+    for (let j = 0; j < b.length; j++) {
+      const cost = a[i] === b[j] ? 0 : 1;
+      v1[j + 1] = Math.min(v1[j] + 1, v0[j + 1] + 1, v0[j] + cost);
+      if (v1[j + 1] < rowMin) rowMin = v1[j + 1];
     }
     if (rowMin > max) return max + 1;
-    for (let columnIndex = 0; columnIndex <= b.length; columnIndex++) v0[columnIndex] = v1[columnIndex];
+    for (let j = 0; j <= b.length; j++) v0[j] = v1[j];
   }
   return v0[b.length];
 }
@@ -549,26 +547,26 @@ async function repairKeyTokensConservatively(key: string): Promise<string> {
     let best: { parts: string[]; score: number; tie: boolean } | null = null;
 
     // 2-part splits
-    for (let firstSplitAt = 2; firstSplitAt <= token.length - 2; firstSplitAt++) {
-      const firstPart = token.slice(0, firstSplitAt);
-      const secondPart = token.slice(firstSplitAt);
-      if (!idx.tokenUniverse.has(firstPart) || !idx.tokenUniverse.has(secondPart)) continue;
-      const score = (idx.tokenFreq.get(firstPart) ?? 0) + (idx.tokenFreq.get(secondPart) ?? 0);
-      if (!best || score > best.score) best = { parts: [firstPart, secondPart], score, tie: false };
+    for (let i = 2; i <= token.length - 2; i++) {
+      const a = token.slice(0, i);
+      const b = token.slice(i);
+      if (!idx.tokenUniverse.has(a) || !idx.tokenUniverse.has(b)) continue;
+      const score = (idx.tokenFreq.get(a) ?? 0) + (idx.tokenFreq.get(b) ?? 0);
+      if (!best || score > best.score) best = { parts: [a, b], score, tie: false };
       else if (score === best.score) best.tie = true;
     }
 
     // 3-part splits (bounded)
-    for (let firstSplitAt = 2; firstSplitAt <= token.length - 4; firstSplitAt++) {
-      const firstPart = token.slice(0, firstSplitAt);
-      if (!idx.tokenUniverse.has(firstPart)) continue;
-      for (let secondSplitAt = firstSplitAt + 2; secondSplitAt <= token.length - 2; secondSplitAt++) {
-        const secondPart = token.slice(firstSplitAt, secondSplitAt);
-        const thirdPart = token.slice(secondSplitAt);
-        if (!idx.tokenUniverse.has(secondPart) || !idx.tokenUniverse.has(thirdPart)) continue;
+    for (let i = 2; i <= token.length - 4; i++) {
+      const a = token.slice(0, i);
+      if (!idx.tokenUniverse.has(a)) continue;
+      for (let j = i + 2; j <= token.length - 2; j++) {
+        const b = token.slice(i, j);
+        const c = token.slice(j);
+        if (!idx.tokenUniverse.has(b) || !idx.tokenUniverse.has(c)) continue;
         const score =
-          (idx.tokenFreq.get(firstPart) ?? 0) + (idx.tokenFreq.get(secondPart) ?? 0) + (idx.tokenFreq.get(thirdPart) ?? 0);
-        if (!best || score > best.score) best = { parts: [firstPart, secondPart, thirdPart], score, tie: false };
+          (idx.tokenFreq.get(a) ?? 0) + (idx.tokenFreq.get(b) ?? 0) + (idx.tokenFreq.get(c) ?? 0);
+        if (!best || score > best.score) best = { parts: [a, b, c], score, tie: false };
         else if (score === best.score) best.tie = true;
       }
     }
@@ -688,12 +686,12 @@ export async function applyIconMappings(
   }
   const uniqueKeys = [...new Set(allKeys.filter(Boolean))];
   const [maps, overrides] = await Promise.all([
-    iconCatalogDatabase.ingredientIconMapFindMany({
+    prisma.ingredientIconMap.findMany({
       where: { ingredientKey: { in: uniqueKeys } },
       select: { ingredientKey: true, wickedIconId: true, emojiFallback: true },
     }),
     userId
-      ? iconCatalogDatabase.userIconOverrideFindMany({
+      ? prisma.userIconOverride.findMany({
           where: { userId, ingredientKey: { in: uniqueKeys } },
           select: { ingredientKey: true, wickedIconId: true, emojiFallback: true },
         })
@@ -714,7 +712,7 @@ export async function applyIconMappings(
         const emojiFallback = emojiFallbackForKey(key);
         inferredByKey.set(key, { wickedIconId: exact, emojiFallback });
         try {
-          await iconCatalogDatabase.ingredientIconMapUpsert({
+          await prisma.ingredientIconMap.upsert({
             where: { ingredientKey: key },
             create: { ingredientKey: key, wickedIconId: exact, emojiFallback },
             update: { wickedIconId: exact, emojiFallback },
@@ -748,7 +746,7 @@ export async function applyIconMappings(
         inferredByKey.set(key, { wickedIconId: iconId, emojiFallback });
         // Persist under the meaningful candidate key we actually used.
         try {
-          await iconCatalogDatabase.ingredientIconMapUpsert({
+          await prisma.ingredientIconMap.upsert({
             where: { ingredientKey: key },
             create: { ingredientKey: key, wickedIconId: iconId, emojiFallback },
             update: { wickedIconId: iconId, emojiFallback },

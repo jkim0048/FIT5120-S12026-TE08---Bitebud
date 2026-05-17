@@ -3,8 +3,8 @@ import { DIETARY_CULTURAL_CONSTRAINT_KEYWORDS } from "./dietaryConstraintKeyword
 import { INGREDIENT_TEXTURES, TEXTURE_VALUES, type TextureValue } from "./ingredientTextures.js";
 
 /** Normalize free-form food text for matching (lowercase, strip punctuation, collapse whitespace). */
-export function normalizeFoodText(rawText: string): string {
-  return rawText
+export function normalizeFoodText(s: string): string {
+  return s
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
@@ -12,12 +12,12 @@ export function normalizeFoodText(rawText: string): string {
 }
 
 /** Tokenize normalized food text into a de-duplicated set (drops 1-char tokens to reduce noise). */
-export function tokenSet(rawText: string): Set<string> {
-  const tokens = new Set<string>();
-  for (const word of normalizeFoodText(rawText).split(" ")) {
-    if (word.length > 1) tokens.add(word);
+export function tokenSet(s: string): Set<string> {
+  const t = new Set<string>();
+  for (const w of normalizeFoodText(s).split(" ")) {
+    if (w.length > 1) t.add(w);
   }
-  return tokens;
+  return t;
 }
 
 /** Heuristic: ingredient line matches a library food name (substring or shared token). */
@@ -26,14 +26,14 @@ export function ingredientMatchesFood(
   ingredientDetail: string,
   foodName: string,
 ): boolean {
-  const haystack = normalizeFoodText(`${ingredientLabel} ${ingredientDetail}`);
+  const hay = normalizeFoodText(`${ingredientLabel} ${ingredientDetail}`);
   const needle = normalizeFoodText(foodName);
-  if (!haystack || !needle) return false;
-  if (haystack.includes(needle) || needle.includes(haystack)) return true;
-  const ingredientTokens = tokenSet(`${ingredientLabel} ${ingredientDetail}`);
-  const foodTokens = tokenSet(foodName);
-  for (const token of foodTokens) {
-    if (token.length > 2 && ingredientTokens.has(token)) return true;
+  if (!hay || !needle) return false;
+  if (hay.includes(needle) || needle.includes(hay)) return true;
+  const a = tokenSet(`${ingredientLabel} ${ingredientDetail}`);
+  const b = tokenSet(foodName);
+  for (const tok of b) {
+    if (tok.length > 2 && a.has(tok)) return true;
   }
   return false;
 }
@@ -47,19 +47,17 @@ export function constraintMatchNeedles(constraint: string): string[] {
   const mapped =
     DIETARY_CULTURAL_CONSTRAINT_KEYWORDS[key] ??
     DIETARY_CULTURAL_CONSTRAINT_KEYWORDS[
-      Object.keys(DIETARY_CULTURAL_CONSTRAINT_KEYWORDS).find(
-        (mappingKey) => normalizeFoodText(mappingKey) === fallback,
-      ) ?? ""
+      Object.keys(DIETARY_CULTURAL_CONSTRAINT_KEYWORDS).find((k) => normalizeFoodText(k) === fallback) ?? ""
     ];
 
   if (mapped?.length) {
-    const needles = new Set<string>();
-    for (const keyword of mapped) {
-      const normalized = normalizeFoodText(keyword);
-      if (normalized.length >= 2) needles.add(normalized);
+    const set = new Set<string>();
+    for (const m of mapped) {
+      const n = normalizeFoodText(m);
+      if (n.length >= 2) set.add(n);
     }
-    if (fallback.length >= 2) needles.add(fallback);
-    return [...needles];
+    if (fallback.length >= 2) set.add(fallback);
+    return [...set];
   }
   return fallback.length >= 2 ? [fallback] : [];
 }
@@ -70,17 +68,17 @@ export function ingredientMatchesConstraint(
   ingredientDetail: string,
   constraint: string,
 ): boolean {
-  const haystack = normalizeFoodText(`${ingredientLabel} ${ingredientDetail}`);
-  if (!haystack) return false;
+  const hay = normalizeFoodText(`${ingredientLabel} ${ingredientDetail}`);
+  if (!hay) return false;
   for (const needle of constraintMatchNeedles(constraint)) {
-    if (haystack.includes(needle)) return true;
+    if (hay.includes(needle)) return true;
   }
   return false;
 }
 
 /** Return only the ingredient nodes from a parsed recipe graph. */
 export function recipeIngredientNodes(graph: RecipeGraph): RecipeNode[] {
-  return graph.nodes.filter((node) => node.type === "ingredient");
+  return graph.nodes.filter((n) => n.type === "ingredient");
 }
 
 const TEXTURE_UNSAFE_PREFIX = "unsafe:";
@@ -90,21 +88,16 @@ export type ProfileTextureValue = TextureValue | (typeof PROFILE_TEXTURE_EXTRAS)
 
 /** Decode stored texture prefs in the form `unsafe:<Texture>` into a de-duplicated list of allowed values. */
 export function decodeUnsafeTexturePrefs(prefs: unknown): ProfileTextureValue[] {
-  const unsafeTextures: ProfileTextureValue[] = [];
+  const out: ProfileTextureValue[] = [];
   const allowed = new Set<string>([...TEXTURE_VALUES, ...PROFILE_TEXTURE_EXTRAS]);
-  if (!Array.isArray(prefs)) return unsafeTextures;
-  for (const rawPref of prefs) {
-    if (typeof rawPref !== "string") continue;
-    if (!rawPref.startsWith(TEXTURE_UNSAFE_PREFIX)) continue;
-    const textureValue = rawPref.slice(TEXTURE_UNSAFE_PREFIX.length).trim();
-    if (
-      allowed.has(textureValue) &&
-      !unsafeTextures.includes(textureValue as ProfileTextureValue)
-    ) {
-      unsafeTextures.push(textureValue as ProfileTextureValue);
-    }
+  if (!Array.isArray(prefs)) return out;
+  for (const raw of prefs) {
+    if (typeof raw !== "string") continue;
+    if (!raw.startsWith(TEXTURE_UNSAFE_PREFIX)) continue;
+    const v = raw.slice(TEXTURE_UNSAFE_PREFIX.length).trim();
+    if (allowed.has(v) && !out.includes(v as ProfileTextureValue)) out.push(v as ProfileTextureValue);
   }
-  return unsafeTextures;
+  return out;
 }
 
 export type SensoryFoodConflict = {
@@ -137,30 +130,30 @@ export function computeTextureConflictsFromIngredientLines(
   lines: string[],
   unsafeTextures: readonly ProfileTextureValue[],
 ): TextureConflict[] {
-  const conflicts: TextureConflict[] = [];
-  if (!unsafeTextures.length || !lines.length) return conflicts;
+  const out: TextureConflict[] = [];
+  if (!unsafeTextures.length || !lines.length) return out;
 
   const unsafeSet = new Set<string>(unsafeTextures);
   const ingredientNames = Object.keys(INGREDIENT_TEXTURES);
-  for (const [lineIndex, lineRaw] of lines.entries()) {
-    const line = lineRaw ?? "";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
     if (!line.trim()) continue;
-    for (const ingredientName of ingredientNames) {
-      if (!ingredientMatchesFood(line, "", ingredientName)) continue;
-      const textures = INGREDIENT_TEXTURES[ingredientName] ?? [];
-      const matchedTexture = textures.find((texture) => unsafeSet.has(texture));
-      if (matchedTexture) {
-        conflicts.push({
-          nodeId: `ing-line-${lineIndex}`,
+    for (const ingName of ingredientNames) {
+      if (!ingredientMatchesFood(line, "", ingName)) continue;
+      const texes = INGREDIENT_TEXTURES[ingName] ?? [];
+      const matched = texes.find((t) => unsafeSet.has(t));
+      if (matched) {
+        out.push({
+          nodeId: `ing-line-${i}`,
           label: line,
-          matchedIngredient: ingredientName,
-          matchedTexture,
+          matchedIngredient: ingName,
+          matchedTexture: matched,
         });
       }
       break;
     }
   }
-  return conflicts;
+  return out;
 }
 
 /**
@@ -176,46 +169,40 @@ export function computeSensoryConflicts(
 ): { sensory: SensoryFoodConflict[]; dietary: DietaryConflict[] } {
   const sensory: SensoryFoodConflict[] = [];
   const dietary: DietaryConflict[] = [];
-  const watchList = foods
-    .filter((food) => food.status === "UNSAFE" || food.status === "UNSURE")
-    .sort(
-      (firstFood, secondFood) =>
-        (firstFood.status === "UNSAFE" ? 0 : 1) - (secondFood.status === "UNSAFE" ? 0 : 1),
-    );
+  const watch = foods
+    .filter((f) => f.status === "UNSAFE" || f.status === "UNSURE")
+    .sort((a, b) => (a.status === "UNSAFE" ? 0 : 1) - (b.status === "UNSAFE" ? 0 : 1));
 
   for (const node of recipeIngredientNodes(graph)) {
     const label = node.label ?? "";
     const detail = node.detail ?? "";
-    for (const food of watchList) {
-      if (ingredientMatchesFood(label, detail, food.name)) {
+    for (const f of watch) {
+      if (ingredientMatchesFood(label, detail, f.name)) {
         sensory.push({
           nodeId: node.id,
           label,
-          kind: food.status === "UNSAFE" ? "unsafe" : "unsure",
-          matchedFood: food.name,
+          kind: f.status === "UNSAFE" ? "unsafe" : "unsure",
+          matchedFood: f.name,
         });
         break;
       }
     }
-    for (const dietaryConstraint of dietaryNeeds) {
-      if (dietaryConstraint.trim() && ingredientMatchesConstraint(label, detail, dietaryConstraint)) {
+    for (const c of dietaryNeeds) {
+      if (c.trim() && ingredientMatchesConstraint(label, detail, c)) {
         dietary.push({
           nodeId: node.id,
           label,
-          constraint: dietaryConstraint,
+          constraint: c,
           kind: "dietary",
         });
       }
     }
-    for (const culturalConstraint of culturalRequirements) {
-      if (
-        culturalConstraint.trim() &&
-        ingredientMatchesConstraint(label, detail, culturalConstraint)
-      ) {
+    for (const c of culturalRequirements) {
+      if (c.trim() && ingredientMatchesConstraint(label, detail, c)) {
         dietary.push({
           nodeId: node.id,
           label,
-          constraint: culturalConstraint,
+          constraint: c,
           kind: "cultural",
         });
       }
@@ -231,8 +218,8 @@ export function matchStatusFromConflicts(
   dietary: DietaryConflict[],
   textures: TextureConflict[] = [],
 ): "safe" | "sometimes" | "unsafe" {
-  const hasUnsafeSensory = sensory.some((conflict) => conflict.kind === "unsafe");
-  const hasUnsureSensory = sensory.some((conflict) => conflict.kind === "unsure");
+  const hasUnsafeSensory = sensory.some((s) => s.kind === "unsafe");
+  const hasUnsureSensory = sensory.some((s) => s.kind === "unsure");
   const hasDietary = dietary.length > 0;
   const hasTexture = textures.length > 0;
   if (hasUnsafeSensory || hasDietary || hasTexture) return "unsafe";
@@ -246,23 +233,20 @@ export function profileWarningsFromConflicts(
   dietary: DietaryConflict[],
   textures: TextureConflict[] = [],
 ): string[] {
-  const warnings: string[] = [];
-  for (const dietaryConflict of dietary) {
-    const tag =
-      dietaryConflict.kind === "cultural"
-        ? `${dietaryConflict.constraint} (cultural)`
-        : dietaryConflict.constraint;
-    if (!warnings.includes(tag)) warnings.push(tag);
+  const out: string[] = [];
+  for (const d of dietary) {
+    const tag = d.kind === "cultural" ? `${d.constraint} (cultural)` : d.constraint;
+    if (!out.includes(tag)) out.push(tag);
   }
-  for (const sensoryConflict of sensory) {
-    const tag = `Food: ${sensoryConflict.matchedFood}`;
-    if (!warnings.includes(tag)) warnings.push(tag);
+  for (const s of sensory) {
+    const tag = `Food: ${s.matchedFood}`;
+    if (!out.includes(tag)) out.push(tag);
   }
-  for (const textureConflict of textures) {
-    const tag = `Texture: ${textureConflict.matchedTexture}`;
-    if (!warnings.includes(tag)) warnings.push(tag);
+  for (const t of textures) {
+    const tag = `Texture: ${t.matchedTexture}`;
+    if (!out.includes(tag)) out.push(tag);
   }
-  return warnings;
+  return out;
 }
 
 /** Profile check using plain ingredient lines (e.g. TheMealDB strIngredient + measure). */
@@ -272,8 +256,8 @@ export function computeSensoryConflictsFromIngredientLines(
   dietaryNeeds: string[],
   culturalRequirements: string[],
 ): { sensory: SensoryFoodConflict[]; dietary: DietaryConflict[] } {
-  const nodes: RecipeNode[] = lines.map((line, lineIndex) => ({
-    id: `ing-line-${lineIndex}`,
+  const nodes: RecipeNode[] = lines.map((line, i) => ({
+    id: `ing-line-${i}`,
     type: "ingredient",
     label: line,
     detail: "",

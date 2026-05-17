@@ -10,9 +10,8 @@ dotenv.config({ path: backendEnv });
 // and over backend/.env (dotenv default is not to override; we force override here).
 dotenv.config({ path: rootEnv, override: true });
 
-/** Read a required environment variable; throws if it's missing or whitespace-only. */
 export function requireEnv(name: string): string {
-  const rawValue = process.env[name];
-  if (!rawValue?.trim()) throw new Error(`Missing required env: ${name}`);
-  return rawValue.trim();
+  const v = process.env[name];
+  if (!v?.trim()) throw new Error(`Missing required env: ${name}`);
+  return v.trim();
 }

@@ -3,171 +3,140 @@ import { mealToRecipeText, type MealDbMeal } from "./themealdb.js";
 
 type MealRecipeText = ReturnType<typeof mealToRecipeText>;
 
-const INGREDIENT_LOOKAHEAD_LENGTH = 500;
-
 /** Start of real ingredient list — avoid nav links that contain the word "Ingredients". */
-function findRecipeIngredientSectionStart(text: string): number {
-  const methodMatch = /\b(?:Ad\s+)?Method\b|\bNutrition:\s*per\b|\bNutrition facts\b/i.exec(text);
-  const limit = methodMatch ? methodMatch.index : text.length;
-  const head = text.slice(0, limit);
+function findRecipeIngredientSectionStart(t: string): number {
+  const methodM = /\b(?:Ad\s+)?Method\b|\bNutrition:\s*per\b|\bNutrition facts\b/i.exec(t);
+  const limit = methodM ? methodM.index : t.length;
+  const head = t.slice(0, limit);
 
   const subsection = /\bfor the [^0-9\n]{3,160}?(filling|base|crust|topping|sauce|icing|dressing|cheesecake|brownie|batter|ganache)\b/i.exec(
     head,
   );
   if (subsection) return subsection.index;
 
-  let bestIndex = -1;
-  const ingredientsRegex = /\bingredients\b/gi;
-  let match: RegExpExecArray | null;
-  while ((match = ingredientsRegex.exec(head)) !== null) {
-    const tail = head.slice(match.index, match.index + INGREDIENT_LOOKAHEAD_LENGTH);
-    if (/\d\s*(g|ml|kg|tbsp|tsp|cup|oz)\b/i.test(tail) || /\n\s*[-•*]/i.test(tail)) {
-      bestIndex = match.index;
-    }
+  let best = -1;
+  const re = /\bingredients\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(head)) !== null) {
+    const tail = head.slice(m.index, m.index + 500);
+    if (/\d\s*(g|ml|kg|tbsp|tsp|cup|oz)\b/i.test(tail) || /\n\s*[-•*]/i.test(tail)) best = m.index;
   }
-  return bestIndex;
+  return best;
 }
 
 /** Rejoin lines split inside “(about 2 tsp)” style parentheticals. */
-const MERGE_NEXT_LINE_MAX_LENGTH = 90;
-
-/** Rejoin ingredient lines split mid-parenthesis (e.g. quantity wrapped across two lines). */
 function mergeBrokenParenthetical(lines: string[]): string[] {
-  const merged: string[] = [];
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    let current = lines[lineIndex]!;
-    while (lineIndex + 1 < lines.length) {
-      const openParenCount = (current.match(/\(/g) ?? []).length;
-      const closeParenCount = (current.match(/\)/g) ?? []).length;
-      if (openParenCount <= closeParenCount) break;
-      const nextLine = lines[lineIndex + 1]!;
-      if (nextLine.length > MERGE_NEXT_LINE_MAX_LENGTH) break;
-      current = `${current} ${nextLine}`.trim();
-      lineIndex++;
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    let cur = lines[i]!;
+    while (i + 1 < lines.length) {
+      const open = (cur.match(/\(/g) ?? []).length;
+      const shut = (cur.match(/\)/g) ?? []).length;
+      if (open <= shut) break;
+      const next = lines[i + 1]!;
+      if (next.length > 90) break;
+      cur = `${cur} ${next}`.trim();
+      i++;
     }
-    merged.push(current);
+    out.push(cur);
   }
-  return merged;
+  return out;
 }
 
-const MIN_LINE_LENGTH = 2;
-const DENSE_LINE_THRESHOLD = 3;
-
-/**
- * Split a scraped ingredient block into lines; when the page is one dense paragraph,
- * insert breaks before quantities, “for the …” subsections, and common unit patterns.
- */
+/** BBC-style pages often ship one line of text; split before each new quantity / subsection. */
 function splitRunInIngredientLines(block: string): string[] {
   const trimmed = block.trim();
   if (!trimmed) return [];
 
-  const isDense =
-    !trimmed.includes("\n") ||
-    trimmed.split(/\n/).filter((line) => line.trim()).length < DENSE_LINE_THRESHOLD;
+  const dense = !trimmed.includes("\n") || trimmed.split(/\n/).filter((x) => x.trim()).length < 3;
 
-  if (!isDense) {
+  if (!dense) {
     return trimmed
       .split(/\n/)
-      .map((line) => line.trim())
+      .map((l) => l.trim())
       .filter(Boolean);
   }
 
-  const teaspoonLeadRegex = new RegExp(
+  const tspLead = new RegExp(
     String.raw`\s+(?=(?:\d+\s*\u00bd|\d+\s+\u00bc|\d+\s+\u00be|\d+\s+\d/\d+|\d+)\s*(?:tbsp|tsp|tablespoons?|teaspoons?)\b)`,
     "gi",
   );
   const lined = trimmed
     .replace(/\s+(?=\bfor the\b)/gi, "\n")
     .replace(/(?<=[a-z)])(\s+)(?=\d+(?:\.\d+)?\s*(?:g|kg|mg|ml|cl|l|oz)\b)/gi, "\n")
-    .replace(teaspoonLeadRegex, "\n")
+    .replace(tspLead, "\n")
     .replace(/\s+(?=\d+\s+(?:large|medium|small)\s+)/gi, "\n")
     .replace(/\s+(?=finely grated\b|\ba handful\b|\ba pinch\b)/gi, "\n");
 
   return lined
     .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > MIN_LINE_LENGTH);
+    .map((l) => l.trim())
+    .filter((l) => l.length > 2);
 }
-
-const CLEANED_LINE_MIN_LENGTH = 3;
-const SECTION_PREFIX_MAX_LENGTH = 120;
-const META_HEAD_MAX_LENGTH = 60;
-const SERVES_MAX_LENGTH = 40;
-const MAX_INGREDIENT_LINES = 45;
-const MIN_USABLE_LINES = 2;
 
 /**
  * Heuristic: pull ingredient lines from scraped recipe page plain text (e.g. BBC Good Food).
  * Returns null when the block looks empty or unreliable.
  */
 function extractIngredientLinesFromPagePlainText(plain: string): string[] | null {
-  const text = plain.replace(/\r/g, "").replace(/\u00a0/g, " ");
+  const t = plain.replace(/\r/g, "").replace(/\u00a0/g, " ");
 
-  const start = findRecipeIngredientSectionStart(text);
+  const start = findRecipeIngredientSectionStart(t);
   if (start < 0) return null;
 
-  const tailFromStart = text.slice(start);
-  const methodMatch = /\b(?:Ad\s+)?Method\b|\bNutrition:\s*per\b|\bNutrition facts\b/i.exec(tailFromStart);
-  const promoMatch = /\bKeep the screen awake\b|\bcook mode on the\b/i.exec(tailFromStart);
-  let cutIndex = tailFromStart.length;
-  if (methodMatch) cutIndex = Math.min(cutIndex, methodMatch.index);
-  if (promoMatch) cutIndex = Math.min(cutIndex, promoMatch.index);
-  const block = tailFromStart.slice(0, cutIndex).trim();
+  const tailFromStart = t.slice(start);
+  const methodM = /\b(?:Ad\s+)?Method\b|\bNutrition:\s*per\b|\bNutrition facts\b/i.exec(tailFromStart);
+  const promoM = /\bKeep the screen awake\b|\bcook mode on the\b/i.exec(tailFromStart);
+  let cut = tailFromStart.length;
+  if (methodM) cut = Math.min(cut, methodM.index);
+  if (promoM) cut = Math.min(cut, promoM.index);
+  let block = tailFromStart.slice(0, cut).trim();
 
   const rawLines = mergeBrokenParenthetical(splitRunInIngredientLines(block));
-  const ingredientLines: string[] = [];
+  const out: string[] = [];
   let headingOnlySeen = false;
   let sectionPrefix = "";
 
-  for (const rawLine of rawLines) {
-    if (/^ingredients:?$/i.test(rawLine)) {
+  for (const raw of rawLines) {
+    if (/^ingredients:?$/i.test(raw)) {
       headingOnlySeen = true;
       continue;
     }
-    if (/advertisement|^cookie|^subscribe/i.test(rawLine)) continue;
+    if (/advertisement|^cookie|^subscribe/i.test(raw)) continue;
 
-    const cleaned = rawLine
-      .replace(/^[-–—•*\u2022]+\s*/, "")
-      .replace(/^\(?\s*\d+\s*\)?[.)]\s+/, "")
-      .trim();
-    if (!cleaned || cleaned.length < CLEANED_LINE_MIN_LENGTH) continue;
+    const cleaned = raw.replace(/^[-–—•*\u2022]+\s*/, "").replace(/^\(?\s*\d+\s*\)?[.)]\s+/, "").trim();
+    if (!cleaned || cleaned.length < 3) continue;
 
-    if (
-      /^(for the|for\s+)/i.test(cleaned) &&
-      cleaned.length < SECTION_PREFIX_MAX_LENGTH &&
-      !/\d\s*(?:ml|g|kg|cup|tbsp|tsp)\b/i.test(cleaned)
-    ) {
+    if (/^(for the|for\s+)/i.test(cleaned) && cleaned.length < 120 && !/\d\s*(?:ml|g|kg|cup|tbsp|tsp)\b/i.test(cleaned)) {
       sectionPrefix = cleaned.replace(/\s*:?\s*$/, "").trim();
       continue;
     }
 
-    const lowerCased = cleaned.toLowerCase();
+    const lower = cleaned.toLowerCase();
     const looksLikeMetaHead =
-      (/^(prep|cook time|prep time|prep:|ready in|cooks in|nutrition|nutrition information|equipment)\b/i.test(
-        cleaned,
-      ) &&
-        cleaned.length < META_HEAD_MAX_LENGTH) ||
-      (/^serves\b/i.test(cleaned) && /\d/.test(cleaned) && cleaned.length < SERVES_MAX_LENGTH);
+      (/^(prep|cook time|prep time|prep:|ready in|cooks in|nutrition|nutrition information|equipment)\b/i.test(cleaned) &&
+        cleaned.length < 60) ||
+      (/^serves\b/i.test(cleaned) && /\d/.test(cleaned) && cleaned.length < 40);
 
-    if (looksLikeMetaHead && ingredientLines.length === 0) continue;
+    if (looksLikeMetaHead && out.length === 0) continue;
 
     const looksLikeIngredient =
       /\d/.test(cleaned) ||
       /^for the\b/i.test(cleaned) ||
       /\b(tsp|tablespoons?|tablespoon|tbsp|tbs|teaspoons?|teaspoon|cup|grams?|g\b|kg|ml|cl|oz|ounces?|litre|liter|litres|liters|dash|splash|pinch|handful|stalk|cloves?|small|large|medium|carton)\b/i.test(
-        lowerCased,
+        lower,
       );
 
-    if (!looksLikeIngredient && ingredientLines.length === 0 && !headingOnlySeen) continue;
-    if (!looksLikeIngredient && ingredientLines.length === 0) continue;
+    if (!looksLikeIngredient && out.length === 0 && !headingOnlySeen) continue;
+    if (!looksLikeIngredient && out.length === 0) continue;
 
     const lineOut = sectionPrefix ? `${sectionPrefix}: ${cleaned}` : cleaned;
-    ingredientLines.push(lineOut);
-    if (ingredientLines.length > MAX_INGREDIENT_LINES) break;
+    out.push(lineOut);
+    if (out.length > 45) break;
   }
 
-  if (ingredientLines.length < MIN_USABLE_LINES) return null;
-  return ingredientLines;
+  if (out.length < 2) return null;
+  return out;
 }
 
 /**
@@ -184,8 +153,8 @@ export async function mealToRecipeTextPreferSource(meal: MealDbMeal): Promise<Me
   const fetched = await fetchUrlAsRecipePlainText(raw);
   if (!fetched.ok) return base;
 
-  const ingredientLines = extractIngredientLinesFromPagePlainText(fetched.text);
-  if (!ingredientLines || ingredientLines.length < MIN_USABLE_LINES) return base;
+  const lines = extractIngredientLinesFromPagePlainText(fetched.text);
+  if (!lines || lines.length < 2) return base;
 
   const title = meal.strMeal || base.title;
   const instructions = String(meal.strInstructions ?? "").trim();
@@ -193,7 +162,7 @@ export async function mealToRecipeTextPreferSource(meal: MealDbMeal): Promise<Me
     title,
     "",
     "Ingredients:",
-    ...ingredientLines.map((line) => `- ${line}`),
+    ...lines.map((x) => `- ${x}`),
     "",
     "Instructions:",
     instructions || "(No instructions provided.)",

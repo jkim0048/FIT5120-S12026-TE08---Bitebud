@@ -11,10 +11,7 @@ export function isUrlOnlyRecipeInput(text: string): boolean {
   return lines.length === 1 && URL_ONLY_LINE.test(lines[0]!);
 }
 
-/**
- * Strip scripts/styles and tags from HTML, decode common entities, and collapse whitespace
- * into plain text suitable for recipe parsing.
- */
+/** Convert a best-effort HTML string into readable plain text by dropping tags and normalizing whitespace. */
 function stripTagsToText(html: string): string {
   let s = html.replace(/<script[\s\S]*?<\/script>/gi, " ");
   s = s.replace(/<style[\s\S]*?<\/style>/gi, " ");

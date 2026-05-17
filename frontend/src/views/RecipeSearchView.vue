@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter, RouterLink } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import PasteRecipeGuide from '../components/PasteRecipeGuide.vue'
 import { useSensoryProfile } from '../composables/useSensoryProfile'
 import { ApiError, apiFetch } from '../lib/api'
@@ -34,7 +34,7 @@ const MAX_RECIPE_PASTE_CHARS = 40_000
 
 const catalogPage = ref(0)
 const browseSkip = ref(0)
-const PAGE_SIZE = 12
+const pageSize = 12
 
 type SensoryMatch = 'safe' | 'sometimes'
 type PrepBucket = 'under30' | '30to60' | 'over60' | 'any'
@@ -138,7 +138,6 @@ watch(
     results.value = []
     err.value = null
     hasSearched.value = false
-    if (activeTab.value === 'forYou') void search()
   },
   { immediate: true },
 )
@@ -289,9 +288,9 @@ async function fetchSuggestions(rawText: string) {
       )
       if (requestId !== latestSuggestionRequest) return
       suggestions.value = mapSuggestionCards(
-        data.results.map((result) => ({
-          ...result,
-          profileWarnings: result.profileWarnings ?? [],
+        data.results.map((r) => ({
+          ...r,
+          profileWarnings: r.profileWarnings ?? [],
           source: 'db' as const,
         })),
       )
@@ -313,14 +312,14 @@ async function fetchSuggestions(rawText: string) {
       }>(`/api/recipes/search?${params.toString()}`, { headers: biteBudUserIdHeader() })
       if (requestId !== latestSuggestionRequest) return
       suggestions.value = mapSuggestionCards(
-        data.results.map((result) => ({
-          id: result.id,
-          mealDbId: result.id,
-          title: result.title,
-          image: result.image,
-          minutes: result.minutes ?? undefined,
-          matchStatus: result.matchStatus ?? 'safe',
-          profileWarnings: result.profileWarnings ?? [],
+        data.results.map((r) => ({
+          id: r.id,
+          mealDbId: r.id,
+          title: r.title,
+          image: r.image,
+          minutes: r.minutes ?? undefined,
+          matchStatus: r.matchStatus ?? 'safe',
+          profileWarnings: r.profileWarnings ?? [],
           source: 'themealdb' as const,
           tags: [],
         })),
@@ -462,7 +461,7 @@ async function search() {
     results.value = []
     return
   }
-  if (activeTab.value === 'explore' && !query.value.trim()) {
+  if ((activeTab.value === 'explore' || activeTab.value === 'forYou') && !query.value.trim()) {
     results.value = []
     return
   }
@@ -500,23 +499,23 @@ async function search() {
       const params = new URLSearchParams()
       if (qTrimmed) params.set('q', qTrimmed)
       params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
-      params.set('limit', String(PAGE_SIZE))
+      params.set('limit', String(pageSize))
       params.set('skip', String(browseSkip.value))
       params.set('sort', 'newest')
       const data = await apiFetch<{ results: Omit<BrowseCard, 'source'>[] }>(
         `/api/recipes/browse?${params.toString()}`,
         { headers: biteBudUserIdHeader() },
       )
-      results.value = data.results.map((result) => ({
-        ...result,
-        profileWarnings: result.profileWarnings ?? [],
+      results.value = data.results.map((r) => ({
+        ...r,
+        profileWarnings: r.profileWarnings ?? [],
         source: 'db' as const,
       }))
     } else if (activeTab.value === 'explore') {
       const params = new URLSearchParams()
       if (qTrimmed) params.set('q', qTrimmed)
       params.set('page', String(catalogPage.value))
-      params.set('limit', String(PAGE_SIZE))
+      params.set('limit', String(pageSize))
       params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
       const data = await apiFetch<{
         results: {
@@ -528,14 +527,14 @@ async function search() {
           profileWarnings?: string[]
         }[]
       }>(`/api/recipes/search?${params.toString()}`, { headers: biteBudUserIdHeader() })
-      results.value = data.results.map((result) => ({
-        id: result.id,
-        mealDbId: result.id,
-        title: result.title,
-        image: result.image,
-        minutes: result.minutes ?? undefined,
-        matchStatus: result.matchStatus ?? 'safe',
-        profileWarnings: result.profileWarnings ?? [],
+      results.value = data.results.map((r) => ({
+        id: r.id,
+        mealDbId: r.id,
+        title: r.title,
+        image: r.image,
+        minutes: r.minutes ?? undefined,
+        matchStatus: r.matchStatus ?? 'safe',
+        profileWarnings: r.profileWarnings ?? [],
         source: 'themealdb' as const,
         tags: [],
       }))
@@ -574,7 +573,7 @@ async function importMealDb(id: string) {
   err.value = null
   loadingImport.value = true
   try {
-    const card = results.value.find((result) => result.id === id)
+    const card = results.value.find((r) => r.id === id)
     if (card?.source === 'db') {
       await router.push({ name: 'recipe', params: { id } })
     } else {
@@ -632,7 +631,7 @@ function goPage(delta: number) {
     catalogPage.value = Math.max(0, catalogPage.value + delta)
     void search()
   } else if (activeTab.value === 'forYou') {
-    browseSkip.value = Math.max(0, browseSkip.value + delta * PAGE_SIZE)
+    browseSkip.value = Math.max(0, browseSkip.value + delta * pageSize)
     void search()
   }
 }
@@ -709,13 +708,9 @@ async function openRecipeWithConfirm(c: BrowseCard) {
       </div>
     </div>
 
-    <p class="page-back">
-      <RouterLink class="page-back-link" :to="{ name: 'cookingStart' }">Back to start</RouterLink>
-    </p>
-
     <header class="page-hero">
       <h1 class="page-title">Recipes</h1>
-      <p class="page-lede">Search the library, paste a recipe, or revisit recipes you’ve completed before.</p>
+      <p class="page-lede">Search the library, paste a recipe, or revisit recipes you’ve opened before.</p>
     </header>
 
     <div class="layout">
@@ -727,19 +722,15 @@ async function openRecipeWithConfirm(c: BrowseCard) {
           <button type="button" class="tab" :class="{ on: activeTab === 'describe' }" @click="setRouteTab('describe')">
             Paste a recipe
           </button>
-          <button type="button" class="tab" :class="{ on: activeTab === 'forYou' }" @click="setRouteTab('forYou')">
-            My recipes
-          </button>
         </div>
         <p v-if="activeTab === 'forYou' && hasProfile" class="tab-help" role="note">
-          These are recipes you have successfully cooked in BiteBud. Search by name to find one again.
+          These are dishes you have already opened in BiteBud. Search by name to find one again.
         </p>
         <details v-if="hasProfile" class="tab-details">
           <summary>More about these tabs</summary>
           <ul class="tab-details-list">
             <li><strong>Browse library</strong> — Search from our library of recipes</li>
             <li><strong>Paste a recipe</strong> — Visulise your own recipes, paste our intrusctions and ingredients for best results.</li>
-            <li><strong>My recipes</strong> — Your completed recipes</li>
           </ul>
         </details>
 
@@ -923,8 +914,8 @@ async function openRecipeWithConfirm(c: BrowseCard) {
           <button type="button" class="pager-btn" :disabled="busy || (catalogPage === 0 && browseSkip === 0)" @click="goPage(-1)">
             ←
           </button>
-          <span class="pager-num">{{ activeTab === 'explore' ? catalogPage + 1 : Math.floor(browseSkip / PAGE_SIZE) + 1 }}</span>
-          <button type="button" class="pager-btn" :disabled="busy || filteredCards.length < PAGE_SIZE" @click="goPage(1)">
+          <span class="pager-num">{{ activeTab === 'explore' ? catalogPage + 1 : Math.floor(browseSkip / pageSize) + 1 }}</span>
+          <button type="button" class="pager-btn" :disabled="busy || filteredCards.length < pageSize" @click="goPage(1)">
             →
           </button>
         </nav>
@@ -984,7 +975,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
         </details>
       </fieldset>
       <div v-else class="profile profile-note" role="note">
-        Set up your food preferences to enable safety filters.
+        Set up your sensory profile to enable safety filters.
       </div>
 
       <div class="divider" aria-hidden="true" />
@@ -1095,22 +1086,6 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   font-size: 0.82rem;
   line-height: 1.55;
   color: color-mix(in srgb, var(--bb-muted) 80%, transparent);
-}
-.page-back {
-  margin: 0 0 1rem;
-  max-width: 48rem;
-}
-.page-back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-weight: 600;
-  font-size: 0.95rem;
-  color: var(--bb-accent);
-  text-decoration: none;
-}
-.page-back-link:hover {
-  text-decoration: underline;
 }
 .page-hero {
   margin-bottom: 1.5rem;

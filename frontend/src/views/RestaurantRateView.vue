@@ -2,13 +2,11 @@
 import { onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchRestaurantReviewRating, submitRestaurantRating } from '../lib/restaurantsApi'
-import { useActivityChip } from '../composables/useActivityChip'
 
 const route = useRoute()
 const router = useRouter()
 const saving = ref(false)
 const error = ref('')
-const activityChip = useActivityChip()
 
 const reviewId = typeof route.query.reviewId === 'string' ? route.query.reviewId : ''
 const placeId = String(route.params.id)
@@ -103,7 +101,6 @@ async function submit() {
   error.value = ''
   try {
     const created = await submitRestaurantRating(placeId, { ...form, overallRating: overall() })
-    await activityChip.refresh()
     const returnTo = String(route.query.returnTo || '')
     const returnToPath = String(route.query.returnToPath || '')
     sessionStorage.setItem(

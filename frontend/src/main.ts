@@ -5,9 +5,10 @@ import { router } from './router'
 import { apiUrl } from './lib/api'
 import { SENSORY_PROFILE_SNAPSHOT_KEY } from './lib/sensorySnapshot'
 import { getBiteBudUserId } from './composables/useUserId'
+import { logoutSession } from './composables/useSession'
 import { initTtsVoicesPreload } from './lib/ttsVoices'
 
-/** Flush last profile snapshot when the page is hidden (e.g. tab close); do not clear session here — refresh must stay signed in. */
+/** Flush last profile snapshot on tab/window close, then clear client session. */
 function registerUnloadProfileFlush(): void {
   window.addEventListener('pagehide', (e: PageTransitionEvent) => {
     if (e.persisted) return
@@ -30,6 +31,7 @@ function registerUnloadProfileFlush(): void {
     } catch {
       /* ignore */
     }
+    logoutSession()
   })
 }
 
