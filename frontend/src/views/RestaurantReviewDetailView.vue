@@ -63,7 +63,7 @@ async function load() {
   try {
     details.value = await fetchRestaurantDetails(placeId.value)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Could not load review details'
+    error.value = e instanceof Error ? e.message : 'Could not load review rating'
   } finally {
     loading.value = false
   }
@@ -94,7 +94,7 @@ onMounted(() => {
 
 <template>
   <section class="page">
-    <h1>Review details</h1>
+    <h1>Review rating</h1>
     <p v-if="loading">Loading sensory summary...</p>
     <p v-if="error" class="error">{{ error }}</p>
     <article v-if="details" class="card">

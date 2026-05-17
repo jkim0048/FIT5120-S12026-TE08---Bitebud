@@ -33,7 +33,11 @@ const router = useRouter()
 const searchQuery = ref('')
 /** When set, area search uses this token even if the input shows a longer formatted label. */
 const areaSuburbForApi = ref<string | null>(null)
-const loading = ref(false)
+/** Full-page overlay while a restaurant search request runs and results render. */
+const searchLoading = ref(false)
+/** Brief busy state when opening an unrated Nominatim place (no overlay). */
+const openingPlace = ref(false)
+const busy = computed(() => searchLoading.value || openingPlace.value)
 /** True after any restaurant search has finished (success or error). Hides empty-state copy on first visit. */
 const hasCompletedSearch = ref(false)
 const error = ref('')
@@ -45,6 +49,8 @@ const distanceAnchorLabel = ref('Distances from your selected search anchor')
 const modeLabel = ref('Search not started')
 const sourceSummary = ref('Reviewed 0 · Nearby 0')
 const showNearbySection = ref(true)
+/** Set when the last search used a restaurant name (`q`); hides area “Found nearby” browsing. */
+const lastRestaurantQuery = ref('')
 const showMapSection = ref(false)
 const currentDistanceLat = ref<number | null>(null)
 const currentDistanceLon = ref<number | null>(null)
@@ -59,10 +65,6 @@ const searchFocusLon = ref<number | null>(null)
 let baseRasterLayer: L.TileLayer | null = null
 
 const maxResults = ref<number>(15)
-
-const suburbForRequest = computed(
-  () => areaSuburbForApi.value?.trim() || normalizeLocationQuery(searchQuery.value),
-)
 
 type UnifiedSuggestEntry =
   | { kind: 'area'; key: string; area: LocationSuggestion }
@@ -117,7 +119,16 @@ const freshResults = computed(() =>
   ),
 )
 const hasAnyResult = computed(() => reviewedResults.value.length + freshResults.value.length > 0)
-const showNearbyEffective = computed(() => reviewedResults.value.length === 0 || showNearbySection.value)
+const isRestaurantNameSearch = computed(() => lastRestaurantQuery.value.length > 0)
+/** Area/suburb browse block; for a restaurant name search only show unrated name matches. */
+const showFoundNearbyBlock = computed(() => {
+  if (isRestaurantNameSearch.value) return freshResults.value.length > 0
+  return true
+})
+const showNearbyEffective = computed(() => {
+  if (isRestaurantNameSearch.value) return true
+  return reviewedResults.value.length === 0 || showNearbySection.value
+})
 
 const closestDistanceText = computed(() => {
   const distances = filteredResults.value
@@ -209,12 +220,16 @@ async function syncMapAfterReveal() {
 
   if (!showMapSection.value) return
 
-  setTimeout(() => {
-    const refreshedMap = (mapEl.value as any)?.leafletObject as L.Map | undefined
-    if (!refreshedMap) return
-    refreshedMap.invalidateSize?.()
-    applySearchResultsToMap(refreshedMap)
-  }, 80)
+  await new Promise<void>((resolve) => {
+    setTimeout(() => {
+      const refreshedMap = (mapEl.value as any)?.leafletObject as L.Map | undefined
+      if (refreshedMap) {
+        refreshedMap.invalidateSize?.()
+        applySearchResultsToMap(refreshedMap)
+      }
+      resolve()
+    }, 80)
+  })
 }
 
 const summaryText = computed(() => {
@@ -236,12 +251,13 @@ watch(
 )
 
 async function runSearch(params?: { lat?: number; lon?: number; suburb?: string; q?: string }) {
-  loading.value = true
+  searchLoading.value = true
   error.value = ''
   searchInvalid.value = false
   searchHint.value = ''
   try {
     const queryText = (params?.q ?? '').trim()
+    lastRestaurantQuery.value = queryText
     const data = await searchRestaurants({
       q: queryText || undefined,
       lat: params?.lat,
@@ -303,7 +319,8 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
     else if (areaSuburbForApi.value?.trim()) nextQuery.suburb = areaSuburbForApi.value.trim()
     if (queryText) nextQuery.q = queryText
     void router.replace({ query: nextQuery })
-    void syncMapAfterReveal()
+    await nextTick()
+    await syncMapAfterReveal()
     return data
   } catch (e) {
     results.value = []
@@ -326,7 +343,7 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
     }
     return null
   } finally {
-    loading.value = false
+    searchLoading.value = false
     hasCompletedSearch.value = true
   }
 }
@@ -372,7 +389,7 @@ async function openResult(result: RestaurantSearchResult) {
     return
   }
   if (!result.nominatimPlaceId) return
-  loading.value = true
+  openingPlace.value = true
   error.value = ''
   try {
     const created = await createRestaurantFromNominatim({
@@ -396,18 +413,13 @@ async function openResult(result: RestaurantSearchResult) {
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Could not open restaurant rating'
   } finally {
-    loading.value = false
+    openingPlace.value = false
   }
 }
 
 function openReviewedAction(r: RestaurantSearchResult) {
   const returnToPath = router.currentRoute.value.fullPath
   void router.push({ name: 'restaurantReviewDetail', params: { id: r.id }, query: { returnToPath } })
-}
-
-function useAreaContext() {
-  if (!searchQuery.value.trim() && areaContext.value) searchQuery.value = areaContext.value
-  void runAreaSearchFromText(suburbForRequest.value)
 }
 
 function suggestionPrimaryLine(s: LocationSuggestion): string {
@@ -500,6 +512,33 @@ function pickBestSuggestionForArea(query: string, suggestions: LocationSuggestio
   const top = scored[0]
   if (!top || top.score < 45) return null
   return top.suggestion
+}
+
+/** Prefer a strong suburb match; otherwise use the best weak Nominatim area hit. */
+function resolveAreaAnchor(query: string, suggestions: LocationSuggestion[]): LocationSuggestion | null {
+  const strong = pickBestSuggestionForArea(query, suggestions)
+  if (strong) return strong
+  if (!suggestions.length) return null
+  const normalizedQuery = normalizeAreaToken(query)
+  const scored = suggestions
+    .map((suggestion) => ({ suggestion, score: scoreAreaSuggestion(normalizedQuery, suggestion) }))
+    .sort((a, b) => b.score - a.score)
+  const top = scored[0]
+  if (top && top.score > 0) return top.suggestion
+  return suggestions[0] ?? null
+}
+
+async function runSearchFromAreaAnchor(anchor: LocationSuggestion, restaurantQ?: string) {
+  areaSuburbForApi.value = anchor.areaSearch
+  searchQuery.value = formatAreaLabel(anchor)
+  searchFocusLat.value = anchor.latitude
+  searchFocusLon.value = anchor.longitude
+  return runSearch({
+    lat: anchor.latitude,
+    lon: anchor.longitude,
+    suburb: anchor.areaSearch,
+    ...(restaurantQ ? { q: restaurantQ } : {}),
+  })
 }
 
 function formatAreaLabel(s: LocationSuggestion): string {
@@ -636,7 +675,7 @@ function pickAreaSuggestion(s: LocationSuggestion): void {
   searchHint.value = ''
   searchFocusLat.value = s.latitude
   searchFocusLon.value = s.longitude
-  void runSearch({ lat: s.latitude, lon: s.longitude, suburb: s.areaSearch })
+  void runSearchFromAreaAnchor(s)
 }
 
 function pickPlaceSuggestion(s: PlaceSuggestion): void {
@@ -669,12 +708,7 @@ async function runAreaSearchFromText(areaText: string, restaurantQ?: string): Pr
     const res = await suggestRestaurantLocations(q, 8)
     const anchor = pickBestSuggestionForArea(q, res.suggestions)
     const data = anchor
-      ? await runSearch({
-          lat: anchor.latitude,
-          lon: anchor.longitude,
-          suburb: anchor.areaSearch,
-          ...(restaurantQ ? { q: restaurantQ } : {}),
-        })
+      ? await runSearchFromAreaAnchor(anchor, restaurantQ)
       : await runSearch({
           suburb: q,
           ...(restaurantQ ? { q: restaurantQ } : {}),
@@ -720,20 +754,21 @@ async function runUnifiedSearch(): Promise<void> {
   const normalized = normalizeLocationQuery(text)
   try {
     const locRes = await suggestRestaurantLocations(normalized, 8)
-    const anchor = pickBestSuggestionForArea(normalized, locRes.suggestions)
+    const anchor = resolveAreaAnchor(normalized, locRes.suggestions)
     if (anchor) {
-      areaSuburbForApi.value = anchor.areaSearch
-      searchQuery.value = formatAreaLabel(anchor)
-      searchFocusLat.value = anchor.latitude
-      searchFocusLon.value = anchor.longitude
-      await runSearch({ lat: anchor.latitude, lon: anchor.longitude, suburb: anchor.areaSearch })
+      await runSearchFromAreaAnchor(anchor)
       return
     }
   } catch {
-    /* fall through to restaurant name search */
+    /* Nominatim suggest unavailable — suburb search still uses API suburb fallback */
   }
 
-  await runSearch({ q: text })
+  await runAreaSearchFromText(normalized)
+
+  // If the text was not a suburb/postcode, try as a restaurant name.
+  if (results.value.length === 0 && !searchInvalid.value) {
+    await runSearch({ q: text })
+  }
 }
 
 watch(
@@ -846,13 +881,30 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="page">
+  <section class="page" :aria-busy="searchLoading">
+    <div
+      v-if="searchLoading"
+      class="search-loading-overlay"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      aria-label="Searching for restaurants"
+    >
+      <div class="search-loading-overlay__inner">
+        <div class="search-loading-overlay__spinner" aria-hidden="true" />
+        <p class="search-loading-overlay__title">Finding restaurants</p>
+        <p class="search-loading-overlay__hint">Searching your area and building your shortlist…</p>
+      </div>
+    </div>
+
     <p class="page-back">
       <RouterLink class="page-back-link" :to="{ name: 'cookingStart' }">Back to start</RouterLink>
     </p>
     <header class="hero">
       <h1>Find a restaurant.</h1>
-      <p class="hint hero-hint">Search a suburb to see restaurants nearby, or type a restaurant name to find it.</p>
+      <p class="hint hero-hint">
+        Search by suburb or postcode to browse nearby places, or type a restaurant name (add a suburb after a comma when you can).
+      </p>
     </header>
 
     <div class="page-layout" :class="{ 'page-layout--map-open': showMapSection }">
@@ -935,12 +987,25 @@ onBeforeUnmount(() => {
               <button
                 class="bb-btn bb-btn--primary bb-btn--compact search-submit-btn"
                 type="button"
-                :disabled="loading"
+                :disabled="busy"
                 @click="runUnifiedSearch"
               >
                 Search
               </button>
             </div>
+
+            <details class="search-examples">
+              <summary class="search-examples__toggle">See search example</summary>
+              <div class="search-examples__panel" role="note" aria-label="Search examples">
+                <ul class="search-examples__list">
+                  <li><span class="search-examples__k">Suburb</span> Richmond</li>
+                  <li><span class="search-examples__k">Postcode</span> 3121</li>
+                  <li><span class="search-examples__k">Restaurant + area</span> Golden Dragon, Carlton</li>
+                  <li><span class="search-examples__k">Near you</span> tap <strong>Near me</strong> below</li>
+                </ul>
+                <p class="search-examples__tip">Pick an <strong>Areas</strong> suggestion from the list when it appears, then press Search.</p>
+              </div>
+            </details>
 
             <div class="top-stack">
               <div class="map-toggle-row">
@@ -949,10 +1014,10 @@ onBeforeUnmount(() => {
                 </button>
               </div>
               <div class="near-row">
-                <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" :disabled="loading" @click="useNearMe">Near me</button>
+                <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" :disabled="busy" @click="useNearMe">Near me</button>
                 <label class="filter near-row__filter">
                   <span>Show</span>
-                  <select v-model.number="maxResults" :disabled="loading">
+                  <select v-model.number="maxResults" :disabled="busy">
                     <option v-for="n in [3, 5, 8, 10, 12, 15, 20, 25, 30]" :key="n" :value="n">{{ n }}</option>
                   </select>
                 </label>
@@ -961,10 +1026,9 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <div v-if="areaContext || warningText || error || loading" class="status-strip">
+        <div v-if="areaContext || warningText || error" class="status-strip">
           <p v-if="warningText" class="warning">{{ warningText }}</p>
           <p v-if="error" class="error">{{ error }}</p>
-          <p v-if="loading" class="hint status-loading">Loading shortlist…</p>
         </div>
 
         <section class="section-card section-card--tight">
@@ -972,7 +1036,7 @@ onBeforeUnmount(() => {
             <h2>Reviewed in BiteBud</h2>
           </div>
 
-          <p v-if="!loading && hasCompletedSearch && reviewedResults.length === 0" class="hint section-hint">
+          <p v-if="!searchLoading && hasCompletedSearch && reviewedResults.length === 0" class="hint section-hint">
             No reviewed places for this search yet.
           </p>
           <ul v-if="reviewedResults.length" class="result-list">
@@ -991,19 +1055,19 @@ onBeforeUnmount(() => {
                 <p class="meta">{{ resultMeta(r) }}</p>
               </div>
               <div class="result-card__actions">
-                <button class="bb-btn bb-btn--primary bb-btn--compact" type="button" :disabled="loading" @click.stop="openReviewedAction(r)">
-                  See details
+                <button class="bb-btn bb-btn--primary bb-btn--compact" type="button" :disabled="busy" @click.stop="openReviewedAction(r)">
+                  See rating
                 </button>
               </div>
             </li>
           </ul>
         </section>
 
-        <section class="section-card section-card--tight">
+        <section v-if="showFoundNearbyBlock" class="section-card section-card--tight">
           <div class="section-head">
-            <h2>Found nearby</h2>
+            <h2>{{ isRestaurantNameSearch ? 'Matches' : 'Found nearby' }}</h2>
             <button
-              v-if="reviewedResults.length > 0"
+              v-if="!isRestaurantNameSearch && reviewedResults.length > 0"
               type="button"
               class="bb-btn bb-btn--secondary bb-btn--compact"
               :aria-expanded="showNearbySection"
@@ -1014,7 +1078,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-show="showNearbyEffective">
-            <p v-if="hasAnyResult" class="hint section-hint">{{ distanceAnchorLabel }}</p>
+            <p v-if="hasAnyResult && !isRestaurantNameSearch" class="hint section-hint">{{ distanceAnchorLabel }}</p>
             <ul v-if="freshResults.length" class="result-list">
               <li
                 v-for="r in freshResults"
@@ -1033,7 +1097,7 @@ onBeforeUnmount(() => {
                 <button
                   class="bb-btn bb-btn--secondary bb-btn--compact"
                   type="button"
-                  :disabled="loading || !r.canRateNow"
+                  :disabled="busy || !r.canRateNow"
                   @click.stop="openResult(r)"
                 >
                   {{ r.userHasReview ? 'Edit rating' : 'Rate this place' }}
@@ -1041,13 +1105,10 @@ onBeforeUnmount(() => {
               </li>
             </ul>
             <div
-              v-else-if="!loading && hasCompletedSearch && !hasAnyResult"
+              v-else-if="!searchLoading && hasCompletedSearch && !hasAnyResult"
               class="nearby-empty"
             >
               <p class="hint">Try another suburb, a restaurant name, or use Near me.</p>
-              <div class="empty-actions">
-                <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="useAreaContext">Use area context</button>
-              </div>
             </div>
           </div>
         </section>
@@ -1128,6 +1189,55 @@ onBeforeUnmount(() => {
   padding: 0.5rem 0.75rem 0.85rem;
   display: grid;
   gap: 0.45rem;
+  position: relative;
+}
+.search-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: color-mix(in srgb, var(--bb-bg) 82%, #000 18%);
+  backdrop-filter: blur(6px);
+}
+.search-loading-overlay__inner {
+  max-width: 22rem;
+  text-align: center;
+  padding: 1.5rem 1.25rem;
+  border-radius: 18px;
+  background: var(--bb-surface-low);
+  box-shadow: 0 20px 50px rgba(26, 28, 25, 0.12);
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 12%, transparent);
+}
+.search-loading-overlay__spinner {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  border: 3px solid color-mix(in srgb, var(--bb-muted) 25%, transparent);
+  border-top-color: var(--bb-primary);
+  border-radius: 50%;
+  animation: restaurant-search-spin 0.75s linear infinite;
+}
+@keyframes restaurant-search-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.search-loading-overlay__title {
+  margin: 1rem 0 0;
+  font-family: var(--bb-font-headline);
+  font-size: 1.25rem;
+  font-weight: 900;
+  color: var(--bb-text);
+  letter-spacing: -0.02em;
+}
+.search-loading-overlay__hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--bb-muted);
 }
 .hero h1 {
   margin: 0;
@@ -1139,6 +1249,54 @@ onBeforeUnmount(() => {
 .hero-hint {
   margin: 0.12rem 0 0;
   font-size: 0.9rem;
+  line-height: 1.5;
+}
+.search-examples {
+  width: min(36rem, 100%);
+  justify-self: start;
+  text-align: left;
+}
+.search-examples__toggle {
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--bb-accent);
+  list-style: none;
+}
+.search-examples__toggle::-webkit-details-marker {
+  display: none;
+}
+.search-examples__toggle::marker {
+  content: '';
+}
+.search-examples__panel {
+  margin-top: 0.45rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  background: var(--bb-surface-low);
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 8%, var(--bb-border));
+}
+.search-examples__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.28rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--bb-text);
+}
+.search-examples__k {
+  display: inline-block;
+  min-width: 7.5rem;
+  font-weight: 700;
+  color: var(--bb-muted);
+}
+.search-examples__tip {
+  margin: 0.45rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--bb-muted);
 }
 .hint {
   margin: 0;
@@ -1171,10 +1329,6 @@ onBeforeUnmount(() => {
   gap: 0.2rem;
   margin-bottom: 0.15rem;
 }
-.status-loading {
-  margin: 0;
-}
-
 .page-layout {
   display: flex;
   flex-direction: column;
@@ -1209,6 +1363,7 @@ onBeforeUnmount(() => {
 }
 .fallback-row--unified {
   width: min(36rem, 100%);
+  justify-self: start;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
 }
@@ -1228,6 +1383,7 @@ onBeforeUnmount(() => {
 
 .top-stack {
   width: min(36rem, 100%);
+  justify-self: start;
   display: grid;
   gap: 0.45rem;
   justify-self: start;
@@ -1527,13 +1683,6 @@ input {
   font-size: 0.95rem;
   font-family: var(--bb-font-headline);
   color: var(--bb-primary);
-}
-
-.empty-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.4rem;
-  margin-top: 0.45rem;
 }
 
 .result-list {

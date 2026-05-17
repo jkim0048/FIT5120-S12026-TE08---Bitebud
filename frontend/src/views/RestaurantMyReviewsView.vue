@@ -99,7 +99,7 @@ onMounted(() => {
           </div>
         </div>
         <div class="actions">
-          <button type="button" class="bb-btn bb-btn--secondary" @click="openDetails(row.place.id)">See details</button>
+          <button type="button" class="bb-btn bb-btn--secondary" @click="openDetails(row.place.id)">See rating</button>
           <button type="button" class="bb-btn bb-btn--primary" @click="edit(row.place.id)">Edit review</button>
         </div>
       </li>
