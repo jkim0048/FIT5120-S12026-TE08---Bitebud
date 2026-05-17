@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { zSearchQuery, zUserRecipeText } from "../../validation/text.js";
 
-/** Body schema for `POST /api/recipes/visualise`: raw recipe text + optional source URL. */
+/** Body schema for `POST /api/recipes/visualise`: pasted recipe text (ingredients + instructions). */
 export const visualiseBody = z.object({
   text: zUserRecipeText,
+  /** Optional attribution link when the user pasted text manually (not fetched from the web). */
   sourceUrl: z.string().optional().nullable(),
 });
 
