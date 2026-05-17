@@ -190,6 +190,11 @@ type ActivityLollipopBar = {
   cy: number
   dotCx: number
   hoverTitle: string
+  isMealPrep: boolean
+}
+
+function isMealPreparationActivity(label: string): boolean {
+  return label.trim().toLowerCase() === 'meal preparation'
 }
 
 type ActivityLollipopModel = {
@@ -217,7 +222,8 @@ const ACTIVITY_LOLLY_LAYOUT = {
   marginTop: 44,
   marginBottom: 72,
   maxThousands: 250,
-  dotR: 9,
+  dotR: 8,
+  dotRHighlight: 10,
 } as const
 
 function buildActivityLollipop(rows: AboutActivityRow[]): ActivityLollipopModel | null {
@@ -257,6 +263,7 @@ function buildActivityLollipop(rows: AboutActivityRow[]): ActivityLollipopModel 
       cy,
       dotCx,
       hoverTitle: `${e.label}: ${e.valuePersons.toLocaleString('en-AU')} people (${pct.toFixed(1)}% of combined activity-type estimates)`,
+      isMealPrep: isMealPreparationActivity(e.label),
     }
   })
 
@@ -348,7 +355,6 @@ function buildPopulationTreemap2022(rows: AboutPopulationByAgeRow[]): Population
   const teens = v('15-19')
   const young = v('20-24') + v('25-29')
   const adults30 = v('30-34') + v('35-39') + v('40 and over')
-  const rightCol = teens + young + adults30
 
   const leaves = [
     buildPopulationTreemapLeaf('0-4', v('0-4'), total),
@@ -363,14 +369,13 @@ function buildPopulationTreemap2022(rows: AboutPopulationByAgeRow[]): Population
   ].filter((l) => l.valueThousands > 0)
 
   const cssVars: Record<string, string> = {
-    '--pop-children-fr': String(children),
-    '--pop-right-fr': String(rightCol),
+    '--pop-fr-children': String(children),
+    '--pop-fr-teens': String(teens),
+    '--pop-fr-young': String(young),
+    '--pop-fr-adults': String(adults30),
     '--pop-fr-04': String(v('0-4')),
     '--pop-fr-59': String(v('5-9')),
     '--pop-fr-1014': String(v('10-14')),
-    '--pop-young-fr': String(young),
-    '--pop-teen-fr': String(teens),
-    '--pop-adults-fr': String(adults30),
     '--pop-fr-2024': String(v('20-24')),
     '--pop-fr-2529': String(v('25-29')),
     '--pop-fr-3034': String(v('30-34')),
@@ -602,8 +607,8 @@ function fmtPersons(n: number): string {
               <p class="pop-infographic__eyebrow">Autistic Australians, 2022</p>
               <h3 id="pop-age-heading" class="pop-infographic__title">Autistic population distribution over different age group, 2022.</h3>
               <p class="pop-infographic__lede">
-                Each block&rsquo;s size is its share of the population. Children fill half the canvas. Teens, young adults, and adults fit
-                into the other half — together.
+                Each block&rsquo;s height reflects its share of the 2022 autistic population. Four life stages stack vertically — children,
+                teenagers, young adults, and adults — with age-band detail inside each stage.
               </p>
             </header>
 
@@ -651,8 +656,21 @@ function fmtPersons(n: number): string {
                   </div>
                 </section>
 
-                <div class="pop-treemap__right">
-                  <section class="pop-treemap__region pop-treemap__region--young" aria-hidden="true">
+                <section
+                  v-if="populationTreemapLeaf('15-19')"
+                  class="pop-treemap__region pop-treemap__region--teens"
+                  aria-hidden="true"
+                >
+                  <header class="pop-treemap__region-head">
+                    <span class="pop-treemap__region-kicker">Teenagers</span>
+                    <span class="pop-treemap__region-count">{{ fmtPersons(population2022Treemap.teensPersons) }}</span>
+                    <span class="pop-treemap__region-meta"
+                      >Age 15 — 19 · {{ Math.round(population2022Treemap.teensPct) }}%</span
+                    >
+                  </header>
+                </section>
+
+                <section class="pop-treemap__region pop-treemap__region--young" aria-hidden="true">
                     <header class="pop-treemap__region-head">
                       <span class="pop-treemap__region-kicker">Young adults</span>
                       <span class="pop-treemap__region-count">{{ fmtPersons(population2022Treemap.youngPersons) }}</span>
@@ -682,21 +700,7 @@ function fmtPersons(n: number): string {
                     </div>
                   </section>
 
-                  <section
-                    v-if="populationTreemapLeaf('15-19')"
-                    class="pop-treemap__region pop-treemap__region--teens"
-                    aria-hidden="true"
-                  >
-                    <header class="pop-treemap__region-head pop-treemap__region-head--solo">
-                      <span class="pop-treemap__region-kicker">Teenagers</span>
-                      <span class="pop-treemap__region-count">{{ fmtPersons(population2022Treemap.teensPersons) }}</span>
-                      <span class="pop-treemap__region-meta"
-                        >Age 15 — 19 · {{ Math.round(population2022Treemap.teensPct) }}%</span
-                      >
-                    </header>
-                  </section>
-
-                  <section class="pop-treemap__region pop-treemap__region--adults" aria-hidden="true">
+                <section class="pop-treemap__region pop-treemap__region--adults" aria-hidden="true">
                     <header class="pop-treemap__region-head">
                       <span class="pop-treemap__region-kicker">Adults</span>
                       <span class="pop-treemap__region-count">{{ fmtPersons(population2022Treemap.adults30Persons) }}</span>
@@ -734,12 +738,11 @@ function fmtPersons(n: number): string {
                     </div>
                   </section>
                 </div>
-                </div>
               </div>
 
               <p class="pop-treemap__guide">
-                Read it like a room. The biggest block is where most people are. The smaller blocks show how the rest of the population
-                fits in around them. Sub-blocks inside each life stage give the detail without needing a second chart.
+                Read it top to bottom. The tallest band is where most people are. Sub-blocks inside each life stage show how that group
+                breaks down by age.
               </p>
             </figure>
 
@@ -814,9 +817,15 @@ function fmtPersons(n: number): string {
                 >
                   Persons
                 </text>
-                <g v-for="bar in activityAssistanceLollipop.bars" :key="bar.label" class="activity-lollipop__bar">
+                <g
+                  v-for="bar in activityAssistanceLollipop.bars"
+                  :key="bar.label"
+                  class="activity-lollipop__bar"
+                  :class="{ 'activity-lollipop__bar--meal-prep': bar.isMealPrep }"
+                >
                   <text
                     class="activity-lollipop__y-label"
+                    :class="{ 'activity-lollipop__y-label--meal-prep': bar.isMealPrep }"
                     :x="activityAssistanceLollipop.marginLeft - 10"
                     :y="bar.cy + 4"
                     text-anchor="end"
@@ -830,8 +839,20 @@ function fmtPersons(n: number): string {
                     :x2="bar.dotCx"
                     :y2="bar.cy"
                   />
-                  <circle class="activity-lollipop__dot" :cx="bar.dotCx" :cy="bar.cy" :r="ACTIVITY_LOLLY_LAYOUT.dotR" />
-                  <text class="activity-lollipop__value" :x="bar.dotCx + 14" :y="bar.cy + 5">{{ bar.displayK }}</text>
+                  <circle
+                    class="activity-lollipop__dot"
+                    :cx="bar.dotCx"
+                    :cy="bar.cy"
+                    :r="bar.isMealPrep ? ACTIVITY_LOLLY_LAYOUT.dotRHighlight : ACTIVITY_LOLLY_LAYOUT.dotR"
+                  />
+                  <text
+                    class="activity-lollipop__value"
+                    :class="{ 'activity-lollipop__value--meal-prep': bar.isMealPrep }"
+                    :x="bar.dotCx + 14"
+                    :y="bar.cy + 5"
+                  >
+                    {{ bar.displayK }}
+                  </text>
                 </g>
               </svg>
               </div>
@@ -850,10 +871,10 @@ function fmtPersons(n: number): string {
               enlarge that segment; tooltips show counts and shares.
             </p>
           </header>
-          <div v-if="mealPrep2022Pie" class="meal-prep-visual meal-prep-visual--calm pie-card-layout pie-card-layout--uniform">
-            <div class="pie-card-layout__sidebar">
-              <div class="pie-mini-table-scroll pie-mini-table-scroll--corner" @mouseleave="mealPrepPieHover = null">
-                <table class="pie-mini-table pie-mini-table--compact" @mouseleave="mealPrepPieHover = null">
+          <div v-if="mealPrep2022Pie" class="meal-prep-visual meal-prep-visual--calm pie-card-layout pie-card-layout--meal-prep">
+            <div class="pie-card-layout__chart-area">
+              <div class="pie-mini-table-scroll pie-mini-table-scroll--overlay" @mouseleave="mealPrepPieHover = null">
+                <table class="pie-mini-table pie-mini-table--meal-prep" @mouseleave="mealPrepPieHover = null">
                   <thead>
                     <tr>
                       <th class="pie-mini-table__swatch-head" scope="col"><span class="visually-hidden">Colour</span></th>
@@ -878,8 +899,6 @@ function fmtPersons(n: number): string {
                   </tbody>
                 </table>
               </div>
-            </div>
-            <div class="pie-card-layout__main pie-card-layout__main--center">
               <div class="pie-charts pie-charts--single">
                 <figure class="pie-chart-card">
                   <svg
@@ -1172,6 +1191,77 @@ function fmtPersons(n: number): string {
 .pie-card-layout--uniform .pie-card-layout__sidebar {
   max-width: min(22rem, 100%);
 }
+
+/* Meal-prep pie — legend table overlaid top-left on chart */
+.pie-card-layout--meal-prep {
+  display: block;
+  padding: 1rem 1.1rem 1.15rem;
+}
+.pie-card-layout__chart-area {
+  position: relative;
+  min-height: 28rem;
+}
+.pie-mini-table-scroll--overlay {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  z-index: 2;
+  padding: 0;
+  max-width: min(24rem, 52%);
+}
+.pie-mini-table--meal-prep {
+  width: auto;
+  max-width: none;
+  font-size: 0.95rem;
+  background: color-mix(in srgb, var(--bb-surface-lowest) 94%, transparent);
+  border: 1px solid var(--bb-border);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(26, 28, 25, 0.06);
+}
+.pie-mini-table--meal-prep thead th {
+  padding: 0.55rem 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  border-bottom: 1px solid var(--bb-border);
+}
+.pie-mini-table--meal-prep tbody th,
+.pie-mini-table--meal-prep tbody td {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.92rem;
+}
+.pie-mini-table--meal-prep tbody th {
+  font-weight: 700;
+}
+.pie-mini-table--meal-prep .pie-mini-table__swatch-head {
+  width: 1.75rem;
+}
+.pie-mini-table--meal-prep .pie-mini-table__swatch-cell {
+  width: 1.75rem;
+  padding-left: 0.5rem;
+}
+.pie-mini-table--meal-prep .pie-mini-table__dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+}
+.pie-card-layout--meal-prep .pie-charts--single {
+  padding: 0.25rem 0;
+}
+@media (max-width: 720px) {
+  .pie-mini-table-scroll--overlay {
+    position: relative;
+    top: auto;
+    left: auto;
+    max-width: 100%;
+    margin-bottom: 0.75rem;
+  }
+  .pie-card-layout__chart-area {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
 @media (max-width: 720px) {
   .pie-card-layout,
   .pie-card-layout--uniform {
@@ -1452,20 +1542,26 @@ function fmtPersons(n: number): string {
   line-height: 1.25;
 }
 .pop-treemap__map-shell {
+  display: flex;
+  justify-content: center;
   padding: 10px;
   border-radius: 14px;
   background: var(--bb-bg);
   border: 1px solid var(--bb-border);
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
 }
 .pop-treemap__map {
   display: grid;
-  /* Equal halves — children left, all other ages right (reference layout) */
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px;
-  min-height: 26rem;
-  min-width: min(100%, 36rem);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows:
+    minmax(0, var(--pop-fr-children, 1fr))
+    minmax(0, var(--pop-fr-teens, 1fr))
+    minmax(0, var(--pop-fr-young, 1fr))
+    minmax(0, var(--pop-fr-adults, 1fr));
+  gap: 8px;
+  width: 100%;
+  max-width: 26rem;
+  min-height: 32rem;
+  margin: 0 auto;
 }
 .pop-treemap__region {
   display: flex;
@@ -1485,9 +1581,8 @@ function fmtPersons(n: number): string {
   border: 1px solid color-mix(in srgb, #8fa9b8 45%, var(--bb-outline));
 }
 .pop-treemap__region--teens {
-  background: color-mix(in srgb, #c4a4b8 34%, var(--bb-surface-lowest));
+  background: color-mix(in srgb, #e8c8d8 42%, var(--bb-surface-lowest));
   border: 1px solid color-mix(in srgb, #c4a4b8 48%, var(--bb-outline));
-  justify-content: center;
 }
 .pop-treemap__region-body {
   flex: 1;
@@ -1497,18 +1592,14 @@ function fmtPersons(n: number): string {
   justify-content: flex-end;
 }
 .pop-treemap__region--adults {
-  background: color-mix(in srgb, #d4b896 36%, var(--bb-secondary-container));
-  border: 1px solid color-mix(in srgb, #d4b896 50%, var(--bb-outline));
+  background: color-mix(in srgb, #c8c8a0 38%, var(--bb-surface-lowest));
+  border: 1px solid color-mix(in srgb, #a8a878 50%, var(--bb-outline));
 }
 .pop-treemap__region-head {
   display: flex;
   flex-direction: column;
   gap: 0.12rem;
   color: var(--bb-text);
-}
-.pop-treemap__region-head--solo {
-  justify-content: center;
-  min-height: 3.5rem;
 }
 .pop-treemap__region-kicker {
   font-family: var(--bb-font-headline), system-ui, sans-serif;
@@ -1537,12 +1628,6 @@ function fmtPersons(n: number): string {
   grid-template-rows: var(--pop-fr-04, 1fr) var(--pop-fr-59, 1fr) var(--pop-fr-1014, 1fr);
   gap: 5px;
 }
-.pop-treemap__right {
-  display: grid;
-  grid-template-rows: var(--pop-young-fr, 1fr) var(--pop-teen-fr, 1fr) var(--pop-adults-fr, 1fr);
-  gap: 8px;
-  min-height: 0;
-}
 .pop-treemap__young-row,
 .pop-treemap__adults-row {
   min-height: 3.5rem;
@@ -1568,7 +1653,7 @@ function fmtPersons(n: number): string {
   padding: 0.45rem 0.55rem;
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--bb-text) 14%, transparent);
-  border-radius: 10px;
+  border-radius: 12px;
   font: inherit;
   text-align: left;
   color: var(--bb-text);
@@ -1643,7 +1728,7 @@ function fmtPersons(n: number): string {
 }
 @media (max-width: 400px) {
   .pop-treemap__map {
-    min-width: 34rem;
+    min-height: 28rem;
   }
 }
 /* Activity assistance — static lollipop chart */
@@ -1786,31 +1871,50 @@ function fmtPersons(n: number): string {
   font-weight: 600;
 }
 .activity-lollipop__y-label {
-  fill: var(--bb-text);
+  fill: var(--bb-muted);
   font-size: 13px;
   font-family: var(--bb-font-body), system-ui, sans-serif;
   font-weight: 600;
 }
+.activity-lollipop__y-label--meal-prep {
+  fill: var(--bb-error);
+  font-size: 16px;
+  font-weight: 800;
+}
 .activity-lollipop__stick {
-  stroke: #6b8a9a;
-  stroke-width: 2.5;
+  stroke: #c5d0d8;
+  stroke-width: 2;
   stroke-linecap: round;
 }
+.activity-lollipop__bar--meal-prep .activity-lollipop__stick {
+  stroke: #5c6f7a;
+  stroke-width: 2.5;
+}
 .activity-lollipop__dot {
-  fill: #e8914a;
-  stroke: #b86f2e;
+  fill: #a8b5bf;
+  stroke: #7a8792;
+  stroke-width: 1.5;
+}
+.activity-lollipop__bar--meal-prep .activity-lollipop__dot {
+  fill: #d68f59;
+  stroke: #8b5a32;
   stroke-width: 2;
 }
 .activity-lollipop__value {
-  fill: var(--bb-text);
+  fill: var(--bb-muted);
   font-size: 14px;
   font-family: var(--bb-font-headline), system-ui, sans-serif;
-  font-weight: 800;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+.activity-lollipop__value--meal-prep {
+  fill: var(--bb-error);
+  font-size: 17px;
+  font-weight: 800;
+}
 .pie-mini-table__dot--lollipop {
-  background: #e8914a;
-  border: 1px solid #b86f2e;
+  background: #d68f59;
+  border: 1px solid #8b5a32;
   border-radius: 50%;
   width: 0.5rem;
   height: 0.5rem;
