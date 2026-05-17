@@ -37,9 +37,11 @@ From the repo root:
 - **Recipe search + library browsing** (including prep-time filters)
 - **Recipe visual overview** (lane-based flow + inline step details)
 - **Full steps view**
-- **Guided cooking mode** (ingredient checklist + step-by-step)
+- **Guided cooking mode** (ingredient checklist + step-by-step with voice and timers)
 - **Sensory profile setup** + ingredient conflict warnings
 - **Dietary & cultural constraint checks**
 - **Import recipes** (paste text or fetch from URL)
 - **AI refine + recipe lede generation**
+- **Resturant Search and Rate based on Sensory**
+- **Shopping List**
 
