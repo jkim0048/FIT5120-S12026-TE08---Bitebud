@@ -44,4 +44,7 @@ From the repo root:
 - **AI refine + recipe lede generation**
 - **Resturant Search and Rate based on Sensory**
 - **Shopping List**
+- **Learn More**
+- **Motivation streaks**
+- **Activity and Pattern**
 
