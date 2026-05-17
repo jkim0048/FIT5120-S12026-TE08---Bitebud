@@ -9,8 +9,10 @@ import {
   useSensorySetupForm,
 } from '../composables/useSensorySetupForm'
 import { getBiteBudUserId } from '../composables/useUserId'
+import { useGentleToast } from '../composables/useGentleToast'
 
 const router = useRouter()
+const gentleToast = useGentleToast()
 const expanded = ref<'texture' | 'dietary' | 'food' | null>(null)
 
 const SECTION_ORDER = ['texture', 'dietary', 'food'] as const
@@ -29,6 +31,7 @@ const {
   shortPickerLabel,
   foodDisplayName,
   addFoodError,
+  addFoodBusy,
   foodsForDisplay,
   textureDone,
   dietaryDone,
@@ -38,6 +41,9 @@ const {
   toggleCultural,
   loadFoodPickerItems,
   choosePickerItem,
+  pendingAddPickerItem,
+  confirmPendingAddFood,
+  cancelPendingAddFood,
   openFoodPicker,
   closeFoodPickerSoon,
   resolveWickedImage,
@@ -67,6 +73,13 @@ function toggleSection(name: 'texture' | 'dietary' | 'food') {
   if (name === 'food') void loadFoodPickerItems()
 }
 
+function notifyPreferencesSaved() {
+  gentleToast.showPlain('Your food preferences have been saved.', {
+    placement: 'center',
+    durationMs: 1500,
+  })
+}
+
 async function saveSection(name: 'texture' | 'dietary' | 'food') {
   sectionError.value = ''
   sectionBusy.value = name
@@ -74,6 +87,8 @@ async function saveSection(name: 'texture' | 'dietary' | 'food') {
     if (name === 'texture') await saveTexturesSection()
     if (name === 'dietary') await saveDietaryCulturalSection()
     if (name === 'food') await saveFoodSafetySection()
+
+    notifyPreferencesSaved()
 
     if (name === 'food') {
       expanded.value = null
@@ -214,7 +229,12 @@ function onFoodEditThumbError(e: Event) {
               />
               <ul v-if="foodPickerOpen && foodQuery && filteredPickerItems.length" class="picker-list">
                 <li v-for="item in filteredPickerItems" :key="item.wickedIconId">
-                  <button type="button" class="picker-item" @click="choosePickerItem(item)">
+                  <button
+                    type="button"
+                    class="picker-item"
+                    @mousedown.prevent
+                    @click="choosePickerItem(item)"
+                  >
                     <img
                       class="picker-thumb"
                       :src="resolveWickedImage(item.wickedIconId) || item.imageUrl || ''"
@@ -262,6 +282,43 @@ function onFoodEditThumbError(e: Event) {
     </div>
 
     <Teleport to="body">
+      <div v-if="pendingAddPickerItem" class="food-edit-layer">
+        <div class="food-edit-backdrop" role="presentation" @click="cancelPendingAddFood" />
+        <div class="food-edit-root" role="dialog" aria-modal="true" aria-labelledby="food-add-confirm-title">
+          <div class="food-edit-modal">
+            <div class="food-edit-head">
+              <h2 id="food-add-confirm-title" class="food-edit-title">Add this food?</h2>
+              <button type="button" class="food-edit-close" aria-label="Close" @click="cancelPendingAddFood">×</button>
+            </div>
+            <div class="food-edit-body">
+              <p class="food-add-confirm-lede">
+                Add <strong>{{ shortPickerLabel(pendingAddPickerItem) }}</strong> to your food safety list?
+              </p>
+              <div class="food-edit-tag-preview" aria-hidden="true">
+                <img
+                  class="food-edit-preview-thumb"
+                  alt=""
+                  :src="resolveWickedImage(pendingAddPickerItem.wickedIconId) || pendingAddPickerItem.imageUrl || ''"
+                  @error="onSuggestionImageError($event, pendingAddPickerItem.imageUrl)"
+                />
+                <div class="food-edit-preview-text">
+                  <span class="food-edit-preview-name">{{ shortPickerLabel(pendingAddPickerItem) }}</span>
+                </div>
+              </div>
+              <p v-if="addFoodError" class="food-edit-err" role="alert">{{ addFoodError }}</p>
+            </div>
+            <div class="food-edit-footer">
+              <button type="button" class="bb-btn bb-btn--secondary" :disabled="addFoodBusy" @click="cancelPendingAddFood">
+                Cancel
+              </button>
+              <button type="button" class="bb-btn bb-btn--primary" :disabled="addFoodBusy" @click="confirmPendingAddFood">
+                {{ addFoodBusy ? 'Adding…' : 'Add food' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="editingFood" class="food-edit-layer">
         <div class="food-edit-backdrop" role="presentation" @click="onCloseEdit" />
         <div class="food-edit-root" role="dialog" aria-modal="true" aria-labelledby="food-edit-title">
@@ -699,6 +756,16 @@ function onFoodEditThumbError(e: Event) {
   flex-direction: column;
   gap: 0.5rem;
 }
+.food-add-confirm-lede {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--bb-text);
+  text-align: left;
+}
+.food-add-confirm-lede strong {
+  color: var(--bb-primary);
+}
 .food-edit-label {
   font-size: 0.78rem;
   font-weight: 700;
@@ -784,3 +851,4 @@ function onFoodEditThumbError(e: Event) {
   background: color-mix(in srgb, var(--bb-surface-low) 55%, var(--bb-surface-lowest));
 }
 </style>
+

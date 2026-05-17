@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import type {
   AboutActivityRow,
   AboutMealPrepAgeRow,
@@ -325,6 +326,9 @@ function fmtPersons(n: number): string {
 
 <template>
   <article class="about">
+    <p class="about-nav">
+      <RouterLink class="about-back-link" :to="{ name: 'home' }">← Back to home</RouterLink>
+    </p>
     <header class="about-hero">
       <h1 class="h1">Learn more</h1>
       <p class="lead">
@@ -646,6 +650,18 @@ function fmtPersons(n: number): string {
   margin: 0 auto;
   padding: 1.5rem 0 3rem;
   font-family: var(--bb-font-body), system-ui, sans-serif;
+}
+.about-nav {
+  margin: 0 0 1rem;
+}
+.about-back-link {
+  color: var(--bb-accent);
+  font-weight: 700;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.about-back-link:hover {
+  text-decoration: underline;
 }
 .about-hero {
   margin-bottom: 2rem;

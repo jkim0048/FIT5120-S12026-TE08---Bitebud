@@ -66,6 +66,7 @@ export type ProgressDashboardPayload = {
   ratingTrendSummary: string | null;
 };
 
+/** Inclusive calendar-day span between two UTC midnights (minimum 1). */
 function inclusiveDayCount(fromInclusive: Date, toInclusive: Date): number {
   return Math.max(
     1,
@@ -73,6 +74,7 @@ function inclusiveDayCount(fromInclusive: Date, toInclusive: Date): number {
   );
 }
 
+/** Human label for the comparison period shown beside stat deltas (“last week”, “last month”, …). */
 function deltaLabelForSpan(dayCount: number): string {
   if (dayCount <= 7) return "last week";
   if (dayCount <= 31) return "last month";
@@ -80,10 +82,12 @@ function deltaLabelForSpan(dayCount: number): string {
   return "previous period";
 }
 
+/** Melbourne-local `YYYY-MM-DD` key for bucketing completions and reviews onto the progress calendar. */
 function melbourneDayKey(utcInstant: Date): string {
   return localCalendarDateString(utcInstant);
 }
 
+/** Colour band for a calendar day from its activity ratings (high / low / mixed / none). */
 function classifyDayRatingBand(ratings: number[], hasActivity: boolean): DayRatingBand {
   if (!hasActivity) return "none";
   if (ratings.length === 0) return "mixed";
@@ -94,6 +98,7 @@ function classifyDayRatingBand(ratings: number[], hasActivity: boolean): DayRati
   return "mixed";
 }
 
+/** Every ISO date string from `fromInclusive` through `toInclusive`, inclusive. */
 function enumerateInclusiveDays(fromInclusive: Date, toInclusive: Date): string[] {
   const days: string[] = [];
   let cursor = new Date(fromInclusive);
@@ -104,6 +109,7 @@ function enumerateInclusiveDays(fromInclusive: Date, toInclusive: Date): string[
   return days;
 }
 
+/** Monday ISO date for the week containing `isoDay` (UTC weekday math). */
 function startOfIsoWeekUtc(isoDay: string): string {
   const parsed = parseIsoDateOnly(isoDay);
   if (!parsed) return isoDay;
@@ -114,6 +120,7 @@ function startOfIsoWeekUtc(isoDay: string): string {
   return isoDateOnly(d);
 }
 
+/** Short chart label such as `W2 · Mar` for a rating-trend week column. */
 function weekLabelFromIndex(index: number, isoWeekStart: string): string {
   const parsed = parseIsoDateOnly(isoWeekStart);
   const month =
@@ -123,6 +130,10 @@ function weekLabelFromIndex(index: number, isoWeekStart: string): string {
   return month ? `W${index + 1} · ${month}` : `W${index + 1}`;
 }
 
+/**
+ * Load completions and reviews in `[fromInclusive, toExclusive)` and aggregate per-day counts,
+ * active-day totals, and weekly average ratings for the progress dashboard.
+ */
 async function aggregateRangeActivity(
   userId: string,
   fromInclusive: Date,
@@ -208,6 +219,7 @@ async function aggregateRangeActivity(
   };
 }
 
+/** Last up to four weeks of average recipe ratings plus a one-line trend summary for the UI. */
 function buildRatingTrend(
   weeklyRatings: Map<string, { sum: number; count: number }>,
   rangeFromInclusive: Date,
@@ -246,6 +258,7 @@ function buildRatingTrend(
   return { weeks, summary };
 }
 
+/** Milestone cards (first recipe, streaks, insights unlocked, 25 recipes) with earned / almost / locked status. */
 async function buildMilestones(
   userId: string,
   lifetimeRatedRecipes: number,

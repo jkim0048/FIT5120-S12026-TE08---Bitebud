@@ -12,18 +12,22 @@ export type FlavorInferenceResult = Record<FlavorKey, string[]>;
 
 const FLAVORS: FlavorKey[] = ["sweet", "salty", "sour", "bitter", "spicy"];
 
+/** Empty flavour-bucket map with every key set to an empty ingredient-id list. */
 function emptyResult(): FlavorInferenceResult {
   return { sweet: [], salty: [], sour: [], bitter: [], spicy: [] };
 }
 
+/** Append `value` to `arr` only when it is not already present. */
 function uniquePush(arr: string[], value: string) {
   if (!arr.includes(value)) arr.push(value);
 }
 
+/** Lowercase label + detail combined for keyword matching. */
 function normalizedText(x: FlavorInferenceInput): string {
   return `${x.label ?? ""} ${x.detail ?? ""}`.toLowerCase();
 }
 
+/** Assign each ingredient id to flavour buckets using fixed regex keyword lists (no LLM). */
 function heuristicInfer(ingredients: FlavorInferenceInput[]): FlavorInferenceResult {
   const out = emptyResult();
   for (const ing of ingredients) {
@@ -59,6 +63,7 @@ export function inferFlavorProfileHeuristic(ingredients: FlavorInferenceInput[])
   return heuristicInfer(ingredients);
 }
 
+/** Keep only known ingredient ids from a parsed LLM JSON object; drop unknown keys and non-arrays. */
 function sanitizeResult(raw: unknown, validIds: Set<string>): FlavorInferenceResult {
   const out = emptyResult();
   if (!raw || typeof raw !== "object") return out;

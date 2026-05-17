@@ -311,18 +311,33 @@ function closeStepPanel() {
           {{ profileMatchText }}
         </div>
 
-        <div class="cta-row">
+        <aside class="cooking-cta-card" aria-labelledby="cooking-cta-headline">
+          <p class="cooking-cta-card__eyebrow">
+            <span class="cooking-cta-card__dot" aria-hidden="true" />
+            Ready to start
+          </p>
+          <h2 id="cooking-cta-headline" class="cooking-cta-card__headline">Begin guided cooking</h2>
+          <p class="cooking-cta-card__support">
+            Step-by-step with timers, voice prompts, and hands-free mode.
+          </p>
           <button
             type="button"
-            class="bb-btn bb-btn--primary bb-btn--guided"
+            class="cooking-cta-card__btn bb-btn"
             @click="router.push({ name: 'guidedServings', params: { id: recipeId } })"
           >
-            <svg class="cta-play" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+            <svg
+              class="cooking-cta-card__play"
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              aria-hidden="true"
+              focusable="false"
+            >
               <path fill="currentColor" d="M8 5v14l11-7L8 5z" />
             </svg>
-            Begin Guided Cooking
+            Start cooking now
           </button>
-        </div>
+        </aside>
       </section>
 
       <div v-if="hasHeroImage" class="hero-media">
@@ -332,9 +347,9 @@ function closeStepPanel() {
       </div>
     </div>
 
-    <section class="roadmap-layout">
+    <section id="cooking-roadmap" class="roadmap-layout" tabindex="-1">
       <article class="panel timeline-panel timeline-panel--full">
-        <header id="cooking-roadmap" class="roadmap-head" tabindex="-1">
+        <header class="roadmap-head">
           <h2>Cooking Roadmap</h2>
           <div
             v-if="timelineNodes.length || ingredients.length"
@@ -511,7 +526,7 @@ function closeStepPanel() {
 <style scoped>
 .page {
   padding: 1rem 1.25rem 2.25rem;
-  max-width: 72rem;
+  max-width: 64rem;
   margin: 0 auto;
 }
 .err {
@@ -627,10 +642,10 @@ function closeStepPanel() {
 
 .detail-layout {
   display: grid;
-  grid-template-columns: 0.88fr 1.12fr;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
   gap: 1.1rem;
   margin-bottom: 1rem;
-  align-items: start;
+  align-items: stretch;
 }
 .detail-layout--no-image {
   grid-template-columns: 1fr;
@@ -648,31 +663,26 @@ function closeStepPanel() {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  align-self: start;
+  min-width: 0;
+  align-self: stretch;
 }
 .hero-image {
+  flex: 1;
   border-radius: 14px;
-  min-height: 188px;
+  min-height: 12rem;
   background: var(--bb-surface-lowest);
-  color: var(--bb-muted);
-  font-family: var(--bb-font-label);
-  font-size: 0.72rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  display: grid;
-  place-items: center;
+  display: flex;
   overflow: hidden;
 }
 .hero-image-img {
   width: 100%;
   height: 100%;
-  min-height: 188px;
-  max-height: 220px;
+  min-height: 12rem;
   object-fit: cover;
   border-radius: 14px;
 }
 .hero-copy {
-  padding: 1.1rem 1.1rem 1rem;
+  padding: 1.25rem 1.35rem 1.15rem;
 }
 .hero-no-photo {
   margin-top: 0.65rem;
@@ -699,7 +709,6 @@ function closeStepPanel() {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem 1rem;
-  max-width: 22rem;
 }
 .hero-stat {
   padding: 0.55rem 0.65rem;
@@ -717,7 +726,7 @@ function closeStepPanel() {
 .hero-stat__value {
   margin-top: 0.2rem;
   font-family: var(--bb-font-headline);
-  font-size: 1.15rem;
+  font-size: 1.22rem;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--bb-text);
@@ -728,14 +737,75 @@ function closeStepPanel() {
   flex-wrap: wrap;
   gap: 0.45rem;
 }
-.bb-btn--guided {
-  display: inline-flex;
+.cooking-cta-card {
+  margin-top: 0.85rem;
+  padding: 1.2rem 1.25rem;
+  border-radius: 16px;
+  background: var(--bb-surface-lowest);
+  border: 2px solid color-mix(in srgb, var(--bb-primary) 28%, var(--bb-border));
+  box-shadow: 0 14px 36px rgba(26, 28, 25, 0.07);
+}
+.cooking-cta-card__eyebrow {
+  display: flex;
   align-items: center;
   gap: 0.45rem;
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bb-muted);
 }
-.cta-play {
+.cooking-cta-card__dot {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #16a34a;
+}
+.cooking-cta-card__headline {
+  margin: 0.4rem 0 0;
+  font-family: var(--bb-font-headline);
+  font-size: 1.5rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--bb-text);
+}
+.cooking-cta-card__support {
+  margin: 0.4rem 0 1rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--bb-muted);
+}
+.cooking-cta-card__btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.8rem 1.15rem;
+  font-size: 1rem;
+  font-weight: 700;
+  background: var(--bb-text);
+  color: var(--bb-surface-lowest);
+  border: none;
+}
+.cooking-cta-card__btn:hover {
+  background: color-mix(in srgb, var(--bb-text) 88%, #000);
+}
+.cooking-cta-card__btn:focus-visible {
+  outline: 2px solid var(--bb-focus-ring);
+  outline-offset: 2px;
+}
+.cooking-cta-card__play {
   flex-shrink: 0;
   opacity: 0.95;
+}
+.cooking-cta-card__footnote {
+  margin: 0.65rem 0 0;
+  font-size: 0.82rem;
+  color: var(--bb-muted);
+  text-align: center;
 }
 .roadmap-visual {
   margin-bottom: 0.5rem;
@@ -797,7 +867,10 @@ function closeStepPanel() {
   font-family: var(--bb-font-headline);
   font-weight: 900;
   letter-spacing: -0.02em;
-  font-size: clamp(1.8rem, 4vw, 2.35rem);
+  font-size: clamp(1.95rem, 4.2vw, 2.5rem);
+}
+.hero-copy .lede {
+  font-size: 0.98rem;
 }
 .lede {
   margin: 0.5rem 0 0;
@@ -833,14 +906,6 @@ function closeStepPanel() {
   background: #fff1f2;
   color: #9f1239;
 }
-.cta-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  align-items: center;
-  margin-top: 0.85rem;
-}
-
 .roadmap-layout {
   margin-bottom: 1rem;
 }
@@ -1152,6 +1217,60 @@ function closeStepPanel() {
 @media (max-width: 960px) {
   .detail-layout {
     grid-template-columns: 1fr;
+    align-items: start;
+  }
+  .hero-media {
+    align-self: start;
+  }
+  .hero-image {
+    flex: none;
+    min-height: 0;
+    max-height: 200px;
+    aspect-ratio: 16 / 10;
+  }
+  .hero-image-img {
+    min-height: 0;
+    max-height: 200px;
+    height: auto;
+  }
+  .timeline-panel .roadmap-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.55rem;
+  }
+  .timeline-panel .roadmap-head h2 {
+    font-size: clamp(1.05rem, 4vw, 1.12rem);
+    line-height: 1.25;
+    overflow-wrap: break-word;
+  }
+  .roadmap-view-tabs {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .roadmap-tab {
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+  }
+  .roadmap-layout,
+  .roadmap-flow-panel,
+  .timeline-panel {
+    min-width: 0;
+  }
+  .roadmap-flow-panel :deep(.wrap.stripLayout) {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  .roadmap-flow-panel :deep(.flow-lane-heading),
+  .roadmap-flow-panel :deep(.flow-lane-heading--summary),
+  .roadmap-flow-panel :deep(.step-title--full),
+  .roadmap-flow-panel :deep(.bubble__txt) {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+  .roadmap-flow-panel :deep(.flow-lane-heading--summary span:first-child) {
+    min-width: 0;
+    flex: 1;
   }
 }
 </style>

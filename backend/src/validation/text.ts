@@ -16,6 +16,7 @@ export function normalizeUserText(text: string): string {
   return stripDisallowedControlChars(normalizeNewlines(text)).trim();
 }
 
+/** Share of visible characters that are Unicode letters (abuse signal for pasted recipes). */
 function letterRatio(text: string): number {
   const letters = (text.match(/\p{L}/gu) ?? []).length;
   const visible = (text.replace(/\s+/g, "").match(/[^\s]/g) ?? []).length;
@@ -23,6 +24,7 @@ function letterRatio(text: string): number {
   return letters / visible;
 }
 
+/** Longest run of the same character in a row (abuse signal for pasted recipes). */
 function maxRepeatedRun(text: string): number {
   // Long repeated runs are a common "spam / abuse" signal (e.g. 500x 'a' or '=')
   let longestRun = 1;
@@ -38,6 +40,7 @@ function maxRepeatedRun(text: string): number {
   return longestRun;
 }
 
+/** Remove ASCII control chars except tab, LF, and CR (keeps pasted recipe formatting). */
 function stripDisallowedControlChars(text: string): string {
   // Keep common whitespace controls for pasted recipes; drop the rest.
   // - allow: \n \r \t

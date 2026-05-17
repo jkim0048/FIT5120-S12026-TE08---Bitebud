@@ -32,13 +32,17 @@ function goSignUp() {
         <img class="auth-mark" src="/bitebud-mark.png" alt="" />
       </div>
       <h1 class="account-title">Account</h1>
-      <p class="account-lede">Sign in with your BiteBud user ID.</p>
+      <p class="account-lede">
+        Start by setting up your food preferences, or sign in below if you already have a BiteBud user ID.
+      </p>
 
-      <SignInPanel embedded class="auth-panel" @success="onSignInSuccess" />
+      <button type="button" class="bb-btn bb-btn--secondary setup-btn" @click="goSignUp">
+        Set up food preferences
+      </button>
 
-      <div class="create-row">
-        <span class="create-label">New here?</span>
-        <button type="button" class="bb-btn bb-btn--secondary create-btn" @click="goSignUp">Set up food preferences</button>
+      <div class="sign-in-section" aria-labelledby="sign-in-heading">
+        <p id="sign-in-heading" class="sign-in-label">Already have a user ID?</p>
+        <SignInPanel embedded class="auth-panel" @success="onSignInSuccess" />
       </div>
     </div>
   </div>
@@ -107,27 +111,31 @@ function goSignUp() {
   padding-left: 0;
   padding-right: 0;
 }
-.create-row {
-  margin: 0.9rem 0 0;
-  font-size: 0.92rem;
-  color: var(--bb-muted);
-  display: grid;
-  justify-items: stretch;
-  gap: 0.35rem;
-  width: 100%;
-  align-self: stretch;
-}
-.create-label {
-  display: block;
-  text-align: center;
-}
-.create-btn {
+.setup-btn {
+  margin-top: 0.25rem;
   border-radius: 999px;
-  padding: 0.85rem 1rem;
+  padding: 1rem 1.25rem;
   font-weight: 800;
   font-family: var(--bb-font-headline);
-  font-size: 1rem;
+  font-size: 1.05rem;
   width: 100%;
   justify-content: center;
+}
+.sign-in-section {
+  margin-top: 1.35rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--bb-border);
+  width: 100%;
+  align-self: stretch;
+  display: grid;
+  gap: 0.65rem;
+  justify-items: stretch;
+}
+.sign-in-label {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--bb-muted);
+  text-align: center;
 }
 </style>

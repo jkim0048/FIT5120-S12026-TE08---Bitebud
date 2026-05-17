@@ -31,6 +31,7 @@ function findRecipeIngredientSectionStart(text: string): number {
 /** Rejoin lines split inside “(about 2 tsp)” style parentheticals. */
 const MERGE_NEXT_LINE_MAX_LENGTH = 90;
 
+/** Rejoin ingredient lines split mid-parenthesis (e.g. quantity wrapped across two lines). */
 function mergeBrokenParenthetical(lines: string[]): string[] {
   const merged: string[] = [];
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
@@ -52,7 +53,10 @@ function mergeBrokenParenthetical(lines: string[]): string[] {
 const MIN_LINE_LENGTH = 2;
 const DENSE_LINE_THRESHOLD = 3;
 
-/** BBC-style pages often ship one line of text; split before each new quantity / subsection. */
+/**
+ * Split a scraped ingredient block into lines; when the page is one dense paragraph,
+ * insert breaks before quantities, “for the …” subsections, and common unit patterns.
+ */
 function splitRunInIngredientLines(block: string): string[] {
   const trimmed = block.trim();
   if (!trimmed) return [];

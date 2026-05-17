@@ -99,6 +99,7 @@ const pickerLoading = ref(false)
 const pickerError = ref('')
 const addFoodError = ref('')
 const addFoodBusy = ref(false)
+const pendingAddPickerItem = ref<WickedPickerItem | null>(null)
 const editingFood = ref<SensoryFoodItemDTO | null>(null)
 const saveError = ref('')
 const lastUserId = ref<string | null>(null)
@@ -111,6 +112,7 @@ function resetLocalState() {
   foodQuery.value = ''
   foodPickerOpen.value = false
   addFoodError.value = ''
+  pendingAddPickerItem.value = null
   editingFood.value = null
   saveError.value = ''
 }
@@ -264,11 +266,23 @@ export function useSensorySetupForm() {
   }
 
   function choosePickerItem(item: WickedPickerItem) {
-    foodInputWickedIconId.value = item.wickedIconId
-    foodQuery.value = item.label
     foodPickerOpen.value = false
     addFoodError.value = ''
-    void addFood()
+    pendingAddPickerItem.value = item
+  }
+
+  function cancelPendingAddFood() {
+    pendingAddPickerItem.value = null
+    addFoodError.value = ''
+  }
+
+  async function confirmPendingAddFood() {
+    const item = pendingAddPickerItem.value
+    if (!item || addFoodBusy.value) return
+    foodInputWickedIconId.value = item.wickedIconId
+    foodQuery.value = item.label
+    await addFood()
+    if (!addFoodError.value) pendingAddPickerItem.value = null
   }
 
   function openFoodPicker() {
@@ -483,6 +497,9 @@ export function useSensorySetupForm() {
     onFoodRowClick,
     loadFoodPickerItems,
     choosePickerItem,
+    pendingAddPickerItem,
+    confirmPendingAddFood,
+    cancelPendingAddFood,
     openFoodPicker,
     closeFoodPickerSoon,
     addFood,

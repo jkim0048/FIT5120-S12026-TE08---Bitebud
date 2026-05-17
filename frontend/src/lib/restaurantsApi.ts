@@ -43,6 +43,16 @@ export type LocationSuggestion = {
   areaSearch: string
 }
 
+export type PlaceSuggestion = {
+  id: string
+  name: string
+  subtitle: string | null
+  source: 'bitebud' | 'nominatim'
+  latitude: number
+  longitude: number
+  nominatimPlaceId?: string
+}
+
 export type RestaurantDetails = {
   place: {
     id: string
@@ -118,6 +128,40 @@ export async function suggestRestaurantLocations(
 ): Promise<{ suggestions: LocationSuggestion[]; warning?: { code: string; error: string } }> {
   const search = new URLSearchParams({ q, limit: String(limit) })
   return apiFetch(`/api/restaurants/location-suggest?${search.toString()}`, withUserHeaders())
+}
+
+/** Autocomplete suggestions for restaurant/cuisine names, optionally scoped to an area. */
+export async function suggestRestaurantPlaces(params: {
+  q: string
+  lat?: number
+  lon?: number
+  suburb?: string
+  limit?: number
+}): Promise<{ suggestions: PlaceSuggestion[]; warning?: { code: string; error: string } }> {
+  const search = new URLSearchParams({ q: params.q, limit: String(params.limit ?? 8) })
+  if (typeof params.lat === 'number') search.set('lat', String(params.lat))
+  if (typeof params.lon === 'number') search.set('lon', String(params.lon))
+  if (params.suburb) search.set('suburb', params.suburb)
+  return apiFetch(`/api/restaurants/place-suggest?${search.toString()}`, withUserHeaders())
+}
+
+/** Unified area + restaurant suggestions for one search bar. */
+export async function suggestRestaurantUnified(params: {
+  q: string
+  lat?: number
+  lon?: number
+  suburb?: string
+  limit?: number
+}): Promise<{
+  areas: LocationSuggestion[]
+  places: PlaceSuggestion[]
+  warning?: { code: string; error: string }
+}> {
+  const search = new URLSearchParams({ q: params.q, limit: String(params.limit ?? 8) })
+  if (typeof params.lat === 'number') search.set('lat', String(params.lat))
+  if (typeof params.lon === 'number') search.set('lon', String(params.lon))
+  if (params.suburb) search.set('suburb', params.suburb)
+  return apiFetch(`/api/restaurants/search-suggest?${search.toString()}`, withUserHeaders())
 }
 
 /** Upsert a BiteBud restaurant record from a Nominatim selection so users can rate it locally. */

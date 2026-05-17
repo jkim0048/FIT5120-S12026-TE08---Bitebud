@@ -53,7 +53,7 @@ export function parseLocalDateYmd(ymd: string): Date {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
-/** Get the Monday-of-week (UTC) for the given UTC date. */
+/** Monday 00:00 UTC for the calendar week containing `date` (used for weekly freeze bookkeeping). */
 function mondayUtcOf(date: Date): Date {
   const dayOfWeek = date.getUTCDay();
   const offsetToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
@@ -69,6 +69,11 @@ function calendarDaysBetweenUtc(later: Date, earlier: Date): number {
   return Math.round((laterMs - earlierMs) / MS_PER_DAY);
 }
 
+/** Recipe completions plus restaurant reviews counted toward motivation thresholds. */
+function totalEligibleCount(counts: Record<string, number>): number {
+  return (counts.recipe_completed ?? 0) + (counts.restaurant_review_submitted ?? 0);
+}
+
 /** Normalise the stored JSON `counts` object into a strict `string → number` map (drops NaN entries). */
 function readCounts(raw: unknown): Record<string, number> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
@@ -81,10 +86,7 @@ function readCounts(raw: unknown): Record<string, number> {
   return counts;
 }
 
-function totalEligibleCount(counts: Record<string, number>): number {
-  return (counts.recipe_completed ?? 0) + (counts.restaurant_review_submitted ?? 0);
-}
-
+/** Sum recipe and review counts across all daily motivation rows for eligibility checks. */
 async function sumEligibleFromDaily(userId: string): Promise<{
   recipe: number;
   review: number;

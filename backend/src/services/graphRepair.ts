@@ -132,6 +132,7 @@ function stripLeadingQtyForName(fullLine: string): string {
     .trim();
 }
 
+/** Escape regex metacharacters so a literal substring can be used in `RegExp` constructors. */
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -155,6 +156,7 @@ function deriveNameFromLine(line: string): { name: string; full: string } {
   return { name, full: detail };
 }
 
+/** Id of the first prep/cook/wait/assemble/serve node in graph order, or null when the graph has no steps. */
 function firstNonIngredientStepId(nodes: RecipeNode[]): string | null {
   for (const node of nodes) {
     if (STEP_TYPE_NAMES.has(node.type)) return node.id;

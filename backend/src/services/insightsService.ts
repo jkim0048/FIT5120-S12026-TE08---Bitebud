@@ -2,6 +2,8 @@ import {
   addDays,
   isoDateOnly,
   localCalendarDateString,
+  parseIsoDateOnly,
+  todayMelbourneDate,
 } from "../calendarDate.js";
 import { recipeDatabase } from "../database/recipeDatabase.js";
 import { restaurantDatabase } from "../database/restaurantDatabase.js";
@@ -140,6 +142,7 @@ export function isUsableIngredientInsightLabel(normalizedLabel: string): boolean
   return true;
 }
 
+/** Title-case a single word for insight copy. */
 function capitalizeWord(word: string): string {
   if (!word.length) return "";
   return `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`;
@@ -161,14 +164,17 @@ function formatInsightLabelPhrase(raw: string): string {
     .join(" ");
 }
 
+/** Turn a stored chip key into readable words for headlines. */
 function humanizeChipLabel(chipKey: string): string {
   return formatInsightLabelPhrase(chipKey);
 }
 
+/** Title-case each token in an ingredient or cuisine label. */
 function titleCaseWords(value: string): string {
   return formatInsightLabelPhrase(value);
 }
 
+/** Render a `sweet+spicy` flavour signature as “Sweet and Spicy” for cards. */
 function humanizeFlavorSignature(signature: string): string {
   return signature
     .split("+")
@@ -177,18 +183,21 @@ function humanizeFlavorSignature(signature: string): string {
     .join(" and ");
 }
 
+/** Standard footnote for cooking insight cards tied to star ratings in the selected range. */
 function mealsRatedDetail(count: number, highRated: boolean): string {
   const band = highRated ? "4–5 stars" : "3 stars or below";
   const mealWord = count === 1 ? "meal" : "meals";
   return `Based on ${count} ${mealWord} you rated ${band} in this period.`;
 }
 
+/** Standard footnote for dining insight cards tied to overall review scores in the selected range. */
 function reviewsDetail(count: number, highRated: boolean): string {
   const band = highRated ? "4 or above" : "3 or below";
   const reviewWord = count === 1 ? "review" : "reviews";
   return `Based on ${count} ${reviewWord} you rated ${band} overall in this period.`;
 }
 
+/** Detail line for ingredient-affinity cards (high- or low-rated meals). */
 function ingredientAppearedDetail(
   ingredientLabel: string,
   mealCount: number,
@@ -200,6 +209,7 @@ function ingredientAppearedDetail(
   return `${name} appeared in ${mealCount} ${mealWord} you rated ${band} in this period.`;
 }
 
+/** Detail line for cuisine insight cards (high- or low-rated reviews). */
 function cuisineAppearedDetail(cuisineLabel: string, reviewCount: number, highRated: boolean): string {
   const name = titleCaseWords(cuisineLabel);
   const reviewWord = reviewCount === 1 ? "review" : "reviews";
@@ -262,6 +272,7 @@ const INSIGHT_TAKEAWAYS: Record<string, { works: string; doesnt: string }> = {
   },
 };
 
+/** Optional gentle suggestion text for an insight category and polarity (works vs doesn’t). */
 function takeawayFor(category: string, works: boolean): string | undefined {
   const row = INSIGHT_TAKEAWAYS[category];
   if (!row) return undefined;
@@ -332,6 +343,45 @@ export type InsightsRequest = {
   /** Omitted-range insights: widen rows pulled for completions/reviews pattern mining. */
   fullHistoryInsights?: boolean;
 };
+
+export type InsightsRangeError =
+  | { kind: "invalid_range" }
+  | { kind: "from_after_to" }
+  | { kind: "to_in_future" };
+
+/** Resolve explicit from/to query dates or fall back to full history from first activity day. */
+export async function resolveInsightsDateRange(
+  userId: string,
+  from?: string,
+  to?: string,
+): Promise<
+  | InsightsRangeError
+  | { rangeFrom: Date; rangeTo: Date; fullHistoryInsights: boolean }
+> {
+  const todayUtc = todayMelbourneDate();
+  const parsedFrom = from ? parseIsoDateOnly(from) : null;
+  const parsedTo = to ? parseIsoDateOnly(to) : null;
+  if (parsedFrom && parsedTo) {
+    if (!parsedFrom || !parsedTo) return { kind: "invalid_range" };
+    if (parsedFrom.getTime() > parsedTo.getTime()) return { kind: "from_after_to" };
+    if (parsedTo.getTime() > todayUtc.getTime()) return { kind: "to_in_future" };
+    return {
+      rangeFrom: parsedFrom,
+      rangeTo: parsedTo,
+      fullHistoryInsights: false,
+    };
+  }
+
+  const lifetimeRow = await findLifetimeActivityStats(userId);
+  const firstDay = lifetimeRow.first_activity_day ?? null;
+  const rangeFrom =
+    firstDay?.trim()?.length ?
+      (parseIsoDateOnly(firstDay.trim()) ?? todayUtc)
+    : todayUtc;
+  const rangeTo = todayUtc;
+  if (rangeFrom.getTime() > rangeTo.getTime()) return { kind: "from_after_to" };
+  return { rangeFrom, rangeTo, fullHistoryInsights: true };
+}
 
 /** Build the full `/api/me/insights` response payload from the user's recent activity. */
 export async function buildInsightsPayload(request: InsightsRequest): Promise<InsightsPayload> {
