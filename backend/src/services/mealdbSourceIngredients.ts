@@ -1,4 +1,3 @@
-import { fetchUrlAsRecipePlainText } from "./recipeUrlFetch.js";
 import { mealToRecipeText, type MealDbMeal } from "./themealdb.js";
 
 type MealRecipeText = ReturnType<typeof mealToRecipeText>;
@@ -170,39 +169,7 @@ function extractIngredientLinesFromPagePlainText(plain: string): string[] | null
   return ingredientLines;
 }
 
-/**
- * When MealDB provides an HTTP source URL, try to fetch the page and use its ingredient list
- * when extraction succeeds; otherwise keep MealDB-only ingredients. When `strSource` is missing
- * or not a usable page URL, callers should use plain `mealToRecipeText` (this function does that).
- */
+/** MealDB ingredient/instruction text only (no fetching third-party recipe pages). */
 export async function mealToRecipeTextPreferSource(meal: MealDbMeal): Promise<MealRecipeText> {
-  const base = mealToRecipeText(meal);
-  const raw = typeof meal.strSource === "string" ? meal.strSource.trim() : "";
-  if (!raw || !/^https?:\/\//i.test(raw)) return base;
-  if (/youtube\.com|youtu\.be/i.test(raw)) return base;
-
-  const fetched = await fetchUrlAsRecipePlainText(raw);
-  if (!fetched.ok) return base;
-
-  const ingredientLines = extractIngredientLinesFromPagePlainText(fetched.text);
-  if (!ingredientLines || ingredientLines.length < MIN_USABLE_LINES) return base;
-
-  const title = meal.strMeal || base.title;
-  const instructions = String(meal.strInstructions ?? "").trim();
-  const text = [
-    title,
-    "",
-    "Ingredients:",
-    ...ingredientLines.map((line) => `- ${line}`),
-    "",
-    "Instructions:",
-    instructions || "(No instructions provided.)",
-  ].join("\n");
-
-  return {
-    title,
-    text,
-    sourceUrl: base.sourceUrl ?? null,
-    imageUrl: base.imageUrl ?? null,
-  };
+  return mealToRecipeText(meal);
 }

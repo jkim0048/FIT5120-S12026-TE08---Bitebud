@@ -9,7 +9,7 @@
         <span class="paste-guide__num" aria-hidden="true">1</span>
         <div class="paste-guide__body">
           <strong class="paste-guide__head">Open any recipe</strong>
-          <p class="paste-guide__text">Use a website, book, or note—anywhere your recipe lives.</p>
+          <p class="paste-guide__text">Use a book, or anywhere your recipe lives.</p>
         </div>
       </li>
       <li class="paste-guide__step">

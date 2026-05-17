@@ -31,6 +31,21 @@ const MAX_SEARCH_CHARS = 120
 const MIN_SEARCH_CHARS = 2
 const MIN_RECIPE_PASTE_CHARS = 40
 const MAX_RECIPE_PASTE_CHARS = 40_000
+const URL_ONLY_LINE = /^https?:\/\/\S+$/i
+
+/** Shown when the user pastes a link; BiteBud does not fetch third-party recipe pages (web scraping). */
+const URL_PROHIBITED_MESSAGE =
+  'Recipe website links are not allowed. Fetching pages automatically is web scraping, which BiteBud does not endorse. Copy the ingredients and instructions from the page and paste them as plain text.'
+
+/** True when the paste box contains a single recipe URL and no ingredient/instruction text. */
+function isUrlOnlyRecipePaste(text: string): boolean {
+  const lines = text
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  return lines.length === 1 && URL_ONLY_LINE.test(lines[0] ?? '')
+}
 
 const catalogPage = ref(0)
 const browseSkip = ref(0)
@@ -482,6 +497,11 @@ async function search() {
   }
   if (activeTab.value === 'describe') {
     const normalizedPaste = query.value.replace(/\r\n?/g, '\n').trim()
+    if (isUrlOnlyRecipePaste(normalizedPaste)) {
+      err.value = URL_PROHIBITED_MESSAGE
+      results.value = []
+      return
+    }
     if (normalizedPaste.length < MIN_RECIPE_PASTE_CHARS) {
       err.value = 'Paste the full recipe text (ingredients + instructions).'
       results.value = []
@@ -553,15 +573,11 @@ async function search() {
       results.value = []
     }
   } catch (e) {
-    if (e instanceof ApiError && e.code === 'URL_NOT_FETCHABLE') {
-      err.value =
-        'That link could not be opened automatically—many sites block recipe scraping. Copy the full recipe from the page and paste the text here instead.'
+    if (e instanceof ApiError && (e.code === 'URL_IMPORT_DISABLED' || e.code === 'URL_NOT_FETCHABLE')) {
+      err.value = URL_PROHIBITED_MESSAGE
     } else if (e instanceof ApiError && e.code === 'NOT_RECIPE') {
       err.value =
-        'That doesn’t look like a food recipe. Paste ingredients and instructions (or a recipe URL).'
-    } else if (e instanceof ApiError && e.code === 'PARSE_FAILED') {
-      err.value =
-        'We opened the page but could not read a clear recipe. Paste the ingredients and instructions here manually for best results.'
+        'That doesn’t look like a food recipe. Paste ingredients and instructions.'
     } else {
       err.value = e instanceof Error ? e.message : 'Search failed'
     }
@@ -731,6 +747,10 @@ async function openRecipeWithConfirm(c: BrowseCard) {
             My recipes
           </button>
         </div>
+        <p v-if="activeTab === 'describe'" class="tab-help" role="note">
+          Paste the full recipe as text (ingredients and instructions). Recipe website links are not allowed—automatically
+          loading pages is web scraping, which BiteBud does not endorse.
+        </p>
         <p v-if="activeTab === 'forYou' && hasProfile" class="tab-help" role="note">
           These are recipes you have successfully cooked in BiteBud. Search by name to find one again.
         </p>
@@ -738,7 +758,10 @@ async function openRecipeWithConfirm(c: BrowseCard) {
           <summary>More about these tabs</summary>
           <ul class="tab-details-list">
             <li><strong>Browse library</strong> — Search from our library of recipes</li>
-            <li><strong>Paste a recipe</strong> — Visulise your own recipes, paste our intrusctions and ingredients for best results.</li>
+            <li>
+              <strong>Paste a recipe</strong> — Paste ingredients and instructions as text (not a website link; we do not
+              scrape recipe pages).
+            </li>
             <li><strong>My recipes</strong> — Your completed recipes</li>
           </ul>
         </details>
@@ -757,7 +780,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
               v-model="query"
               class="search-input search-input--paste"
               rows="2"
-              :placeholder="'Paste full recipe text here…'"
+              placeholder="Paste ingredients and instructions as text (no website links)"
               :disabled="busy"
               @input="autosizePasteField"
               @keydown="onPasteSearchKeydown"
