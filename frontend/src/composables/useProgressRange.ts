@@ -1,10 +1,10 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import { useSession } from './useSession'
 
-export type InsightsRangePreset = '7d' | '30d' | '90d' | '12m' | 'custom'
+export type ProgressRangePreset = '7d' | '30d' | '90d' | '12m' | 'custom'
 
 type Stored =
-  | { preset: Exclude<InsightsRangePreset, 'custom'> }
+  | { preset: Exclude<ProgressRangePreset, 'custom'> }
   | { preset: 'custom'; from: string; to: string }
 
 const MELBOURNE_CALENDAR = new Intl.DateTimeFormat('en-CA', {
@@ -48,11 +48,11 @@ function addMonths(d: Date, months: number): Date {
   return out
 }
 
-function key(uid: string) {
-  return `bb.insightsRange.${uid}`
+function progressStorageKey(uid: string) {
+  return `bb.progressRange.${uid}`
 }
 
-function computeRange(preset: Exclude<InsightsRangePreset, 'custom'>): { from: Date; to: Date } {
+function computeRange(preset: Exclude<ProgressRangePreset, 'custom'>): { from: Date; to: Date } {
   const to = todayUtc()
   if (preset === '7d') return { from: addDays(to, -6), to }
   if (preset === '30d') return { from: addDays(to, -29), to }
@@ -61,33 +61,38 @@ function computeRange(preset: Exclude<InsightsRangePreset, 'custom'>): { from: D
   return { from: addDays(to, -6), to }
 }
 
-export function useInsightsRange(): {
+export type ProgressRangeReactive = {
   from: Ref<Date>
   to: Ref<Date>
-  preset: Ref<InsightsRangePreset>
-  setPreset: (p: Exclude<InsightsRangePreset, 'custom'>) => void
+  preset: Ref<ProgressRangePreset>
+  setPreset: (p: Exclude<ProgressRangePreset, 'custom'>) => void
   setCustom: (from: Date, to: Date) => void
   storageKey: Ref<string>
-} {
-  const { userId } = useSession()
-  const storageKey = computed(() => (userId.value ? key(userId.value) : ''))
+}
 
-  const preset = ref<InsightsRangePreset>('7d')
+let progressRangeStore: ProgressRangeReactive | null = null
+
+function createProgressRangeStore(userId: Ref<string | null | undefined>): ProgressRangeReactive {
+  const preset = ref<ProgressRangePreset>('7d')
   const from = ref<Date>(computeRange('7d').from)
   const to = ref<Date>(computeRange('7d').to)
+  const storageKey = computed(() => (userId.value ? progressStorageKey(userId.value) : ''))
 
   function loadFromStorage() {
-    if (!storageKey.value) return
+    const keyVal = storageKey.value
+    if (!keyVal) return
     try {
-      const raw = localStorage.getItem(storageKey.value)
+      const raw = localStorage.getItem(keyVal)
       if (!raw) return
-      const parsed = JSON.parse(raw) as Stored
-      if (!parsed || typeof parsed !== 'object') return
+      const parsedRaw = JSON.parse(raw) as Record<string, unknown>
+      if (!parsedRaw || typeof parsedRaw !== 'object') return
+      const parsed = parsedRaw as Stored
       if (parsed.preset && parsed.preset !== 'custom') {
-        // Back-compat: older persisted "all" becomes "12m".
-        const p = parsed.preset === ('all' as any) ? '12m' : parsed.preset
-        preset.value = p as InsightsRangePreset
-        const r = computeRange(p as Exclude<InsightsRangePreset, 'custom'>)
+        const presetStr = String(parsed.preset)
+        const p: Exclude<ProgressRangePreset, 'custom'> =
+          presetStr === 'all' ? '12m' : (parsed.preset as Exclude<ProgressRangePreset, 'custom'>)
+        preset.value = p as ProgressRangePreset
+        const r = computeRange(p as Exclude<ProgressRangePreset, 'custom'>)
         from.value = r.from
         to.value = r.to
         return
@@ -107,15 +112,16 @@ export function useInsightsRange(): {
   }
 
   function persist() {
-    if (!storageKey.value) return
+    const keyVal = storageKey.value
+    if (!keyVal) return
     const out: Stored =
       preset.value === 'custom'
         ? { preset: 'custom', from: isoDateOnly(from.value), to: isoDateOnly(to.value) }
         : { preset: preset.value }
-    localStorage.setItem(storageKey.value, JSON.stringify(out))
+    localStorage.setItem(keyVal, JSON.stringify(out))
   }
 
-  function setPreset(p: Exclude<InsightsRangePreset, 'custom'>) {
+  function setPreset(p: Exclude<ProgressRangePreset, 'custom'>) {
     preset.value = p
     const r = computeRange(p)
     from.value = r.from
@@ -133,12 +139,18 @@ export function useInsightsRange(): {
   watch(
     () => storageKey.value,
     () => {
-      // When user changes, reload their last choice.
       loadFromStorage()
     },
     { immediate: true },
   )
 
-  return { from, to, preset, setPreset, setCustom, storageKey }
+  return { preset, from, to, setPreset, setCustom, storageKey }
 }
 
+export function useProgressRange(): ProgressRangeReactive {
+  if (!progressRangeStore) {
+    const { userId } = useSession()
+    progressRangeStore = createProgressRangeStore(userId)
+  }
+  return progressRangeStore
+}

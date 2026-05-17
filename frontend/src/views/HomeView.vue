@@ -1,44 +1,8 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useSession } from '../composables/useSession'
-import { fetchMotivationSummary } from '../lib/motivationApi'
 
-const { isSignedIn, userId } = useSession()
-
-const motivationLoaded = ref(false)
-const motivationHasActivity = ref(false)
-const motivationStreak = ref(0)
-const motivationShowStartFresh = ref(false)
-
-async function loadMotivation() {
-  motivationLoaded.value = false
-  if (!userId.value) {
-    motivationHasActivity.value = false
-    motivationStreak.value = 0
-    motivationShowStartFresh.value = false
-    motivationLoaded.value = true
-    return
-  }
-  try {
-    const s = await fetchMotivationSummary()
-    motivationHasActivity.value = s.hasActivity
-    motivationStreak.value = s.currentStreak
-    motivationShowStartFresh.value = s.showStartFresh
-  } catch {
-    motivationHasActivity.value = false
-  } finally {
-    motivationLoaded.value = true
-  }
-}
-
-watch(
-  userId,
-  () => {
-    void loadMotivation()
-  },
-  { immediate: true },
-)
+const { isSignedIn } = useSession()
 
 function scrollToTop() {
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -64,20 +28,7 @@ function scrollToTop() {
           >
             Let's get started
           </RouterLink>
-        </div>
-        <div v-if="isSignedIn && motivationLoaded" class="motivation-hero">
-          <div v-if="motivationHasActivity" class="streak-chip" aria-label="Current streak in days">
-            <span class="streak-chip__icon" aria-hidden="true">&#128293;</span>
-            <span class="streak-chip__num">{{ motivationStreak }}</span>
-          </div>
-          <p v-if="motivationHasActivity && motivationShowStartFresh" class="motivation-soft">
-            Start fresh today. Every day counts on its own.
-          </p>
-          <p class="motivation-links">
-            <RouterLink to="/progress">My progress</RouterLink>
-            <span class="motivation-links__sep" aria-hidden="true"> · </span>
-            <RouterLink to="/insights">My insights</RouterLink>
-          </p>
+          <RouterLink :to="{ name: 'aboutUs' }" class="bb-btn bb-btn--secondary cta">Learn more</RouterLink>
         </div>
       </div>
     </section>
@@ -120,7 +71,7 @@ function scrollToTop() {
             <span class="tile-summary__chevron" aria-hidden="true">⌄</span>
           </summary>
           <p class="tile-copy">
-            Customise your sensory profile and filter by dietary and cultural requirements.
+            Customise your food preferences and filter by dietary and cultural requirements.
           </p>
           <div class="tile-demo tile-demo--compact" aria-hidden="true">
             <div class="demo-k">Example profile</div>
@@ -895,56 +846,6 @@ function scrollToTop() {
 }
 .scroll-top-btn {
   min-width: 11rem;
-}
-
-.motivation-hero {
-  margin-top: 1rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.45rem;
-}
-.streak-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--bb-text);
-  background: color-mix(in srgb, var(--bb-surface-low) 88%, var(--bb-primary) 12%);
-  border: 1px solid color-mix(in srgb, var(--bb-border) 80%, var(--bb-primary) 20%);
-}
-.streak-chip__icon {
-  font-size: 1rem;
-  line-height: 1;
-}
-.streak-chip__num {
-  font-variant-numeric: tabular-nums;
-}
-.motivation-soft {
-  margin: 0;
-  max-width: 22rem;
-  text-align: center;
-  font-size: 0.9rem;
-  color: var(--bb-muted);
-  line-height: 1.45;
-}
-.motivation-links {
-  margin: 0;
-  font-size: 0.88rem;
-}
-.motivation-links a {
-  color: var(--bb-primary);
-  font-weight: 600;
-  text-decoration: none;
-}
-.motivation-links a:hover {
-  text-decoration: underline;
-}
-.motivation-links__sep {
-  color: var(--bb-muted);
 }
 
 @media (max-width: 980px) {

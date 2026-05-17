@@ -154,9 +154,9 @@ async function submitProfile(): Promise<void> {
     </div>
 
     <div class="title-row">
-      <h1 class="h1">📋 Your Profile Summary</h1>
+      <h1 class="h1">📋 Your food preferences</h1>
     </div>
-    <p class="sub">Review your sensory preferences, then continue to choose cooking or dining out.</p>
+    <p class="sub">Review what you have saved, then continue to cooking or dining out.</p>
 
     <p v-if="profileLoading" class="muted">Loading…</p>
     <div v-else-if="!hasProfile || !profile" class="muted">No profile yet. Please complete setup first.</div>
@@ -165,7 +165,7 @@ async function submitProfile(): Promise<void> {
       <!-- Textures -->
       <section class="section-card">
         <div class="section-head">
-          <h2 class="h2">Sensory Challening Textures</h2>
+          <h2 class="h2">Challenging textures</h2>
           <RouterLink to="/sensory/setup" class="section-edit">Edit</RouterLink>
         </div>
         <p class="summary-line">
@@ -242,7 +242,7 @@ async function submitProfile(): Promise<void> {
       <p v-if="submitError || exportError" class="err" role="alert">{{ exportError || submitError }}</p>
 
       <div class="footer-actions">
-        <RouterLink to="/sensory/setup" class="bb-btn bb-btn--secondary footer-btn">Edit profile</RouterLink>
+        <RouterLink to="/sensory/setup" class="bb-btn bb-btn--secondary footer-btn">Edit preferences</RouterLink>
         <button
           v-if="hasExportableProfile"
           type="button"

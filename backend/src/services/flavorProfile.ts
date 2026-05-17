@@ -51,6 +51,14 @@ function heuristicInfer(ingredients: FlavorInferenceInput[]): FlavorInferenceRes
   return out;
 }
 
+/**
+ * Same bucketing as the Gemini-backed path, but local-only (no network).
+ * Use for bulk aggregates (e.g. insights) where many sequential LLM calls would be too slow.
+ */
+export function inferFlavorProfileHeuristic(ingredients: FlavorInferenceInput[]): FlavorInferenceResult {
+  return heuristicInfer(ingredients);
+}
+
 function sanitizeResult(raw: unknown, validIds: Set<string>): FlavorInferenceResult {
   const out = emptyResult();
   if (!raw || typeof raw !== "object") return out;
@@ -66,6 +74,7 @@ function sanitizeResult(raw: unknown, validIds: Set<string>): FlavorInferenceRes
   return out;
 }
 
+/** Group ingredient labels into flavour buckets using a token-based heuristic; returns labelled buckets. */
 export async function inferFlavorProfile(ingredients: FlavorInferenceInput[]): Promise<FlavorInferenceResult> {
   const validIds = new Set(ingredients.map((x) => x.id));
   const fallback = heuristicInfer(ingredients);

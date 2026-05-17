@@ -18,17 +18,20 @@ const sensoryRoute = computed(() => ({
   <main class="page">
     <header class="head">
       <h1 class="h1">My profile</h1>
-      <p class="lede">Update how BiteBud matches food to your senses, or review patterns from your activity.</p>
+      <p class="lede">Update your food preferences, see your activity, or explore your patterns.</p>
     </header>
 
     <div class="choices" role="group" aria-label="Profile actions">
-      <RouterLink class="choice bb-btn bb-btn--primary" :to="sensoryRoute">Update sensory profile</RouterLink>
+      <RouterLink class="choice bb-btn bb-btn--primary" :to="sensoryRoute">Update my food preferences</RouterLink>
+      <RouterLink class="choice choice--secondary bb-btn bb-btn--secondary" :to="{ name: 'myProgress' }">
+        See my activity
+      </RouterLink>
       <RouterLink
         v-if="showInsightsLink"
         class="choice choice--secondary bb-btn bb-btn--secondary"
         :to="{ name: 'myInsights' }"
       >
-        My Insights
+        See my patterns
       </RouterLink>
     </div>
 

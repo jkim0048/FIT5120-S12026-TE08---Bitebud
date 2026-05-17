@@ -37,7 +37,7 @@ async function onSubmit() {
       headers: { 'X-User-Id': id },
     })
     if (!data.hasProfile) {
-      error.value = 'No sensory profile found for this user ID.'
+      error.value = 'No food preferences found for this user ID.'
       return
     }
     emit('success', id)

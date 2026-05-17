@@ -1,6 +1,7 @@
 import { prisma } from "../prisma.js";
 
-export const sensoryProfileRepository = {
+/** Sensory persistence — single owner for sensory profiles, food items, and code attempts. */
+export const sensoryProfileDatabase = {
   sensoryProfileFindUnique: prisma.sensoryProfile.findUnique.bind(prisma.sensoryProfile),
 
   sensoryProfileUpsert: prisma.sensoryProfile.upsert.bind(prisma.sensoryProfile),

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import {
   CULTURAL_CHIPS,
   DIETARY_CHIPS,
@@ -109,11 +109,11 @@ function onFoodEditThumbError(e: Event) {
 <template>
   <div class="page">
     <div class="top-nav">
-      <span class="top-placeholder" />
-      <button type="button" class="link link-btn" :disabled="profileLoading" @click="saveAndViewSummary">Save &amp; Continue to Summary →</button>
+      <RouterLink class="link link-back" :to="{ name: 'profileStart' }">← Back to profile</RouterLink>
+      <button type="button" class="link link-btn" :disabled="profileLoading" @click="saveAndViewSummary">Save and review →</button>
     </div>
 
-    <h1 class="h1">Set up your Sensory Profile</h1>
+    <h1 class="h1">Set up your food preferences</h1>
     <p class="sub">Expand each section below, update preferences, then save each section.</p>
 
     <p v-if="saveError || sectionError" class="save-err" role="alert">{{ sectionError || saveError }}</p>
@@ -122,7 +122,7 @@ function onFoodEditThumbError(e: Event) {
       <article class="section-card">
         <button type="button" class="section-head" @click="toggleSection('texture')">
           <div>
-            <h2>Sensory Challenging Textures</h2>
+            <h2>Challenging textures</h2>
             <p>Select textures that are not safe for you.</p>
           </div>
           <div class="right">
@@ -258,7 +258,7 @@ function onFoodEditThumbError(e: Event) {
 
     <div class="footer">
       <button type="button" class="bb-btn bb-btn--secondary" @click="router.push({ name: 'cookingStart' })">Skip for now</button>
-      <button type="button" class="bb-btn bb-btn--primary" :disabled="profileLoading" @click="saveAndViewSummary">Save &amp; Continue to Summary</button>
+      <button type="button" class="bb-btn bb-btn--primary" :disabled="profileLoading" @click="saveAndViewSummary">Save and review</button>
     </div>
 
     <Teleport to="body">
@@ -323,14 +323,14 @@ function onFoodEditThumbError(e: Event) {
   align-items: center;
   margin-bottom: 0.75rem;
 }
-.top-placeholder {
-  width: 1px;
-  height: 1px;
-}
 .link {
   color: var(--bb-primary);
   text-decoration: none;
   font-weight: 700;
+}
+.link-back {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .link-btn {
   border: none;

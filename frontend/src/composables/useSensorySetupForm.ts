@@ -7,6 +7,7 @@ import { persistSensoryProfileSnapshot } from '../lib/sensorySnapshot'
 import { getBiteBudUserId } from './useUserId'
 import type { SensoryFoodItemDTO, SensoryFoodStatus } from '../types/sensory'
 
+/** Texture labels users can mark as safe, unsure, or unsafe during sensory setup. */
 export const TEXTURE_OPTIONS = [
   'Soft',
   'Smooth',
@@ -71,17 +72,20 @@ function currentUserId(): string {
   return id
 }
 
+/** Decode the stored `unsafe:<Texture>` strings into a de-duplicated list of texture labels. */
 export function decodeUnsafeTexturePrefs(prefs: string[] | null | undefined): string[] {
-  const unsafe: string[] = []
-  for (const raw of prefs ?? []) {
-    if (typeof raw !== 'string') continue
-    if (raw.startsWith(TEXTURE_UNSAFE_PREFIX)) unsafe.push(raw.slice(TEXTURE_UNSAFE_PREFIX.length))
+  const unsafeTextures: string[] = []
+  for (const rawPref of prefs ?? []) {
+    if (typeof rawPref !== 'string') continue
+    if (rawPref.startsWith(TEXTURE_UNSAFE_PREFIX)) {
+      unsafeTextures.push(rawPref.slice(TEXTURE_UNSAFE_PREFIX.length))
+    }
   }
-  return uniq(unsafe)
+  return uniq(unsafeTextures)
 }
 
 function encodeUnsafeTexturePrefs(unsafe: string[]): string[] {
-  return uniq(unsafe).map((t) => `${TEXTURE_UNSAFE_PREFIX}${t}`)
+  return uniq(unsafe).map((texture) => `${TEXTURE_UNSAFE_PREFIX}${texture}`)
 }
 
 const selectedUnsafeTextures = ref<string[]>([])
@@ -111,6 +115,10 @@ function resetLocalState() {
   saveError.value = ''
 }
 
+/**
+ * Composable powering the multi-step Sensory Setup form. Returns reactive state plus action helpers for the
+ * underlying screens — chip toggles, profile save, food-item CRUD, and Wicked icon picker integration.
+ */
 export function useSensorySetupForm() {
   const router = useRouter()
   const { hasProfile, profile, loading: profileLoading, refresh } = useSensoryProfile()

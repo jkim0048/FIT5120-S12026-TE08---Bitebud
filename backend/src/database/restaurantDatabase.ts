@@ -97,7 +97,8 @@ export async function ensureRestaurantSeedData(): Promise<void> {
   }
 }
 
-export const restaurantRepository = {
+/** Restaurant persistence — single owner for places, reviews, and favourites Prisma calls. */
+export const restaurantDatabase = {
   restaurantPlaceCount: () => prisma.restaurantPlace.count(),
 
   restaurantPlaceFindMany: prisma.restaurantPlace.findMany.bind(prisma.restaurantPlace),
@@ -113,6 +114,8 @@ export const restaurantRepository = {
   restaurantReviewCreate: prisma.restaurantReview.create.bind(prisma.restaurantReview),
 
   restaurantReviewUpdate: prisma.restaurantReview.update.bind(prisma.restaurantReview),
+
+  restaurantReviewCount: prisma.restaurantReview.count.bind(prisma.restaurantReview),
 
   restaurantFavoriteUpsert: prisma.restaurantFavorite.upsert.bind(prisma.restaurantFavorite),
 

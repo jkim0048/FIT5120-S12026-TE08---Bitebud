@@ -19,7 +19,7 @@ function goProfile(): void {
 <template>
   <main class="page">
     <header class="head">
-      <h1 class="h1">How would you like to eat today?</h1>
+      <h1 class="h1">What's on the menu today?</h1>
       <p class="lede">
         Cook at home with guided recipes, or find somewhere sensory-friendly to dine out — switch whenever you like.
       </p>

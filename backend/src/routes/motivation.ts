@@ -22,6 +22,10 @@ const progressQuery = z.object({
   month: z.coerce.number().int().min(1).max(12).optional(),
 });
 
+/**
+ * Register every `/api/motivation/*` endpoint group on the Fastify app
+ * (record an activity, current summary, monthly progress, insights cards).
+ */
 export async function registerMotivationRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/motivation/record", async (request, reply) => {
     const userId = parseBiteBudUserId(request.headers["x-user-id"] as string | undefined);

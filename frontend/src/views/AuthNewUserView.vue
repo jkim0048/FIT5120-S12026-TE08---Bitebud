@@ -71,7 +71,7 @@ async function onModalYes(): Promise<void> {
     </div>
 
     <h1 class="h1">Your user ID</h1>
-    <p class="lede">Save this code — it identifies your sensory profile.</p>
+    <p class="lede">Save this code — it links to your food preferences.</p>
 
     <div class="card">
       <div class="code-row" aria-label="Your three letter user code">
@@ -86,13 +86,13 @@ async function onModalYes(): Promise<void> {
           Go back
         </button>
         <button type="button" class="bb-btn bb-btn--primary btn-continue" :disabled="busy || !userCode" @click="onContinue">
-          Create Sensory Profile
+          Set up food preferences
         </button>
       </div>
     </div>
 
     <p class="footer-hint">
-      Already have a Sensory Profile?
+      Already have food preferences set up?
       <RouterLink to="/auth" class="inline-link">Sign in</RouterLink>
     </p>
 
@@ -101,7 +101,7 @@ async function onModalYes(): Promise<void> {
         <div class="modal-backdrop" @click="closeModal" />
         <div class="modal-box">
           <h3 id="new-user-modal-title" class="modal-title">Your User profile has been created.</h3>
-          <p class="modal-text">Do you want to set up your sensory profile now?</p>
+          <p class="modal-text">Do you want to set up your food preferences now?</p>
           <div class="modal-actions">
             <button type="button" class="bb-btn bb-btn--secondary" :disabled="busy" @click="onModalNo">No</button>
             <button type="button" class="bb-btn bb-btn--primary" :disabled="busy" @click="onModalYes">Continue</button>

@@ -22,6 +22,7 @@ export function pgDateColumnToYmd(value: Date | string): string {
   return localCalendarDateString(new Date(value));
 }
 
+/** Parse a strict `YYYY-MM-DD` string into a UTC midnight `Date`, or `null` if the input is malformed. */
 export function parseIsoDateOnly(isoDateString: string): Date | null {
   const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDateString.trim());
   if (!dateMatch) return null;
@@ -39,16 +40,19 @@ export function parseIsoDateOnly(isoDateString: string): Date | null {
   return parsedUtc;
 }
 
+/** Format `date` as `YYYY-MM-DD` using its UTC components. */
 export function isoDateOnly(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** Return a new `Date` shifted by `days` whole days (positive or negative) in UTC. */
 export function addDays(date: Date, days: number): Date {
   const shifted = new Date(date);
   shifted.setUTCDate(shifted.getUTCDate() + days);
   return shifted;
 }
 
+/** Get the current Melbourne calendar date as a UTC midnight `Date` for that day. */
 export function todayMelbourneDate(): Date {
   const todayStr = localCalendarDateString(new Date());
   const parsed = parseIsoDateOnly(todayStr);

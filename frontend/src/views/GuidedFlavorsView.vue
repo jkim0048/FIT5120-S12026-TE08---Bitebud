@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { biteBudUserIdHeader } from '../composables/useUserId'
 import { apiFetch } from '../lib/api'
 
@@ -97,8 +97,18 @@ onMounted(async () => {
 
 <template>
   <div class="flavor-page">
-    <p v-if="error" class="err">{{ error }}</p>
-    <div v-else-if="loading" class="card">Loading flavors…</div>
+    <template v-if="error">
+      <p class="err">{{ error }}</p>
+      <p class="flavor-exit">
+        <RouterLink class="flavor-exit__link" :to="{ name: 'recipe', params: { id: recipeId } }">← Back to recipe</RouterLink>
+      </p>
+    </template>
+    <div v-else-if="loading" class="card flavor-card--loading">
+      <p>Loading flavors…</p>
+      <p class="flavor-exit">
+        <RouterLink class="flavor-exit__link" :to="{ name: 'recipe', params: { id: recipeId } }">← Back to recipe</RouterLink>
+      </p>
+    </div>
     <section v-else class="card">
       <h1 class="title">Adjust your flavors</h1>
       <p class="sub">Move each slider left to reduce a flavour, or right to increase it.</p>
@@ -160,6 +170,23 @@ onMounted(async () => {
   border-radius: 22px;
   box-shadow: 0 12px 30px rgba(26, 28, 25, 0.06);
   padding: 1.1rem 1rem;
+}
+.flavor-card--loading {
+  text-align: center;
+  color: var(--bb-muted);
+}
+.flavor-exit {
+  margin: 1rem 0 0;
+  text-align: center;
+}
+.flavor-exit__link {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--bb-accent);
+  text-decoration: none;
+}
+.flavor-exit__link:hover {
+  text-decoration: underline;
 }
 .title {
   margin: 0;

@@ -82,17 +82,18 @@ const sharedSettings = ref<UserSettings>(DEFAULTS)
 let sharedInitDone = false
 let sharedStorageWatchStop: (() => void) | null = null
 
+/** Composable returning a reactive, per-user settings object backed by local storage. */
 export function useSettings() {
-  const uid = getBiteBudUserId()
-  const key = computed(() => storageKey(getBiteBudUserId() ?? uid ?? null))
+  const initialUserId = getBiteBudUserId()
+  const key = computed(() => storageKey(getBiteBudUserId() ?? initialUserId ?? null))
 
   if (!sharedInitDone) {
     sharedSettings.value = readFromStorage(key.value)
 
     sharedStorageWatchStop = watch(
       sharedSettings,
-      (s) => {
-        localStorage.setItem(key.value, JSON.stringify(normalize(s)))
+      (settings) => {
+        localStorage.setItem(key.value, JSON.stringify(normalize(settings)))
       },
       { deep: true },
     )
@@ -102,13 +103,13 @@ export function useSettings() {
 
   watch(
     key,
-    (k) => {
+    (storageKeyForUser) => {
       sharedStorageWatchStop?.()
-      sharedSettings.value = readFromStorage(k)
+      sharedSettings.value = readFromStorage(storageKeyForUser)
       sharedStorageWatchStop = watch(
         sharedSettings,
-        (s) => {
-          localStorage.setItem(k, JSON.stringify(normalize(s)))
+        (settings) => {
+          localStorage.setItem(storageKeyForUser, JSON.stringify(normalize(settings)))
         },
         { deep: true },
       )

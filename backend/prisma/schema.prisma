@@ -245,3 +245,45 @@ model MotivationEvent {
   @@index([userId, createdAt])
   @@map("motivation_events")
 }
+
+/// SDAC-style headline totals (About page — image 2).
+model AboutAutismPopulationTotal {
+  year            Int     @id @map("year")
+  totalThousands  Decimal @map("total_thousands") @db.Decimal(12, 2)
+
+  @@map("about_autism_population_totals")
+}
+
+/// Meal-prep assistance age slice (About page — image 5); 2015 optional where not published.
+model AboutMealPrepAssistanceByAge {
+  ageGroup       String   @id @map("age_group")
+  estimate2015   Decimal? @map("estimate_2015") @db.Decimal(12, 2)
+  estimate2018   Decimal  @map("estimate_2018") @db.Decimal(12, 2)
+  estimate2022   Decimal  @map("estimate_2022") @db.Decimal(12, 2)
+  sortOrder      Int      @unique @map("sort_order")
+
+  @@map("about_meal_prep_assistance_by_age")
+}
+
+/// Population estimates by age group (About page — image 6).
+model AboutAutismPopulationByAge {
+  id            Int      @id @default(autoincrement())
+  ageGroup      String   @map("age_group")
+  estimate2015  Decimal  @map("estimate_2015") @db.Decimal(12, 2)
+  estimate2018  Decimal  @map("estimate_2018") @db.Decimal(12, 2)
+  estimate2022  Decimal  @map("estimate_2022") @db.Decimal(12, 2)
+  isTotalRow    Boolean  @default(false) @map("is_total_row")
+  sortOrder     Int      @unique @map("sort_order")
+
+  @@map("about_autism_population_by_age")
+}
+
+/// Activities where assistance is needed (About page — image 7).
+model AboutActivityAssistanceEstimate {
+  id                     Int      @id @default(autoincrement())
+  activityLabel          String   @map("activity_label")
+  totalEstimateThousands Decimal  @map("total_estimate_thousands") @db.Decimal(12, 2)
+  sortOrder              Int      @unique @map("sort_order")
+
+  @@map("about_activity_assistance_estimates")
+}

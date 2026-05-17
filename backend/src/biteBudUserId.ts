@@ -7,6 +7,6 @@ const biteBudUserIdSchema = z.string().regex(/^[A-Z0-9]{3}$/);
  */
 export function parseBiteBudUserId(headerValue: string | undefined): string | null {
   if (!headerValue || typeof headerValue !== "string") return null;
-  const u = headerValue.trim().toUpperCase();
-  return biteBudUserIdSchema.safeParse(u).success ? u : null;
+  const normalized = headerValue.trim().toUpperCase();
+  return biteBudUserIdSchema.safeParse(normalized).success ? normalized : null;
 }

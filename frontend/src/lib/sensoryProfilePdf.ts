@@ -55,6 +55,7 @@ async function loadImageAsDataUrl(src: string): Promise<string> {
   }
 }
 
+/** Render and download the user's sensory profile PDF (texture, dietary, cultural, food items). */
 export async function downloadSensoryProfilePdf(payload: SensoryProfilePdfPayload): Promise<void> {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
 
@@ -96,7 +97,7 @@ export async function downloadSensoryProfilePdf(payload: SensoryProfilePdfPayloa
     doc.addImage(logoDataUrl, 'PNG', margin, y - 4, logoSize, logoSize)
   }
 
-  const title = payload.userId?.trim() ? `Sensory profile — ${payload.userId.trim()}` : 'Sensory profile'
+  const title = payload.userId?.trim() ? `Food preferences — ${payload.userId.trim()}` : 'Food preferences'
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(18)
   const titleX = logoDataUrl ? margin + logoSize + 10 : margin
