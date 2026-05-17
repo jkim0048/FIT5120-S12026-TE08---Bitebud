@@ -23,12 +23,12 @@ const props = defineProps<{
 
 const completed = computed(() => new Set(props.completedNodeIds))
 
-const ingredients = computed(() => props.graph.nodes.filter((node) => node.type === 'ingredient'))
+const ingredients = computed(() => props.graph.nodes.filter((n) => n.type === 'ingredient'))
 const steps = computed(() => getOrderedRecipeSteps(props.graph))
 
 const prepLaneName = computed(() => {
-  const trimmedLabel = props.prepLaneLabel?.trim()
-  return trimmedLabel && trimmedLabel.length > 0 ? trimmedLabel : 'Prep Ingredients'
+  const t = props.prepLaneLabel?.trim()
+  return t && t.length > 0 ? t : 'Prep Ingredients'
 })
 
 const prepLaneActive = computed(() => props.activeLane?.trim() === prepLaneName.value)
@@ -49,45 +49,45 @@ const showPrepStripBlock = computed(
 /** Steps shown in strip: filtered by activeLane when set (v1 multi-lane rule). */
 const stripSteps = computed(() => {
   if (prepLaneActive.value) return []
-  const activeLane = props.activeLane?.trim()
-  if (!activeLane) return steps.value
-  return steps.value.filter((step) => (step.lane ?? 'Steps') === activeLane)
+  const a = props.activeLane?.trim()
+  if (!a) return steps.value
+  return steps.value.filter((s) => (s.lane ?? 'Steps') === a)
 })
 
 const isDefaultLaneMode = computed(
-  () => lanes.value.length === 1 && lanes.value[0] === 'Steps' && steps.value.every((step) => !step.lane),
+  () => lanes.value.length === 1 && lanes.value[0] === 'Steps' && steps.value.every((s) => !s.lane),
 )
 
 const lanes = computed(() => {
-  const allLanes = [
+  const all = [
     ...new Set(
       steps.value
-        .map((step) => step.lane)
-        .filter((lane): lane is string => typeof lane === 'string' && lane.trim().length > 0),
+        .map((n) => n.lane)
+        .filter((x): x is string => typeof x === 'string' && x.trim().length > 0),
     ),
   ]
-  return allLanes.length ? allLanes : ['Steps']
+  return all.length ? all : ['Steps']
 })
 
 const visibleLanes = computed(() => {
-  const activeLane = props.activeLane?.trim()
-  if (!activeLane) return lanes.value
-  return lanes.value.includes(activeLane) ? [activeLane] : lanes.value
+  const a = props.activeLane?.trim()
+  if (!a) return lanes.value
+  return lanes.value.includes(a) ? [a] : lanes.value
 })
 
 function splitSectionPrefix(text: string): { section: string | null; body: string } {
-  const trimmed = text.trim()
-  const sectionMatch = trimmed.match(/^((?:for\s+the\s+)[^:]+):\s*(.*)$/i)
-  if (!sectionMatch) return { section: null, body: trimmed }
-  const body = (sectionMatch[2] ?? '').trim()
-  return body ? { section: (sectionMatch[1] ?? '').trim(), body } : { section: null, body: trimmed }
+  const t = text.trim()
+  const m = t.match(/^((?:for\s+the\s+)[^:]+):\s*(.*)$/i)
+  if (!m) return { section: null, body: t }
+  const body = (m[2] ?? '').trim()
+  return body ? { section: (m[1] ?? '').trim(), body } : { section: null, body: t }
 }
 
 function stripLeadingQtyForName(full: string): string {
-  let stripped = full.trim()
+  let s = full.trim()
   for (let pass = 0; pass < 4; pass++) {
-    const previous = stripped
-    stripped = stripped
+    const prev = s
+    s = s
       .replace(/^\s*\d+\s+\d+\/\d+\s+/, '')
       .replace(/^\s*\d+\/\d+\s+/, '')
       .replace(/^\s*\d+(?:\.\d+)?\s*(?:ml|cl|l|litres?|liters?|g|grams?|kg)\b\s*/i, '')
@@ -99,9 +99,9 @@ function stripLeadingQtyForName(full: string): string {
       )
       .replace(/^(carton|tub|jar|packet|pack|can|bottle)\s+(?:of\s+)?/i, '')
       .trim()
-    if (stripped === previous) break
+    if (s === prev) break
   }
-  return stripped.replace(/^(to serve|for serving|for garnish|to garnish|for dipping|for brushing)\b/i, '').trim()
+  return s.replace(/^(to serve|for serving|for garnish|to garnish|for dipping|for brushing)\b/i, '').trim()
 }
 
 function ingredientDisplayLabel(ing: RecipeNode): string {
@@ -122,37 +122,37 @@ function ingredientMeasurement(ing: RecipeNode): string | null {
   const raw = typeof ing.detail === 'string' ? ing.detail.trim() : ''
   if (!raw) return null
   const { body } = splitSectionPrefix(raw)
-  const measurement = body.trim()
-  if (!measurement) return null
-  if (measurement.toLowerCase() === ingredientDisplayLabel(ing).trim().toLowerCase()) return null
-  return measurement
+  const m = body.trim()
+  if (!m) return null
+  if (m.toLowerCase() === ingredientDisplayLabel(ing).trim().toLowerCase()) return null
+  return m
 }
 
 function ingredientLabelsForStep(step: RecipeNode): string[] {
   const ids = step.ingredientIds ?? []
   if (!ids.length) return []
-  const labelById = new Map(ingredients.value.map((ingredient) => [ingredient.id, ingredient.label]))
-  return ids.map((id) => labelById.get(id)).filter((label): label is string => Boolean(label))
+  const byId = new Map(ingredients.value.map((n) => [n.id, n.label]))
+  return ids.map((id) => byId.get(id)).filter((v): v is string => Boolean(v))
 }
 
 function ingredientsForLane(lane: string): RecipeNode[] {
   const stepIds = steps.value
-    .filter((step) => {
-      if (!props.activeLane) return (step.lane ?? 'Steps') === lane
-      return (step.lane ?? 'Steps') === lane
+    .filter((s) => {
+      if (!props.activeLane) return (s.lane ?? 'Steps') === lane
+      return (s.lane ?? 'Steps') === lane
     })
-    .flatMap((step) => step.ingredientIds ?? [])
+    .flatMap((s) => s.ingredientIds ?? [])
 
-  const wantedIds = new Set(stepIds)
-  const inLane = ingredients.value.filter((ingredient) => wantedIds.has(ingredient.id))
+  const want = new Set(stepIds)
+  const inLane = ingredients.value.filter((i) => want.has(i.id))
   return inLane.length ? inLane : ingredients.value.slice(0, 3)
 }
 
-function timeLabel(node: RecipeNode): string | null {
-  const minutes = node.timeMinutes
-  if (minutes == null) return null
-  if (minutes <= 0) return null
-  return `${minutes}m`
+function timeLabel(n: RecipeNode): string | null {
+  const t = n.timeMinutes
+  if (t == null) return null
+  if (t <= 0) return null
+  return `${t}m`
 }
 
 /** Multi-lane + “All lanes”: group step cards under each lane name in strip layout. */
@@ -167,7 +167,7 @@ const stripGroupByLane = computed(
 )
 
 const lanesWithStepsInFlow = computed(() =>
-  lanes.value.filter((lane) => steps.value.some((step) => (step.lane ?? 'Steps') === lane)),
+  lanes.value.filter((lane) => steps.value.some((s) => (s.lane ?? 'Steps') === lane)),
 )
 
 const stripHasSteps = computed(() => stripSteps.value.length > 0)
@@ -181,7 +181,7 @@ const stripStepsHeading = computed(() => {
 })
 
 function orderedStepsInLane(lane: string): RecipeNode[] {
-  return steps.value.filter((step) => (step.lane ?? 'Steps') === lane)
+  return steps.value.filter((s) => (s.lane ?? 'Steps') === lane)
 }
 
 function shouldNumberLaneSteps(laneSteps: RecipeNode[]): boolean {
@@ -382,7 +382,7 @@ function shouldNumberLaneSteps(laneSteps: RecipeNode[]): boolean {
           <div class="stack">
             <div class="stack-head">Cooking steps</div>
             <article
-              v-for="s in steps.filter((step) => (step.lane ?? 'Steps') === lane)"
+              v-for="s in steps.filter((x) => (x.lane ?? 'Steps') === lane)"
               :key="s.id"
               class="step"
               :class="{ done: completed.has(s.id) }"

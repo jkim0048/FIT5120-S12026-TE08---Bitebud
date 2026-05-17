@@ -1,6 +1,4 @@
-const MEALDB_API_BASE_URL = "https://www.themealdb.com/api/json/v1";
-/** Maximum number of ingredient slots TheMealDB exposes on each meal record. */
-export const MEALDB_MAX_INGREDIENT_SLOTS = 20;
+const BASE = "https://www.themealdb.com/api/json/v1";
 
 /** Resolve TheMealDB API key from env, falling back to the public development key (`1`). */
 function apiKey(): string {
@@ -30,16 +28,16 @@ export type MealDbMeal = {
 /** Ingredient lines as in recipe text (measure + name) for profile matching. */
 export function mealIngredientLines(meal: MealDbMeal): string[] {
   const lines: string[] = [];
-  for (let ingredientSlot = 1; ingredientSlot <= MEALDB_MAX_INGREDIENT_SLOTS; ingredientSlot++) {
-    const ing = String((meal as Record<string, unknown>)[`strIngredient${ingredientSlot}`] ?? "").trim();
-    const meas = String((meal as Record<string, unknown>)[`strMeasure${ingredientSlot}`] ?? "").trim();
+  for (let i = 1; i <= 20; i++) {
+    const ing = String((meal as Record<string, unknown>)[`strIngredient${i}`] ?? "").trim();
+    const meas = String((meal as Record<string, unknown>)[`strMeasure${i}`] ?? "").trim();
     if (!ing) continue;
     lines.push(`${meas ? `${meas} ` : ""}${ing}`.trim());
   }
   return lines;
 }
 
-/** Lowercase alphanumeric normalization for substring matching across MealDB ingredient names and graph labels. */
+/** Looser normalization for cross-source matching (ingredient names, labels), used for substring contains checks. */
 function normalizeLoose(value: string): string {
   return value
     .toLowerCase()
@@ -48,14 +46,14 @@ function normalizeLoose(value: string): string {
     .trim();
 }
 
-/** Public TheMealDB `-Small.png` URL for a given ingredient display name. */
+/** Build the canonical TheMealDB ingredient image URL for a raw ingredient name. */
 function mealDbIngredientImageUrl(name: string): string {
   // TheMealDB ingredient images use this pattern.
   // Example: https://www.themealdb.com/images/ingredients/Smoked%20Salmon-Small.png
   return `https://www.themealdb.com/images/ingredients/${encodeURIComponent(name.trim())}-Small.png`;
 }
 
-/** GET helper for TheMealDB JSON endpoints; throws when the response is not OK. */
+/** Fetch JSON from a TheMealDB endpoint, throwing a readable error on non-2xx responses. */
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -69,9 +67,9 @@ function mealTimeTextBlob(meal: MealDbMeal): string {
   const title = String(meal.strMeal ?? "").trim();
   const instructions = String(meal.strInstructions ?? "").trim();
   const measures: string[] = [];
-  for (let ingredientSlot = 1; ingredientSlot <= MEALDB_MAX_INGREDIENT_SLOTS; ingredientSlot++) {
-    const measure = String((meal as Record<string, unknown>)[`strMeasure${ingredientSlot}`] ?? "").trim();
-    if (measure) measures.push(measure);
+  for (let i = 1; i <= 20; i++) {
+    const m = String((meal as Record<string, unknown>)[`strMeasure${i}`] ?? "").trim();
+    if (m) measures.push(m);
   }
   return [title, instructions, ...measures].join("\n");
 }
@@ -270,9 +268,9 @@ function inferMinutes(meal: MealDbMeal): number {
 
   const steps = countInstructionSteps(instructions);
   let ingredients = 0;
-  for (let ingredientSlot = 1; ingredientSlot <= MEALDB_MAX_INGREDIENT_SLOTS; ingredientSlot++) {
-    const ingredient = String((meal as Record<string, unknown>)[`strIngredient${ingredientSlot}`] ?? "").trim();
-    if (ingredient) ingredients += 1;
+  for (let i = 1; i <= 20; i++) {
+    const ing = String((meal as Record<string, unknown>)[`strIngredient${i}`] ?? "").trim();
+    if (ing) ingredients += 1;
   }
   return inferFallbackMinutes(instructions, steps, ingredients);
 }
@@ -316,7 +314,7 @@ export async function searchMeals(
 ): Promise<MealDbSearchHit[]> {
   const q = query.trim();
   if (!q) return [];
-  const url = `${MEALDB_API_BASE_URL}/${encodeURIComponent(apiKey())}/search.php?s=${encodeURIComponent(q)}`;
+  const url = `${BASE}/${encodeURIComponent(apiKey())}/search.php?s=${encodeURIComponent(q)}`;
   const data = await getJson<{ meals: MealDbMeal[] | null }>(
     url,
   );
@@ -375,7 +373,7 @@ export async function searchMealsByFirstLetter(
 ): Promise<MealDbSearchHit[]> {
   const L = letter.trim().toLowerCase().slice(0, 1);
   if (!L || !/[a-z]/.test(L)) return [];
-  const url = `${MEALDB_API_BASE_URL}/${encodeURIComponent(apiKey())}/search.php?f=${encodeURIComponent(L)}`;
+  const url = `${BASE}/${encodeURIComponent(apiKey())}/search.php?f=${encodeURIComponent(L)}`;
   const data = await getJson<{ meals: MealDbMeal[] | null }>(url);
   const meals = data.meals ?? [];
   return mapMealsToHits(meals, filters);
@@ -400,7 +398,7 @@ export async function searchMealsOrdered(
 ): Promise<MealDbMeal[]> {
   const q = query.trim();
   if (!q) return [];
-  const url = `${MEALDB_API_BASE_URL}/${encodeURIComponent(apiKey())}/search.php?s=${encodeURIComponent(q)}`;
+  const url = `${BASE}/${encodeURIComponent(apiKey())}/search.php?s=${encodeURIComponent(q)}`;
   const data = await getJson<{ meals: MealDbMeal[] | null }>(url);
   const meals = data.meals ?? [];
   const hits = mapMealsToHits(meals, filters);
@@ -416,7 +414,7 @@ export async function browseMealsOrdered(
 ): Promise<MealDbMeal[]> {
   const letters = "abcdefghijklmnopqrstuvwxyz";
   const letter = letters[Math.abs(page) % 26] ?? "a";
-  const url = `${MEALDB_API_BASE_URL}/${encodeURIComponent(apiKey())}/search.php?f=${encodeURIComponent(letter)}`;
+  const url = `${BASE}/${encodeURIComponent(apiKey())}/search.php?f=${encodeURIComponent(letter)}`;
   const data = await getJson<{ meals: MealDbMeal[] | null }>(url);
   const meals = data.meals ?? [];
   const hits = mapMealsToHits(meals, filters);
@@ -429,7 +427,7 @@ export async function browseMealsOrdered(
 export async function lookupMealById(id: string): Promise<MealDbMeal> {
   const mealId = id.trim();
   if (!mealId) throw new Error("MealDB id required");
-  const url = `${MEALDB_API_BASE_URL}/${encodeURIComponent(apiKey())}/lookup.php?i=${encodeURIComponent(mealId)}`;
+  const url = `${BASE}/${encodeURIComponent(apiKey())}/lookup.php?i=${encodeURIComponent(mealId)}`;
   const data = await getJson<{ meals: MealDbMeal[] | null }>(url);
   const meal = (data.meals ?? [])[0];
   if (!meal) throw new Error("Meal not found");
@@ -449,9 +447,9 @@ export function mealToRecipeText(meal: MealDbMeal): {
 } {
   const title = meal.strMeal || "Recipe";
   const ingredients: string[] = [];
-  for (let ingredientSlot = 1; ingredientSlot <= MEALDB_MAX_INGREDIENT_SLOTS; ingredientSlot++) {
-    const ing = String((meal as Record<string, unknown>)[`strIngredient${ingredientSlot}`] ?? "").trim();
-    const meas = String((meal as Record<string, unknown>)[`strMeasure${ingredientSlot}`] ?? "").trim();
+  for (let i = 1; i <= 20; i++) {
+    const ing = String((meal as Record<string, unknown>)[`strIngredient${i}`] ?? "").trim();
+    const meas = String((meal as Record<string, unknown>)[`strMeasure${i}`] ?? "").trim();
     if (!ing) continue;
     ingredients.push(`${meas ? `${meas} ` : ""}${ing}`.trim());
   }
@@ -493,8 +491,8 @@ export function enrichGraphWithMealDbImages<TGraph extends { heroImageUrl?: stri
   const heroImageUrl = hero ? hero : null;
 
   const mealIngredients: Array<{ raw: string; norm: string; imageUrl: string }> = [];
-  for (let ingredientSlot = 1; ingredientSlot <= MEALDB_MAX_INGREDIENT_SLOTS; ingredientSlot++) {
-    const raw = String((meal as Record<string, unknown>)[`strIngredient${ingredientSlot}`] ?? "").trim();
+  for (let i = 1; i <= 20; i++) {
+    const raw = String((meal as Record<string, unknown>)[`strIngredient${i}`] ?? "").trim();
     if (!raw) continue;
     mealIngredients.push({ raw, norm: normalizeLoose(raw), imageUrl: mealDbIngredientImageUrl(raw) });
   }

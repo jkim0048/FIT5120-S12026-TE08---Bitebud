@@ -1,4 +1,3 @@
-/** True when the text mentions common recipe section headers (ingredients, method, directions, …). */
 function hasRecipeKeywords(t: string): boolean {
   return (
     /\bingredients?\b/i.test(t) ||
@@ -8,7 +7,6 @@ function hasRecipeKeywords(t: string): boolean {
   );
 }
 
-/** Count lines that look like ingredient rows (bullets, quantities, or unit words). */
 function countIngredientLikeLines(lines: string[]): number {
   const unitRx =
     /\b(g|kg|mg|ml|l|tsp|tbsp|tablespoon|teaspoon|cup|cups|oz|ounce|ounces|lb|pound|pounds|pinch|clove|cloves|slice|slices)\b/i;
@@ -24,7 +22,6 @@ function countIngredientLikeLines(lines: string[]): number {
   return n;
 }
 
-/** True when the text contains common cooking verbs (cheap shape check, not full NLP). */
 function hasInstructionLikeText(t: string): boolean {
   // Small set of common cooking verbs; this is a cheap “shape” check, not NLP.
   return /\b(mix|stir|whisk|combine|chop|slice|mince|saute|sauté|fry|bake|roast|boil|simmer|grill|heat|preheat|cook|serve)\b/i.test(

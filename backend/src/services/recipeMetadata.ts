@@ -7,7 +7,6 @@ export type RecipeMetadata = {
   tags?: string[];
 };
 
-/** Derive complexity, heat level, and tag list from a parsed recipe graph (no LLM, pure heuristics). */
 export function deriveRecipeMetadata(graph: RecipeGraph): Omit<RecipeMetadata, "imageUrl"> {
   const steps = graph.nodes.filter((n) => n.type !== "ingredient");
   const text = steps.map((s) => `${s.label} ${s.detail}`.toLowerCase()).join(" ");

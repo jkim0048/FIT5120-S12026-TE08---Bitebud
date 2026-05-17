@@ -28,7 +28,6 @@ model Recipe {
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
   progress         RecipeProgress[]
-  completions      RecipeCompletion[]
 
   @@index([title])
   @@index([totalTimeMinutes])
@@ -41,29 +40,11 @@ model RecipeProgress {
   recipeId         String   @map("recipe_id") @db.Uuid
   userId           String   @map("user_id")
   completedNodeIds Json     @default("[]") @map("completed_node_ids")
-  completedAt      DateTime? @map("completed_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
   recipe           Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
   @@id([recipeId, userId])
   @@map("recipe_progress")
-}
-
-model RecipeCompletion {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  recipeId    String   @map("recipe_id") @db.Uuid
-  userId      String   @map("user_id")
-  completedAt DateTime @default(now()) @map("completed_at")
-  rating      Int?
-  wouldRepeat Boolean? @map("would_repeat")
-  worked      Json     @default("[]")
-  didntWork   Json     @default("[]") @map("didnt_work")
-  notes       String?
-  recipe      Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-
-  @@index([userId, completedAt])
-  @@index([recipeId])
-  @@map("recipe_completions")
 }
 
 model WickedIcon {
@@ -203,87 +184,4 @@ enum SensoryFoodStatus {
   SAFE
   UNSURE
   UNSAFE
-}
-
-/// Per-user streak and weekly freeze state (Epic 7 motivation).
-model MotivationProfile {
-  userId               String    @id @map("user_id")
-  currentStreak        Int       @default(0) @map("current_streak")
-  longestStreak        Int       @default(0) @map("longest_streak")
-  lastActiveLocalDate  DateTime? @map("last_active_local_date") @db.Date
-  freezeUsedWeekStart  DateTime? @map("freeze_used_week_start") @db.Date
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
-
-  @@map("motivation_profiles")
-}
-
-/// One row per user per calendar day (client localDate) for streak + progress aggregates.
-model MotivationDailyActivity {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String   @map("user_id")
-  localDate DateTime @map("local_date") @db.Date
-  counts    Json     @default("{}")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@unique([userId, localDate])
-  @@index([userId])
-  @@map("motivation_daily_activities")
-}
-
-/// Append-only events for progress/insights and debugging.
-model MotivationEvent {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String   @map("user_id")
-  eventType String   @map("event_type")
-  localDate DateTime @map("local_date") @db.Date
-  metadata  Json     @default("{}")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@index([userId, localDate])
-  @@index([userId, createdAt])
-  @@map("motivation_events")
-}
-
-/// SDAC-style headline totals (About page — image 2).
-model AboutAutismPopulationTotal {
-  year            Int     @id @map("year")
-  totalThousands  Decimal @map("total_thousands") @db.Decimal(12, 2)
-
-  @@map("about_autism_population_totals")
-}
-
-/// Meal-prep assistance age slice (About page — image 5); 2015 optional where not published.
-model AboutMealPrepAssistanceByAge {
-  ageGroup       String   @id @map("age_group")
-  estimate2015   Decimal? @map("estimate_2015") @db.Decimal(12, 2)
-  estimate2018   Decimal  @map("estimate_2018") @db.Decimal(12, 2)
-  estimate2022   Decimal  @map("estimate_2022") @db.Decimal(12, 2)
-  sortOrder      Int      @unique @map("sort_order")
-
-  @@map("about_meal_prep_assistance_by_age")
-}
-
-/// Population estimates by age group (About page — image 6).
-model AboutAutismPopulationByAge {
-  id            Int      @id @default(autoincrement())
-  ageGroup      String   @map("age_group")
-  estimate2015  Decimal  @map("estimate_2015") @db.Decimal(12, 2)
-  estimate2018  Decimal  @map("estimate_2018") @db.Decimal(12, 2)
-  estimate2022  Decimal  @map("estimate_2022") @db.Decimal(12, 2)
-  isTotalRow    Boolean  @default(false) @map("is_total_row")
-  sortOrder     Int      @unique @map("sort_order")
-
-  @@map("about_autism_population_by_age")
-}
-
-/// Activities where assistance is needed (About page — image 7).
-model AboutActivityAssistanceEstimate {
-  id                     Int      @id @default(autoincrement())
-  activityLabel          String   @map("activity_label")
-  totalEstimateThousands Decimal  @map("total_estimate_thousands") @db.Decimal(12, 2)
-  sortOrder              Int      @unique @map("sort_order")
-
-  @@map("about_activity_assistance_estimates")
 }

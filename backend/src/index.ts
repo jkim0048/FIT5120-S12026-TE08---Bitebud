@@ -2,13 +2,10 @@ import "./env.js";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
-import { registerRecipeRoutes } from "./controllers/recipes/index.js";
-import { registerIconRoutes } from "./controllers/icons.js";
-import { registerSensoryRoutes } from "./controllers/sensory.js";
-import { registerRestaurantRoutes } from "./controllers/restaurants/index.js";
-import { registerMotivationRoutes } from "./controllers/motivation.js";
-import { registerMeRoutes } from "./controllers/me/index.js";
-import { registerAboutRoutes } from "./controllers/about.js";
+import { registerRecipeRoutes } from "./routes/recipes.js";
+import { registerIconRoutes } from "./routes/icons.js";
+import { registerSensoryRoutes } from "./routes/sensory.js";
+import { registerRestaurantRoutes } from "./routes/restaurants.js";
 
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -43,9 +40,6 @@ await registerRecipeRoutes(app);
 await registerIconRoutes(app);
 await registerSensoryRoutes(app);
 await registerRestaurantRoutes(app);
-await registerMotivationRoutes(app);
-await registerMeRoutes(app);
-await registerAboutRoutes(app);
 
 try {
   await app.listen({ port: PORT, host: HOST });

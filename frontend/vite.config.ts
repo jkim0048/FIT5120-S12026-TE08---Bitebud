@@ -8,8 +8,6 @@ export default defineConfig({
     extensions: ['.mjs', '.mts', '.ts', '.tsx', '.jsx', '.js', '.json'],
   },
   server: {
-    host: true,
-    port: 5173,
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

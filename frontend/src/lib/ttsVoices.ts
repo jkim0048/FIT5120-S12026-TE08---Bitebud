@@ -27,12 +27,10 @@ export function initTtsVoicesPreload() {
   }
 }
 
-/** Composable returning a read-only ref of TTS voices loaded by the browser. */
 export function useTtsVoices() {
   return readonly(availableVoices)
 }
 
-/** Find a TTS voice by its `SpeechSynthesisVoice.name`, or null if no match. */
 export function findTtsVoiceByName(name: string): SpeechSynthesisVoice | null {
-  return availableVoices.value.find((voice) => voice.name === name) ?? null
+  return availableVoices.value.find((v) => v.name === name) ?? null
 }

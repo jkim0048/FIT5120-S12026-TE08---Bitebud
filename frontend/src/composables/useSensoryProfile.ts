@@ -3,66 +3,61 @@ import { apiFetch } from '../lib/api'
 import type { SensoryFoodItemDTO, SensoryProfileFields } from '../types/sensory'
 import { getBiteBudUserId } from './useUserId'
 
-/** Local storage key for the user's saved sensory profile code. */
 export const SENSORY_CODE_STORAGE_KEY = 'bitebud_sensory_code'
 
-/** Save the user's 3-char sensory code to local storage so it survives reloads. */
 export function persistSensoryCode(code: string) {
   localStorage.setItem(SENSORY_CODE_STORAGE_KEY, code)
 }
 
-/** Read the persisted sensory code (returns empty string when no code has been stored). */
 export function readStoredSensoryCode(): string {
   return localStorage.getItem(SENSORY_CODE_STORAGE_KEY) ?? ''
 }
 
 function strings(key: string, raw: Record<string, unknown>): string[] {
-  const fieldValue = raw[key]
-  return Array.isArray(fieldValue)
-    ? fieldValue.filter((entry): entry is string => typeof entry === 'string')
-    : []
+  const v = raw[key]
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 }
 
-function parseNotes(rawNotes: unknown): SensoryFoodItemDTO['notes'] {
-  if (!rawNotes || typeof rawNotes !== 'object') return {}
-  const notesFields = rawNotes as Record<string, unknown>
-  const parsedNotes: SensoryFoodItemDTO['notes'] = {}
-  if (typeof notesFields.texture === 'string') parsedNotes.texture = notesFields.texture
-  if (typeof notesFields.smell === 'string') parsedNotes.smell = notesFields.smell
-  if (typeof notesFields.temperature === 'string') parsedNotes.temperature = notesFields.temperature
-  if (typeof notesFields.ingredientKey === 'string') parsedNotes.ingredientKey = notesFields.ingredientKey
-  if (typeof notesFields.wickedIconId === 'string') parsedNotes.wickedIconId = notesFields.wickedIconId
-  return parsedNotes
+function parseNotes(v: unknown): SensoryFoodItemDTO['notes'] {
+  if (!v || typeof v !== 'object') return {}
+  const o = v as Record<string, unknown>
+  const out: SensoryFoodItemDTO['notes'] = {}
+  if (typeof o.texture === 'string') out.texture = o.texture
+  if (typeof o.smell === 'string') out.smell = o.smell
+  if (typeof o.temperature === 'string') out.temperature = o.temperature
+  if (typeof o.ingredientKey === 'string') out.ingredientKey = o.ingredientKey
+  if (typeof o.wickedIconId === 'string') out.wickedIconId = o.wickedIconId
+  return out
 }
 
 /** Normalize one food row from API/Prisma JSON (ids may arrive as strings). */
-export function parseSensoryFoodItemFromApi(rawItem: unknown): SensoryFoodItemDTO | null {
-  if (!rawItem || typeof rawItem !== 'object') return null
-  const row = rawItem as Record<string, unknown>
+export function parseSensoryFoodItemFromApi(o: unknown): SensoryFoodItemDTO | null {
+  if (!o || typeof o !== 'object') return null
+  const row = o as Record<string, unknown>
   const idRaw = row.id
   const id = idRaw != null && String(idRaw).trim() !== '' ? String(idRaw) : ''
   const name = typeof row.name === 'string' ? row.name : null
-  const status = row.status
-  if (!id || !name || (status !== 'SAFE' && status !== 'UNSURE' && status !== 'UNSAFE')) {
+  const st = row.status
+  if (!id || !name || (st !== 'SAFE' && st !== 'UNSURE' && st !== 'UNSAFE')) {
     return null
   }
   return {
     id,
     name,
-    status,
+    status: st,
     notes: parseNotes(row.notes),
   }
 }
 
 function parseFoodItems(raw: Record<string, unknown>): SensoryFoodItemDTO[] {
-  const rawItems = raw.foodItems
-  if (!Array.isArray(rawItems)) return []
-  const parsedItems: SensoryFoodItemDTO[] = []
-  for (const rawItem of rawItems) {
-    const parsedItem = parseSensoryFoodItemFromApi(rawItem)
-    if (parsedItem) parsedItems.push(parsedItem)
+  const v = raw.foodItems
+  if (!Array.isArray(v)) return []
+  const out: SensoryFoodItemDTO[] = []
+  for (const x of v) {
+    const item = parseSensoryFoodItemFromApi(x)
+    if (item) out.push(item)
   }
-  return parsedItems
+  return out
 }
 
 function parseProfile(raw: Record<string, unknown> | null): SensoryProfileFields | null {
@@ -77,9 +72,9 @@ function parseProfile(raw: Record<string, unknown> | null): SensoryProfileFields
   let unsafeFoods: string[]
   let sometimesFoods: string[]
   if (foodItems.length > 0) {
-    safeFoods = foodItems.filter((item) => item.status === 'SAFE').map((item) => item.name)
-    unsafeFoods = foodItems.filter((item) => item.status === 'UNSAFE').map((item) => item.name)
-    sometimesFoods = foodItems.filter((item) => item.status === 'UNSURE').map((item) => item.name)
+    safeFoods = foodItems.filter((i) => i.status === 'SAFE').map((i) => i.name)
+    unsafeFoods = foodItems.filter((i) => i.status === 'UNSAFE').map((i) => i.name)
+    sometimesFoods = foodItems.filter((i) => i.status === 'UNSURE').map((i) => i.name)
   } else {
     safeFoods = legacySafe
     unsafeFoods = legacyUnsafe
@@ -104,12 +99,11 @@ const profile = ref<SensoryProfileFields | null>(null)
 const rawProfile = ref<Record<string, unknown> | null>(null)
 const userId = ref('')
 
-/** Reload the active user's sensory profile from the API and update the shared reactive store. */
 export async function refreshSensoryProfile(): Promise<void> {
   loading.value = true
-  const currentUserId = getBiteBudUserId()
-  userId.value = currentUserId ?? ''
-  if (!currentUserId) {
+  const uid = getBiteBudUserId()
+  userId.value = uid ?? ''
+  if (!uid) {
     hasProfile.value = false
     profile.value = null
     rawProfile.value = null
@@ -120,7 +114,7 @@ export async function refreshSensoryProfile(): Promise<void> {
     const data = await apiFetch<{
       hasProfile: boolean
       profile: Record<string, unknown> | null
-    }>('/api/sensory/me', { headers: { 'X-User-Id': currentUserId } })
+    }>('/api/sensory/me', { headers: { 'X-User-Id': uid } })
     hasProfile.value = data.hasProfile
     rawProfile.value = data.profile
     profile.value = parseProfile(data.profile)
@@ -133,7 +127,6 @@ export async function refreshSensoryProfile(): Promise<void> {
   }
 }
 
-/** Composable returning the shared sensory profile store; triggers a refresh on mount. */
 export function useSensoryProfile() {
   onMounted(() => {
     void refreshSensoryProfile()

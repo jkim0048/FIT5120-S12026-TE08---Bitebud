@@ -102,34 +102,6 @@ function setTint(v: BackgroundTint) {
           </div>
         </div>
       </div>
-
-      <div class="section-label">Motivation &amp; encouragement</div>
-
-      <div class="row">
-        <div class="row-left">
-          <div class="row-title">Show recent activity and gentle encouragement</div>
-          <div class="row-sub">Controls the nav chip and the bottom toast</div>
-        </div>
-        <div class="row-right">
-          <label class="switch">
-            <input type="checkbox" v-model="settings.motivationEnabled" />
-            <span class="slider" />
-          </label>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-left">
-          <div class="row-title">Show my patterns</div>
-          <div class="row-sub">Controls the See my patterns link and page</div>
-        </div>
-        <div class="row-right">
-          <label class="switch">
-            <input type="checkbox" v-model="settings.insightsEnabled" />
-            <span class="slider" />
-          </label>
-        </div>
-      </div>
     </section>
 
     <button type="button" class="done" @click="router.back()">Done</button>

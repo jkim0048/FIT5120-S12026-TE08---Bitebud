@@ -13,8 +13,6 @@ export type UserSettings = {
   voice: string
   darkMode: boolean
   backgroundTint: BackgroundTint
-  motivationEnabled?: boolean
-  insightsEnabled?: boolean
 }
 
 const DEFAULTS: UserSettings = {
@@ -26,8 +24,6 @@ const DEFAULTS: UserSettings = {
   voice: 'Karen',
   darkMode: false,
   backgroundTint: 'none',
-  motivationEnabled: true,
-  insightsEnabled: true,
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -54,8 +50,6 @@ function normalize(raw: Partial<UserSettings> | null): UserSettings {
     voice: typeof r.voice === 'string' ? r.voice : DEFAULTS.voice,
     darkMode: Boolean(r.darkMode),
     backgroundTint,
-    motivationEnabled: r.motivationEnabled == null ? true : Boolean(r.motivationEnabled),
-    insightsEnabled: r.insightsEnabled == null ? true : Boolean(r.insightsEnabled),
   }
 }
 
@@ -82,18 +76,17 @@ const sharedSettings = ref<UserSettings>(DEFAULTS)
 let sharedInitDone = false
 let sharedStorageWatchStop: (() => void) | null = null
 
-/** Composable returning a reactive, per-user settings object backed by local storage. */
 export function useSettings() {
-  const initialUserId = getBiteBudUserId()
-  const key = computed(() => storageKey(getBiteBudUserId() ?? initialUserId ?? null))
+  const uid = getBiteBudUserId()
+  const key = computed(() => storageKey(getBiteBudUserId() ?? uid ?? null))
 
   if (!sharedInitDone) {
     sharedSettings.value = readFromStorage(key.value)
 
     sharedStorageWatchStop = watch(
       sharedSettings,
-      (settings) => {
-        localStorage.setItem(key.value, JSON.stringify(normalize(settings)))
+      (s) => {
+        localStorage.setItem(key.value, JSON.stringify(normalize(s)))
       },
       { deep: true },
     )
@@ -103,13 +96,13 @@ export function useSettings() {
 
   watch(
     key,
-    (storageKeyForUser) => {
+    (k) => {
       sharedStorageWatchStop?.()
-      sharedSettings.value = readFromStorage(storageKeyForUser)
+      sharedSettings.value = readFromStorage(k)
       sharedStorageWatchStop = watch(
         sharedSettings,
-        (settings) => {
-          localStorage.setItem(storageKeyForUser, JSON.stringify(normalize(settings)))
+        (s) => {
+          localStorage.setItem(k, JSON.stringify(normalize(s)))
         },
         { deep: true },
       )

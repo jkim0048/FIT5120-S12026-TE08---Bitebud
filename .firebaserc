@@ -1,13 +1,5 @@
 {
   "projects": {
     "default": "bitesbud-6bb88"
-  },
-  "targets": {
-    "bitesbud-6bb88": {
-      "hosting": {
-        "dev": ["bitesbud-dev"],
-        "prod": ["bitesbud-prod"]
-      }
-    }
   }
 }

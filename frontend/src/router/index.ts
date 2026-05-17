@@ -14,30 +14,13 @@ import AuthView from '../views/AuthView.vue'
 import AuthNewUserView from '../views/AuthNewUserView.vue'
 import UnlockView from '../views/UnlockView.vue'
 import { isSiteUnlocked, safeUnlockRedirect } from '../lib/siteUnlock'
+import RestaurantEntryView from '../views/RestaurantEntryView.vue'
 import RestaurantSearchView from '../views/RestaurantSearchView.vue'
 import RestaurantReviewDetailView from '../views/RestaurantReviewDetailView.vue'
 import RestaurantRateView from '../views/RestaurantRateView.vue'
 import RestaurantBestTimeView from '../views/RestaurantBestTimeView.vue'
 import RestaurantSavedConfirmView from '../views/RestaurantSavedConfirmView.vue'
 import RestaurantMyReviewsView from '../views/RestaurantMyReviewsView.vue'
-import MyProgressView from '../views/MyProgressView.vue'
-import MyInsightsView from '../views/MyInsightsView.vue'
-import CookingDecisionView from '../views/CookingDecisionView.vue'
-import ProfileStartView from '../views/ProfileStartView.vue'
-import AboutUsView from '../views/AboutUsView.vue'
-
-const AUTH_REQUIRED_NAMES = new Set([
-  'search',
-  'recipe',
-  'guidedServings',
-  'guidedFlavors',
-  'guided',
-  'recipeComplete',
-  'myProgress',
-  'myInsights',
-  'cookingStart',
-  'profileStart',
-])
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -48,11 +31,8 @@ export const router = createRouter({
   routes: [
     { path: '/unlock', name: 'unlock', component: UnlockView },
     { path: '/', name: 'home', component: HomeView },
-    { path: '/about', name: 'aboutUs', component: AboutUsView },
     { path: '/auth', name: 'auth', component: AuthView },
     { path: '/auth/new-user', name: 'authNewUser', component: AuthNewUserView },
-    { path: '/start', name: 'cookingStart', component: CookingDecisionView },
-    { path: '/start/profile', name: 'profileStart', component: ProfileStartView },
     { path: '/search', name: 'search', component: RecipeSearchView },
     { path: '/recipe/:id', name: 'recipe', component: RecipeFlowPage },
     { path: '/recipe/:id/servings', name: 'guidedServings', component: GuidedServingsView },
@@ -79,29 +59,17 @@ export const router = createRouter({
       name: 'settings',
       component: SettingsView,
     },
+    { path: '/restaurants', name: 'restaurantEntry', component: RestaurantEntryView },
     { path: '/restaurants/search', name: 'restaurantSearch', component: RestaurantSearchView },
     { path: '/restaurants/my-reviews', name: 'restaurantMyReviews', component: RestaurantMyReviewsView },
     { path: '/restaurants/:id', name: 'restaurantReviewDetail', component: RestaurantReviewDetailView },
     { path: '/restaurants/:id/rate', name: 'restaurantRate', component: RestaurantRateView },
     { path: '/restaurants/:id/best-time', name: 'restaurantBestTime', component: RestaurantBestTimeView },
     { path: '/restaurants/:id/saved', name: 'restaurantSavedConfirm', component: RestaurantSavedConfirmView },
-    { path: '/progress', name: 'myProgress', component: MyProgressView },
-    { path: '/insights', name: 'myInsights', component: MyInsightsView },
   ],
 })
 
 router.beforeEach((to) => {
-  if (to.name === 'myInsights') {
-    try {
-      const uid = getBiteBudUserId()
-      const key = `bitebud_settings_${uid ?? 'anon'}`
-      const raw = localStorage.getItem(key)
-      const parsed = raw ? (JSON.parse(raw) as { insightsEnabled?: unknown }) : {}
-      if (parsed && parsed.insightsEnabled === false) return { name: 'home' }
-    } catch {
-      /* allow navigation */
-    }
-  }
   if (to.name === 'unlock') {
     if (isSiteUnlocked()) {
       const dest = safeUnlockRedirect(to.query.redirect)
@@ -111,14 +79,6 @@ router.beforeEach((to) => {
   }
   if (!isSiteUnlocked()) {
     return { name: 'unlock', query: { redirect: to.fullPath } }
-  }
-  const routeName = to.name
-  if (
-    routeName != null &&
-    AUTH_REQUIRED_NAMES.has(String(routeName)) &&
-    !getBiteBudUserId()
-  ) {
-    return { name: 'auth', query: { redirect: to.fullPath } }
   }
   return true
 })
