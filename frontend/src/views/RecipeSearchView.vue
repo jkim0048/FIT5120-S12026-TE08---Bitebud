@@ -24,6 +24,8 @@ const searchComboRef = ref<HTMLElement | null>(null)
 const loadingSearch = ref(false)
 const loadingImport = ref(false)
 const err = ref<string | null>(null)
+/** Paste / visualise errors shown in a blocking dialog; cleared with the paste box on dismiss. */
+const pasteErrorModal = ref<string | null>(null)
 const activeTab = ref<'forYou' | 'explore' | 'describe'>('explore')
 const hasSearched = ref(false)
 
@@ -35,7 +37,7 @@ const URL_ONLY_LINE = /^https?:\/\/\S+$/i
 
 /** Shown when the user pastes a link; BiteBud does not fetch third-party recipe pages (web scraping). */
 const URL_PROHIBITED_MESSAGE =
-  'Recipe website links are not allowed. Fetching pages automatically is web scraping, which BiteBud does not endorse. Copy the ingredients and instructions from the page and paste them as plain text.'
+  'Recipe website links are not allowed. Fetching pages automatically is web scraping, which BiteBud does not endorse. Please copy the ingredients and instructions from the page and paste them as plain text.'
 
 /** True when the paste box contains a single recipe URL and no ingredient/instruction text. */
 function isUrlOnlyRecipePaste(text: string): boolean {
@@ -152,6 +154,7 @@ watch(
     browseSkip.value = 0
     results.value = []
     err.value = null
+    pasteErrorModal.value = null
     hasSearched.value = false
     if (activeTab.value === 'forYou') void search()
   },
@@ -249,6 +252,19 @@ function autosizePasteField() {
   if (!el) return
   el.style.height = 'auto'
   el.style.height = `${Math.min(Math.max(el.scrollHeight, 52), 320)}px`
+}
+
+function showPasteError(message: string) {
+  pasteErrorModal.value = message
+  err.value = null
+}
+
+function dismissPasteError() {
+  pasteErrorModal.value = null
+  pasteQuery.value = ''
+  err.value = null
+  results.value = []
+  nextTick(() => autosizePasteField())
 }
 
 function onPasteSearchKeydown(e: KeyboardEvent) {
@@ -498,17 +514,19 @@ async function search() {
   if (activeTab.value === 'describe') {
     const normalizedPaste = query.value.replace(/\r\n?/g, '\n').trim()
     if (isUrlOnlyRecipePaste(normalizedPaste)) {
-      err.value = URL_PROHIBITED_MESSAGE
+      showPasteError(URL_PROHIBITED_MESSAGE)
       results.value = []
       return
     }
     if (normalizedPaste.length < MIN_RECIPE_PASTE_CHARS) {
-      err.value = 'Paste the full recipe text (ingredients + instructions).'
+      showPasteError('Paste the full recipe text (ingredients + instructions).')
       results.value = []
       return
     }
     if (normalizedPaste.length > MAX_RECIPE_PASTE_CHARS) {
-      err.value = `Recipe text is too long (max ${MAX_RECIPE_PASTE_CHARS.toLocaleString()} characters).`
+      showPasteError(
+        `Recipe text is too long (max ${MAX_RECIPE_PASTE_CHARS.toLocaleString()} characters).`,
+      )
       results.value = []
       return
     }
@@ -573,11 +591,22 @@ async function search() {
       results.value = []
     }
   } catch (e) {
-    if (e instanceof ApiError && (e.code === 'URL_IMPORT_DISABLED' || e.code === 'URL_NOT_FETCHABLE')) {
+    if (activeTab.value === 'describe') {
+      if (e instanceof ApiError && (e.code === 'URL_IMPORT_DISABLED' || e.code === 'URL_NOT_FETCHABLE')) {
+        showPasteError(URL_PROHIBITED_MESSAGE)
+      } else if (e instanceof ApiError && e.code === 'NOT_RECIPE') {
+        showPasteError('That doesn’t look like a food recipe. Paste ingredients and instructions.')
+      } else if (e instanceof ApiError && e.code === 'PARSE_FAILED') {
+        showPasteError(
+          'We could not turn that into a recipe. Paste the ingredients and instructions here manually for best results.',
+        )
+      } else {
+        showPasteError(e instanceof Error ? e.message : 'Could not create your recipe. Try again.')
+      }
+    } else if (e instanceof ApiError && (e.code === 'URL_IMPORT_DISABLED' || e.code === 'URL_NOT_FETCHABLE')) {
       err.value = URL_PROHIBITED_MESSAGE
     } else if (e instanceof ApiError && e.code === 'NOT_RECIPE') {
-      err.value =
-        'That doesn’t look like a food recipe. Paste ingredients and instructions.'
+      err.value = 'That doesn’t look like a food recipe. Paste ingredients and instructions.'
     } else {
       err.value = e instanceof Error ? e.message : 'Search failed'
     }
@@ -748,8 +777,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
           </button>
         </div>
         <p v-if="activeTab === 'describe'" class="tab-help" role="note">
-          Paste the full recipe as text (ingredients and instructions). Recipe website links are not allowed—automatically
-          loading pages is web scraping, which BiteBud does not endorse.
+          Paste the full recipe as text (ingredients and instructions).
         </p>
         <p v-if="activeTab === 'forYou' && hasProfile" class="tab-help" role="note">
           These are recipes you have successfully cooked in BiteBud. Search by name to find one again.
@@ -952,7 +980,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
           </button>
         </nav>
 
-        <p v-if="err" class="err" role="alert">{{ err }}</p>
+        <p v-if="err && activeTab !== 'describe'" class="err" role="alert">{{ err }}</p>
       </section>
     </div>
   </div>
@@ -1029,6 +1057,23 @@ async function openRecipeWithConfirm(c: BrowseCard) {
       <button type="button" class="apply-btn" :disabled="busy" @click="applyFiltersAndClose">
         {{ filterCount ? `Apply ${filterCount} filters` : 'Apply filters' }}
       </button>
+    </aside>
+  </div>
+
+  <div v-if="pasteErrorModal" class="confirm-host" role="presentation">
+    <aside
+      class="confirm paste-error-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="paste-error-title"
+      aria-describedby="paste-error-message"
+      @click.stop
+    >
+      <h3 id="paste-error-title" class="confirm-title">Could not visualise recipe</h3>
+      <p id="paste-error-message" class="confirm-sub paste-error-dialog__message">{{ pasteErrorModal }}</p>
+      <div class="confirm-actions">
+        <button type="button" class="bb-btn bb-btn--primary" @click="dismissPasteError">OK</button>
+      </div>
     </aside>
   </div>
 
@@ -2035,6 +2080,9 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   justify-content: flex-end;
   gap: 0.6rem;
   flex-wrap: wrap;
+}
+.paste-error-dialog__message {
+  white-space: pre-wrap;
 }
 
 .sk {

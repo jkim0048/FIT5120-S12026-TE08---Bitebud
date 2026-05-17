@@ -5,11 +5,19 @@ import { useSettings } from './composables/useSettings'
 import { useSession } from './composables/useSession'
 import { useSensoryProfile } from './composables/useSensoryProfile'
 import { useGentleToast } from './composables/useGentleToast'
+import { stopReadAloud } from './composables/useReadAloud'
 import { fetchMotivationSummary } from './lib/motivationApi'
 
 const { settings } = useSettings()
 const route = useRoute()
 const router = useRouter()
+
+watch(
+  () => route.fullPath,
+  () => {
+    stopReadAloud()
+  },
+)
 const { userId, isSignedIn, logout } = useSession()
 const { hasProfile } = useSensoryProfile()
 

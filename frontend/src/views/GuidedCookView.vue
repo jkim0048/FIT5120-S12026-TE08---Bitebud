@@ -6,7 +6,7 @@ import { useSettings } from '../composables/useSettings'
 import { apiFetch, apiUrl } from '../lib/api'
 import { getOrderedRecipeSteps } from '../lib/recipeSteps'
 import { downloadShoppingListPdf } from '../lib/shoppingListPdf'
-import { findTtsVoiceByName } from '../lib/ttsVoices'
+import { stopReadAloud, useReadAloud } from '../composables/useReadAloud'
 import type { RecipeGraph } from '../types/recipe'
 import type { SensoryConflictResponse } from '../types/sensory'
 
@@ -158,7 +158,8 @@ const instructionSubtitle = computed(() => {
 })
 const instructionText = computed(() => instructionSubtitle.value || instructionTitle.value)
 
-const speechSupported = typeof window !== 'undefined' && typeof speechSynthesis !== 'undefined'
+const { isSpeaking, speak: speakInstruction, stop: stopInstructionSpeech, supported: speechSupported } =
+  useReadAloud()
 
 const hasConflictWarnings = computed(() => {
   const c = conflicts.value
@@ -615,16 +616,19 @@ const timerPct = computed(() => {
 const RING_DASH_ARRAY = 754
 const ringDashOffset = computed(() => Math.round((1 - timerPct.value) * RING_DASH_ARRAY))
 
-function speak(text: string) {
+function toggleReadAloud() {
   if (!speechSupported) return
-  if (typeof speechSynthesis === 'undefined') return
-  speechSynthesis.cancel()
-  const u = new SpeechSynthesisUtterance(text)
-  u.volume = settings.value.volume
-  u.rate = settings.value.rate
-  const match = findTtsVoiceByName(settings.value.voice)
-  if (match) u.voice = match
-  speechSynthesis.speak(u)
+  if (isSpeaking.value) {
+    stopInstructionSpeech()
+    return
+  }
+  const text = instructionText.value.trim()
+  if (!text) return
+  speakInstruction(text, {
+    volume: settings.value.volume,
+    rate: settings.value.rate,
+    voice: settings.value.voice,
+  })
 }
 
 function clearTick() {
@@ -883,6 +887,7 @@ watch(
 
 onUnmounted(() => {
   clearTick()
+  stopReadAloud()
 })
 
 watch(
@@ -890,8 +895,13 @@ watch(
   () => {
     if (!current.value) return
     stopTimer()
+    stopReadAloud()
   },
 )
+
+watch(journeyPhase, (phase) => {
+  if (phase !== 'step') stopReadAloud()
+})
 
 function next() {
   if (index.value < steps.value.length - 1) index.value += 1
@@ -1221,9 +1231,15 @@ async function markStepDoneAndNext() {
           </p>
 
           <div class="step-mock-footer">
-            <button type="button" class="bb-btn bb-btn--primary guided-btn step-read-btn" @click="speak(instructionText)">
-              <span class="step-read-ico" aria-hidden="true">🔊</span>
-              Read Aloud
+            <button
+              v-if="speechSupported"
+              type="button"
+              class="bb-btn bb-btn--primary guided-btn step-read-btn"
+              :aria-pressed="isSpeaking"
+              @click="toggleReadAloud"
+            >
+              <span class="step-read-ico" aria-hidden="true">{{ isSpeaking ? '⏹' : '🔊' }}</span>
+              {{ isSpeaking ? 'Stop reading' : 'Read aloud' }}
             </button>
             <button type="button" class="bb-btn bb-btn--primary guided-btn step-timer-btn" @click="openTimerPhase">
               Set Timer
