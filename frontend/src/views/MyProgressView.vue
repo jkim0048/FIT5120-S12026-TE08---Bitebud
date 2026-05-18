@@ -322,7 +322,7 @@ onMounted(() => {
             Complete your first recipe or leave a restaurant review and your progress will start building here — day
             by day.
           </p>
-          <RouterLink class="onboard-placeholder__btn" :to="{ name: 'home' }">Browse recipes</RouterLink>
+          <RouterLink class="onboard-placeholder__btn" :to="{ name: 'cookingStart' }">Let's start</RouterLink>
         </div>
 
         <template v-else>
