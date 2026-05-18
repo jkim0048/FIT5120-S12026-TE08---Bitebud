@@ -21,7 +21,9 @@
     "prisma:generate": "dotenv -e ../.env -- prisma generate",
     "prisma:studio": "dotenv -e ../.env -- prisma studio",
     "prisma:migrate": "dotenv -e ../.env -- prisma migrate dev",
-    "prisma:deploy": "dotenv -e ../.env -- prisma migrate deploy"
+    "prisma:deploy": "dotenv -e ../.env -- prisma migrate deploy",
+    "db:backup": "dotenv -e ../.env -- node scripts/backup-supabase-db.mjs",
+    "db:restore": "dotenv -e ../.env -- node scripts/restore-supabase-db.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
