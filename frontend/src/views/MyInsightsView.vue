@@ -360,7 +360,7 @@ watch(
               {{ data.thresholds.cooking.need }} recipes—we look at ingredients, tags, timing, and more.
             </p>
             <div class="onboard-panel__actions">
-              <RouterLink class="onboard-panel__btn primary" :to="{ name: 'home' }">Cook a recipe</RouterLink>
+              <RouterLink class="onboard-panel__btn primary" :to="{ name: 'search' }">Cook a recipe</RouterLink>
             </div>
           </article>
           <article class="onboard-panel onboard-panel--dine">
