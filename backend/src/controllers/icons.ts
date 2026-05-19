@@ -6,6 +6,7 @@ import {
   fetchWickedIconAsset,
   listIngredientIconMap,
   searchWickedIcons,
+  searchWickedPickerItems,
   upsertIconOverride,
 } from "../services/iconApiService.js";
 import {
@@ -32,11 +33,24 @@ export async function registerIconRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/icons/ingredient-map", async () => listIngredientIconMap());
 
-  app.get("/api/icons/wicked", async (request) => {
+  app.get("/api/icons/wicked", async (request, reply) => {
     const parsedQuery = wickedSearchQuery.parse(
       (request.query as Record<string, string>) ?? {},
     );
-    return searchWickedIcons(parsedQuery.query, parsedQuery.limit);
+    const result = await searchWickedIcons(parsedQuery.query, parsedQuery.limit);
+    return reply.header("Cache-Control", "private, max-age=60").send(result);
+  });
+
+  app.get("/api/icons/wicked-picker/search", async (request, reply) => {
+    const parsedQuery = wickedSearchQuery.parse(
+      (request.query as Record<string, string>) ?? {},
+    );
+    const q = parsedQuery.query?.trim() ?? "";
+    if (!q) {
+      return reply.header("Cache-Control", "private, max-age=60").send({ items: [] });
+    }
+    const result = await searchWickedPickerItems(q, parsedQuery.limit);
+    return reply.header("Cache-Control", "private, max-age=60").send(result);
   });
 
   app.post("/api/icons/wicked/ingest", async (request, reply) => {

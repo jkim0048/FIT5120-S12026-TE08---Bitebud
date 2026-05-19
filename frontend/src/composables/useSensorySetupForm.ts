@@ -1,7 +1,11 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiFetch, apiUrl } from '../lib/api'
-import { fetchWickedPickerItems, type WickedPickerItem } from '../lib/wickedIconPicker'
+import {
+  fetchWickedPickerItemById,
+  searchWickedPickerItems,
+  type WickedPickerItem,
+} from '../lib/wickedIconPicker'
 import { parseSensoryFoodItemFromApi, persistSensoryCode, useSensoryProfile } from './useSensoryProfile'
 import { persistSensoryProfileSnapshot } from '../lib/sensorySnapshot'
 import { getBiteBudUserId } from './useUserId'
@@ -95,8 +99,11 @@ const foodInputWickedIconId = ref('')
 const foodQuery = ref('')
 const foodPickerOpen = ref(false)
 const pickerItems = ref<WickedPickerItem[]>([])
+const pickerLabelCache = ref(new Map<string, WickedPickerItem>())
 const pickerLoading = ref(false)
 const pickerError = ref('')
+let pickerSearchTimer: ReturnType<typeof setTimeout> | null = null
+let pickerSearchSeq = 0
 const addFoodError = ref('')
 const addFoodBusy = ref(false)
 const pendingAddPickerItem = ref<WickedPickerItem | null>(null)
@@ -115,6 +122,21 @@ function resetLocalState() {
   pendingAddPickerItem.value = null
   editingFood.value = null
   saveError.value = ''
+  pickerLabelCache.value = new Map()
+  pickerItems.value = []
+}
+
+function cachePickerItems(items: WickedPickerItem[]) {
+  if (!items.length) return
+  const next = new Map(pickerLabelCache.value)
+  for (const item of items) next.set(item.wickedIconId, item)
+  pickerLabelCache.value = next
+}
+
+function pickerItemForId(wickedIconId: string | undefined | null): WickedPickerItem | null {
+  const id = wickedIconId?.trim()
+  if (!id) return null
+  return pickerLabelCache.value.get(id) ?? pickerItems.value.find((p) => p.wickedIconId === id) ?? null
 }
 
 /**
@@ -132,7 +154,7 @@ export function useSensorySetupForm() {
       const baseName = (it.name ?? '').trim()
       if (baseName) return it
       const wid = it.notes?.wickedIconId?.trim()
-      const match = wid ? pickerItems.value.find((p) => p.wickedIconId === wid) : null
+      const match = pickerItemForId(wid)
       const label = match?.label?.trim() || (wid ? wid.replace(/[-_]/g, ' ').trim() : '')
       const parts = label.replace(/\s+/g, ' ').split(' ').filter(Boolean)
       const short = parts.length <= 4 ? parts.join(' ') : `${parts.slice(0, 4).join(' ')}…`
@@ -158,27 +180,40 @@ export function useSensorySetupForm() {
     const baseName = (it.name ?? '').trim()
     if (baseName) return baseName
     const wid = it.notes?.wickedIconId?.trim()
-    const match = wid ? pickerItems.value.find((p) => p.wickedIconId === wid) : null
+    const match = pickerItemForId(wid)
     const label = (match?.label ?? '').trim() || (wid ? wid.replace(/[-_]/g, ' ').trim() : '')
     const parts = label.replace(/\s+/g, ' ').split(' ').filter(Boolean)
     if (!parts.length) return 'Food item'
     return parts.length <= 4 ? parts.join(' ') : `${parts.slice(0, 4).join(' ')}…`
   }
 
-  const filteredPickerItems = computed(() => {
-    const q = foodQuery.value.trim().toLowerCase()
-    if (!q) return pickerItems.value.slice(0, 15)
-    return pickerItems.value
-      .filter((it) => it.label.toLowerCase().includes(q) || it.hint.toLowerCase().includes(q))
-      .slice(0, 15)
-  })
+  const filteredPickerItems = computed(() => pickerItems.value)
+
   const selectedPickerItem = computed(() => {
     const wickedIconId = foodInputWickedIconId.value.trim()
-    if (wickedIconId) return pickerItems.value.find((item) => item.wickedIconId === wickedIconId) ?? null
+    if (wickedIconId) return pickerItemForId(wickedIconId)
     const query = foodQuery.value.trim().toLowerCase()
     if (!query) return null
     return pickerItems.value.find((item) => item.label.toLowerCase() === query) ?? null
   })
+
+  async function hydratePickerLabelsForFoods(items: SensoryFoodItemDTO[]) {
+    const ids = [
+      ...new Set(
+        items
+          .filter((it) => !(it.name ?? '').trim())
+          .map((it) => it.notes?.wickedIconId?.trim())
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ].filter((id) => !pickerLabelCache.value.has(id))
+    if (!ids.length) return
+    await Promise.all(
+      ids.map(async (id) => {
+        const item = await fetchWickedPickerItemById(id)
+        if (item) cachePickerItems([item])
+      }),
+    )
+  }
 
   watch(
     () => [profile.value, hasProfile.value, profileLoading.value, getBiteBudUserId() ?? ''] as const,
@@ -201,9 +236,23 @@ export function useSensorySetupForm() {
       selectedUnsafeTextures.value = decodedUnsafeTextures.value
       selectedDietary.value = p.dietaryNeeds ?? []
       selectedCultural.value = p.culturalRequirements ?? []
+      if (p?.foodItems?.length) void hydratePickerLabelsForFoods(p.foodItems)
     },
     { immediate: true },
   )
+
+  watch(foodQuery, (q) => {
+    if (pickerSearchTimer) clearTimeout(pickerSearchTimer)
+    const trimmed = q.trim()
+    if (!trimmed) {
+      pickerItems.value = []
+      pickerLoading.value = false
+      return
+    }
+    pickerSearchTimer = setTimeout(() => {
+      void runFoodPickerSearch(trimmed)
+    }, 220)
+  })
 
   function toggleUnsafeTexture(label: string) {
     selectedUnsafeTextures.value = selectedUnsafeTextures.value.includes(label)
@@ -235,26 +284,39 @@ export function useSensorySetupForm() {
     return out
   }
 
-  async function loadFoodPickerItems() {
-    if (pickerItems.value.length || pickerLoading.value) return
+  async function runFoodPickerSearch(query: string) {
+    const seq = ++pickerSearchSeq
     pickerLoading.value = true
     pickerError.value = ''
     try {
-      pickerItems.value = await fetchWickedPickerItems()
+      const items = await searchWickedPickerItems(query, 15)
+      if (seq !== pickerSearchSeq) return
+      pickerItems.value = items
+      cachePickerItems(items)
     } catch {
-      pickerError.value = 'Could not load food tags. You can still type a known icon id.'
+      if (seq !== pickerSearchSeq) return
+      pickerError.value = 'Could not search food tags. Try again in a moment.'
+      pickerItems.value = []
     } finally {
-      pickerLoading.value = false
+      if (seq === pickerSearchSeq) pickerLoading.value = false
     }
+  }
+
+  function loadFoodPickerItems() {
+    const q = foodQuery.value.trim()
+    if (q) void runFoodPickerSearch(q)
   }
 
   async function onFoodRowClick(food: SensoryFoodItemDTO) {
     editFoodError.value = ''
-    await loadFoodPickerItems()
     let displayName = food.name
     const wid = food.notes?.wickedIconId?.trim()
     if (wid) {
-      const match = pickerItems.value.find((i) => i.wickedIconId === wid)
+      let match = pickerItemForId(wid)
+      if (!match?.label) {
+        match = await fetchWickedPickerItemById(wid)
+        if (match) cachePickerItems([match])
+      }
       if (match?.label) displayName = match.label
     }
     editingFood.value = {
@@ -268,6 +330,7 @@ export function useSensorySetupForm() {
   function choosePickerItem(item: WickedPickerItem) {
     foodPickerOpen.value = false
     addFoodError.value = ''
+    cachePickerItems([item])
     pendingAddPickerItem.value = item
   }
 
@@ -327,7 +390,14 @@ export function useSensorySetupForm() {
   async function addFood() {
     addFoodError.value = ''
     if (!foodInputWickedIconId.value.trim() && foodQuery.value.trim()) {
-      const match = pickerItems.value.find((x) => x.label.toLowerCase() === foodQuery.value.trim().toLowerCase())
+      let match = pickerItems.value.find(
+        (x) => x.label.toLowerCase() === foodQuery.value.trim().toLowerCase(),
+      )
+      if (!match) {
+        const found = await searchWickedPickerItems(foodQuery.value.trim(), 8)
+        cachePickerItems(found)
+        match = found.find((x) => x.label.toLowerCase() === foodQuery.value.trim().toLowerCase())
+      }
       if (match) foodInputWickedIconId.value = match.wickedIconId
     }
 
