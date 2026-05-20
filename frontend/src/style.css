@@ -10,6 +10,10 @@
   --bb-font-body: 'Public Sans';
   --bb-font-label: 'Inter';
 
+  /* Layout */
+  --bb-gutter: clamp(0.9rem, 2.4vw, 1.6rem);
+  --bb-content-max: 72rem;
+
   /* DESIGN.md palette (restore previous look) */
   --bb-bg: #fafaf5;
   --bb-surface: #fafaf5;
@@ -53,6 +57,18 @@ body {
   min-height: 100vh;
   background: linear-gradient(0deg, var(--bb-bg-tint), var(--bb-bg-tint)), var(--bb-bg);
   color: var(--bb-text);
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+:where(p, h1, h2, h3, h4, li, a, button) {
+  overflow-wrap: anywhere;
 }
 
 html.bb-dark {

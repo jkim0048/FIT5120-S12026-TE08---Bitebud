@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import PasteRecipeGuide from '../components/PasteRecipeGuide.vue'
 import { useSensoryProfile } from '../composables/useSensoryProfile'
 import { ApiError, apiFetch } from '../lib/api'
@@ -24,6 +24,8 @@ const searchComboRef = ref<HTMLElement | null>(null)
 const loadingSearch = ref(false)
 const loadingImport = ref(false)
 const err = ref<string | null>(null)
+/** Paste / visualise errors shown in a blocking dialog; cleared with the paste box on dismiss. */
+const pasteErrorModal = ref<string | null>(null)
 const activeTab = ref<'forYou' | 'explore' | 'describe'>('explore')
 const hasSearched = ref(false)
 
@@ -31,10 +33,25 @@ const MAX_SEARCH_CHARS = 120
 const MIN_SEARCH_CHARS = 2
 const MIN_RECIPE_PASTE_CHARS = 40
 const MAX_RECIPE_PASTE_CHARS = 40_000
+const URL_ONLY_LINE = /^https?:\/\/\S+$/i
+
+/** Shown when the user pastes a link; BiteBud does not fetch third-party recipe pages (web scraping). */
+const URL_PROHIBITED_MESSAGE =
+  'Recipe website links are not allowed. Fetching pages automatically is web scraping, which BiteBud does not endorse. Please copy the ingredients and instructions from the page and paste them as plain text.'
+
+/** True when the paste box contains a single recipe URL and no ingredient/instruction text. */
+function isUrlOnlyRecipePaste(text: string): boolean {
+  const lines = text
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  return lines.length === 1 && URL_ONLY_LINE.test(lines[0] ?? '')
+}
 
 const catalogPage = ref(0)
 const browseSkip = ref(0)
-const pageSize = 12
+const PAGE_SIZE = 12
 
 type SensoryMatch = 'safe' | 'sometimes'
 type PrepBucket = 'under30' | '30to60' | 'over60' | 'any'
@@ -137,7 +154,9 @@ watch(
     browseSkip.value = 0
     results.value = []
     err.value = null
+    pasteErrorModal.value = null
     hasSearched.value = false
+    if (activeTab.value === 'forYou') void search()
   },
   { immediate: true },
 )
@@ -235,6 +254,19 @@ function autosizePasteField() {
   el.style.height = `${Math.min(Math.max(el.scrollHeight, 52), 320)}px`
 }
 
+function showPasteError(message: string) {
+  pasteErrorModal.value = message
+  err.value = null
+}
+
+function dismissPasteError() {
+  pasteErrorModal.value = null
+  pasteQuery.value = ''
+  err.value = null
+  results.value = []
+  nextTick(() => autosizePasteField())
+}
+
 function onPasteSearchKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
@@ -288,9 +320,9 @@ async function fetchSuggestions(rawText: string) {
       )
       if (requestId !== latestSuggestionRequest) return
       suggestions.value = mapSuggestionCards(
-        data.results.map((r) => ({
-          ...r,
-          profileWarnings: r.profileWarnings ?? [],
+        data.results.map((result) => ({
+          ...result,
+          profileWarnings: result.profileWarnings ?? [],
           source: 'db' as const,
         })),
       )
@@ -312,14 +344,14 @@ async function fetchSuggestions(rawText: string) {
       }>(`/api/recipes/search?${params.toString()}`, { headers: biteBudUserIdHeader() })
       if (requestId !== latestSuggestionRequest) return
       suggestions.value = mapSuggestionCards(
-        data.results.map((r) => ({
-          id: r.id,
-          mealDbId: r.id,
-          title: r.title,
-          image: r.image,
-          minutes: r.minutes ?? undefined,
-          matchStatus: r.matchStatus ?? 'safe',
-          profileWarnings: r.profileWarnings ?? [],
+        data.results.map((result) => ({
+          id: result.id,
+          mealDbId: result.id,
+          title: result.title,
+          image: result.image,
+          minutes: result.minutes ?? undefined,
+          matchStatus: result.matchStatus ?? 'safe',
+          profileWarnings: result.profileWarnings ?? [],
           source: 'themealdb' as const,
           tags: [],
         })),
@@ -461,7 +493,7 @@ async function search() {
     results.value = []
     return
   }
-  if ((activeTab.value === 'explore' || activeTab.value === 'forYou') && !query.value.trim()) {
+  if (activeTab.value === 'explore' && !query.value.trim()) {
     results.value = []
     return
   }
@@ -481,13 +513,20 @@ async function search() {
   }
   if (activeTab.value === 'describe') {
     const normalizedPaste = query.value.replace(/\r\n?/g, '\n').trim()
+    if (isUrlOnlyRecipePaste(normalizedPaste)) {
+      showPasteError(URL_PROHIBITED_MESSAGE)
+      results.value = []
+      return
+    }
     if (normalizedPaste.length < MIN_RECIPE_PASTE_CHARS) {
-      err.value = 'Paste the full recipe text (ingredients + instructions).'
+      showPasteError('Paste the full recipe text (ingredients + instructions).')
       results.value = []
       return
     }
     if (normalizedPaste.length > MAX_RECIPE_PASTE_CHARS) {
-      err.value = `Recipe text is too long (max ${MAX_RECIPE_PASTE_CHARS.toLocaleString()} characters).`
+      showPasteError(
+        `Recipe text is too long (max ${MAX_RECIPE_PASTE_CHARS.toLocaleString()} characters).`,
+      )
       results.value = []
       return
     }
@@ -499,23 +538,23 @@ async function search() {
       const params = new URLSearchParams()
       if (qTrimmed) params.set('q', qTrimmed)
       params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
-      params.set('limit', String(pageSize))
+      params.set('limit', String(PAGE_SIZE))
       params.set('skip', String(browseSkip.value))
       params.set('sort', 'newest')
       const data = await apiFetch<{ results: Omit<BrowseCard, 'source'>[] }>(
         `/api/recipes/browse?${params.toString()}`,
         { headers: biteBudUserIdHeader() },
       )
-      results.value = data.results.map((r) => ({
-        ...r,
-        profileWarnings: r.profileWarnings ?? [],
+      results.value = data.results.map((result) => ({
+        ...result,
+        profileWarnings: result.profileWarnings ?? [],
         source: 'db' as const,
       }))
     } else if (activeTab.value === 'explore') {
       const params = new URLSearchParams()
       if (qTrimmed) params.set('q', qTrimmed)
       params.set('page', String(catalogPage.value))
-      params.set('limit', String(pageSize))
+      params.set('limit', String(PAGE_SIZE))
       params.set('filter', hasProfile.value ? filterMode.value : 'showAll')
       const data = await apiFetch<{
         results: {
@@ -527,14 +566,14 @@ async function search() {
           profileWarnings?: string[]
         }[]
       }>(`/api/recipes/search?${params.toString()}`, { headers: biteBudUserIdHeader() })
-      results.value = data.results.map((r) => ({
-        id: r.id,
-        mealDbId: r.id,
-        title: r.title,
-        image: r.image,
-        minutes: r.minutes ?? undefined,
-        matchStatus: r.matchStatus ?? 'safe',
-        profileWarnings: r.profileWarnings ?? [],
+      results.value = data.results.map((result) => ({
+        id: result.id,
+        mealDbId: result.id,
+        title: result.title,
+        image: result.image,
+        minutes: result.minutes ?? undefined,
+        matchStatus: result.matchStatus ?? 'safe',
+        profileWarnings: result.profileWarnings ?? [],
         source: 'themealdb' as const,
         tags: [],
       }))
@@ -552,15 +591,22 @@ async function search() {
       results.value = []
     }
   } catch (e) {
-    if (e instanceof ApiError && e.code === 'URL_NOT_FETCHABLE') {
-      err.value =
-        'That link could not be opened automatically—many sites block recipe scraping. Copy the full recipe from the page and paste the text here instead.'
+    if (activeTab.value === 'describe') {
+      if (e instanceof ApiError && (e.code === 'URL_IMPORT_DISABLED' || e.code === 'URL_NOT_FETCHABLE')) {
+        showPasteError(URL_PROHIBITED_MESSAGE)
+      } else if (e instanceof ApiError && e.code === 'NOT_RECIPE') {
+        showPasteError('That doesn’t look like a food recipe. Paste ingredients and instructions.')
+      } else if (e instanceof ApiError && e.code === 'PARSE_FAILED') {
+        showPasteError(
+          'We could not turn that into a recipe. Paste the ingredients and instructions here manually for best results.',
+        )
+      } else {
+        showPasteError(e instanceof Error ? e.message : 'Could not create your recipe. Try again.')
+      }
+    } else if (e instanceof ApiError && (e.code === 'URL_IMPORT_DISABLED' || e.code === 'URL_NOT_FETCHABLE')) {
+      err.value = URL_PROHIBITED_MESSAGE
     } else if (e instanceof ApiError && e.code === 'NOT_RECIPE') {
-      err.value =
-        'That doesn’t look like a food recipe. Paste ingredients and instructions (or a recipe URL).'
-    } else if (e instanceof ApiError && e.code === 'PARSE_FAILED') {
-      err.value =
-        'We opened the page but could not read a clear recipe. Paste the ingredients and instructions here manually for best results.'
+      err.value = 'That doesn’t look like a food recipe. Paste ingredients and instructions.'
     } else {
       err.value = e instanceof Error ? e.message : 'Search failed'
     }
@@ -573,7 +619,7 @@ async function importMealDb(id: string) {
   err.value = null
   loadingImport.value = true
   try {
-    const card = results.value.find((r) => r.id === id)
+    const card = results.value.find((result) => result.id === id)
     if (card?.source === 'db') {
       await router.push({ name: 'recipe', params: { id } })
     } else {
@@ -631,7 +677,7 @@ function goPage(delta: number) {
     catalogPage.value = Math.max(0, catalogPage.value + delta)
     void search()
   } else if (activeTab.value === 'forYou') {
-    browseSkip.value = Math.max(0, browseSkip.value + delta * pageSize)
+    browseSkip.value = Math.max(0, browseSkip.value + delta * PAGE_SIZE)
     void search()
   }
 }
@@ -708,9 +754,13 @@ async function openRecipeWithConfirm(c: BrowseCard) {
       </div>
     </div>
 
+    <p class="page-back">
+      <RouterLink class="page-back-link" :to="{ name: 'cookingStart' }">Back to start</RouterLink>
+    </p>
+
     <header class="page-hero">
       <h1 class="page-title">Recipes</h1>
-      <p class="page-lede">Search the library, paste a recipe, or revisit recipes you’ve opened before.</p>
+      <p class="page-lede">Search the library, paste a recipe, or revisit recipes you’ve completed before.</p>
     </header>
 
     <div class="layout">
@@ -722,15 +772,25 @@ async function openRecipeWithConfirm(c: BrowseCard) {
           <button type="button" class="tab" :class="{ on: activeTab === 'describe' }" @click="setRouteTab('describe')">
             Paste a recipe
           </button>
+          <button type="button" class="tab" :class="{ on: activeTab === 'forYou' }" @click="setRouteTab('forYou')">
+            My recipes
+          </button>
         </div>
+        <p v-if="activeTab === 'describe'" class="tab-help" role="note">
+          Paste the full recipe as text (ingredients and instructions).
+        </p>
         <p v-if="activeTab === 'forYou' && hasProfile" class="tab-help" role="note">
-          These are dishes you have already opened in BiteBud. Search by name to find one again.
+          These are recipes you have successfully cooked in BiteBud. Search by name to find one again.
         </p>
         <details v-if="hasProfile" class="tab-details">
           <summary>More about these tabs</summary>
           <ul class="tab-details-list">
             <li><strong>Browse library</strong> — Search from our library of recipes</li>
-            <li><strong>Paste a recipe</strong> — Visulise your own recipes, paste our intrusctions and ingredients for best results.</li>
+            <li>
+              <strong>Paste a recipe</strong> — Paste ingredients and instructions as text (not a website link; we do not
+              scrape recipe pages).
+            </li>
+            <li><strong>My recipes</strong> — Your completed recipes</li>
           </ul>
         </details>
 
@@ -748,7 +808,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
               v-model="query"
               class="search-input search-input--paste"
               rows="2"
-              :placeholder="'Paste full recipe text here…'"
+              placeholder="Paste ingredients and instructions as text (no website links)"
               :disabled="busy"
               @input="autosizePasteField"
               @keydown="onPasteSearchKeydown"
@@ -914,13 +974,13 @@ async function openRecipeWithConfirm(c: BrowseCard) {
           <button type="button" class="pager-btn" :disabled="busy || (catalogPage === 0 && browseSkip === 0)" @click="goPage(-1)">
             ←
           </button>
-          <span class="pager-num">{{ activeTab === 'explore' ? catalogPage + 1 : Math.floor(browseSkip / pageSize) + 1 }}</span>
-          <button type="button" class="pager-btn" :disabled="busy || filteredCards.length < pageSize" @click="goPage(1)">
+          <span class="pager-num">{{ activeTab === 'explore' ? catalogPage + 1 : Math.floor(browseSkip / PAGE_SIZE) + 1 }}</span>
+          <button type="button" class="pager-btn" :disabled="busy || filteredCards.length < PAGE_SIZE" @click="goPage(1)">
             →
           </button>
         </nav>
 
-        <p v-if="err" class="err" role="alert">{{ err }}</p>
+        <p v-if="err && activeTab !== 'describe'" class="err" role="alert">{{ err }}</p>
       </section>
     </div>
   </div>
@@ -975,7 +1035,7 @@ async function openRecipeWithConfirm(c: BrowseCard) {
         </details>
       </fieldset>
       <div v-else class="profile profile-note" role="note">
-        Set up your sensory profile to enable safety filters.
+        Set up your food preferences to enable safety filters.
       </div>
 
       <div class="divider" aria-hidden="true" />
@@ -997,6 +1057,23 @@ async function openRecipeWithConfirm(c: BrowseCard) {
       <button type="button" class="apply-btn" :disabled="busy" @click="applyFiltersAndClose">
         {{ filterCount ? `Apply ${filterCount} filters` : 'Apply filters' }}
       </button>
+    </aside>
+  </div>
+
+  <div v-if="pasteErrorModal" class="confirm-host" role="presentation">
+    <aside
+      class="confirm paste-error-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="paste-error-title"
+      aria-describedby="paste-error-message"
+      @click.stop
+    >
+      <h3 id="paste-error-title" class="confirm-title">Could not visualise recipe</h3>
+      <p id="paste-error-message" class="confirm-sub paste-error-dialog__message">{{ pasteErrorModal }}</p>
+      <div class="confirm-actions">
+        <button type="button" class="bb-btn bb-btn--primary" @click="dismissPasteError">OK</button>
+      </div>
     </aside>
   </div>
 
@@ -1086,6 +1163,22 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   font-size: 0.82rem;
   line-height: 1.55;
   color: color-mix(in srgb, var(--bb-muted) 80%, transparent);
+}
+.page-back {
+  margin: 0 0 1rem;
+  max-width: 48rem;
+}
+.page-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--bb-accent);
+  text-decoration: none;
+}
+.page-back-link:hover {
+  text-decoration: underline;
 }
 .page-hero {
   margin-bottom: 1.5rem;
@@ -1987,6 +2080,9 @@ async function openRecipeWithConfirm(c: BrowseCard) {
   justify-content: flex-end;
   gap: 0.6rem;
   flex-wrap: wrap;
+}
+.paste-error-dialog__message {
+  white-space: pre-wrap;
 }
 
 .sk {

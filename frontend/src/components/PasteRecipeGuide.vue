@@ -9,7 +9,7 @@
         <span class="paste-guide__num" aria-hidden="true">1</span>
         <div class="paste-guide__body">
           <strong class="paste-guide__head">Open any recipe</strong>
-          <p class="paste-guide__text">Use a website, book, or note—anywhere your recipe lives.</p>
+          <p class="paste-guide__text">Use a book, or anywhere your recipe lives.</p>
         </div>
       </li>
       <li class="paste-guide__step">
@@ -30,7 +30,10 @@
         <span class="paste-guide__num" aria-hidden="true">4</span>
         <div class="paste-guide__body">
           <strong class="paste-guide__head">Tap Visualise</strong>
-          <p class="paste-guide__text">We will open your recipe with ingredients, roadmap, and a visual flow you can cook from.</p>
+          <p class="paste-guide__text">
+            We will open your recipe with ingredients, roadmap, and a visual flow you can cook from.
+            If something goes wrong, a message will pop up — tap OK to clear the box and try again.
+          </p>
         </div>
       </li>
     </ol>

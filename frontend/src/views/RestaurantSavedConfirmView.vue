@@ -2,11 +2,18 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { favoriteRestaurant } from '../lib/restaurantsApi'
+import { getBiteBudUserId } from '../composables/useUserId'
+import { localCalendarYmd, recordMotivationActivity } from '../lib/motivationApi'
+import { motivationToastText } from '../lib/motivationCopy'
+import MotivationToast from '../components/MotivationToast.vue'
+import { useGentleToast } from '../composables/useGentleToast'
 
 const route = useRoute()
 const router = useRouter()
 const favSaved = ref(false)
 const saveError = ref('')
+const toastMessage = ref('')
+const gentleToast = useGentleToast()
 
 function formatTagsFromQuery(key: string) {
   const raw = route.query[key]
@@ -29,7 +36,7 @@ function navToSearch() {
 }
 
 function navHome() {
-  void router.push({ name: 'restaurantEntry' })
+  void router.push({ name: 'home' })
 }
 
 async function saveFavorite() {
@@ -43,7 +50,24 @@ async function saveFavorite() {
 }
 
 onMounted(() => {
+  gentleToast.show('review-saved', {})
   void saveFavorite()
+  const uid = getBiteBudUserId()
+  const placeId = String(route.params.id ?? '')
+  if (!uid || !placeId) return
+  void (async () => {
+    try {
+      const res = await recordMotivationActivity({
+        type: 'restaurant_review_submitted',
+        localDate: localCalendarYmd(new Date()),
+        placeId,
+      })
+      const text = motivationToastText(res.toastKey)
+      if (text) toastMessage.value = text
+    } catch {
+      /* ignore */
+    }
+  })()
 })
 </script>
 
@@ -66,6 +90,7 @@ onMounted(() => {
         <button class="bb-btn bb-btn--primary" type="button" @click="navHome">Home</button>
       </div>
     </div>
+    <MotivationToast :message="toastMessage" @dismiss="toastMessage = ''" />
   </section>
 </template>
 

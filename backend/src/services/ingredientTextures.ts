@@ -1,3 +1,4 @@
+/** Master list of texture categories the sensory profile UI recognises. */
 export const TEXTURE_VALUES = [
   "Soft",
   "Smooth",
@@ -16,6 +17,7 @@ export const TEXTURE_VALUES = [
   
   export type TextureValue = (typeof TEXTURE_VALUES)[number];
   
+  /** Static mapping from ingredient label → texture set used by the sensory matcher. */
   export const INGREDIENT_TEXTURES: Record<string, readonly TextureValue[]> = {
   "Ackee": ["Soft"],
   "All purpose flour": ["Powdery"],

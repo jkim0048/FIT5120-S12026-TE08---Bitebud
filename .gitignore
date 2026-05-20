@@ -1,8 +1,10 @@
 node_modules/
 dist/
+backend/dist/
 frontend/dist/
 .firebase/
 **/.firebase/
+frontend/.env
 frontend/.env.production
 deploy/cloudrun-env.generated.yaml
 .env
@@ -10,5 +12,3 @@ deploy/cloudrun-env.generated.yaml
 backend/.env
 *.log
 .DS_Store
-
-.env

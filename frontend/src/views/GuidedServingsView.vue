@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { biteBudUserIdHeader } from '../composables/useUserId'
 import { apiFetch } from '../lib/api'
 import type { RecipeGraph } from '../types/recipe'
@@ -75,8 +75,18 @@ onMounted(async () => {
 
 <template>
   <div class="servings-page">
-    <p v-if="error" class="err">{{ error }}</p>
-    <div v-else-if="loading" class="servings-card servings-card--loading">Loading servings…</div>
+    <template v-if="error">
+      <p class="err">{{ error }}</p>
+      <p class="servings-exit">
+        <RouterLink class="servings-exit__link" :to="{ name: 'recipe', params: { id: recipeId } }">← Back to recipe</RouterLink>
+      </p>
+    </template>
+    <div v-else-if="loading" class="servings-card servings-card--loading">
+      <p>Loading servings…</p>
+      <p class="servings-exit">
+        <RouterLink class="servings-exit__link" :to="{ name: 'recipe', params: { id: recipeId } }">← Back to recipe</RouterLink>
+      </p>
+    </div>
     <section v-else class="servings-card">
       <header class="servings-head">
         <h1 class="brand">BiteBud</h1>
@@ -127,6 +137,19 @@ onMounted(async () => {
   justify-content: center;
   align-items: center;
   color: var(--bb-muted);
+}
+.servings-exit {
+  margin: 1rem 0 0;
+  text-align: center;
+}
+.servings-exit__link {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--bb-accent);
+  text-decoration: none;
+}
+.servings-exit__link:hover {
+  text-decoration: underline;
 }
 .servings-head {
   display: flex;

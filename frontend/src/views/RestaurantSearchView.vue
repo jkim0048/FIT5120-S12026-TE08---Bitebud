@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiError } from '../lib/api'
 import {
   createRestaurantFromNominatim,
   searchRestaurants,
   suggestRestaurantLocations,
+  suggestRestaurantUnified,
   type LocationSuggestion,
+  type PlaceSuggestion,
   type RestaurantSearchResult,
 } from '../lib/restaurantsApi'
 import L from 'leaflet'
@@ -27,10 +29,15 @@ const INITIAL_MAP_CENTER = [-37.8136, 144.9631] as [number, number]
 
 const route = useRoute()
 const router = useRouter()
-const fallbackSuburb = ref('')
-/** When set, area search uses this token (suburb/postcode) even if the input shows a longer formatted label. */
+/** Single search bar text (suburb, postcode, or restaurant name). */
+const searchQuery = ref('')
+/** When set, area search uses this token even if the input shows a longer formatted label. */
 const areaSuburbForApi = ref<string | null>(null)
-const loading = ref(false)
+/** Full-page overlay while a restaurant search request runs and results render. */
+const searchLoading = ref(false)
+/** Brief busy state when opening an unrated Nominatim place (no overlay). */
+const openingPlace = ref(false)
+const busy = computed(() => searchLoading.value || openingPlace.value)
 /** True after any restaurant search has finished (success or error). Hides empty-state copy on first visit. */
 const hasCompletedSearch = ref(false)
 const error = ref('')
@@ -41,7 +48,9 @@ const locationDistanceLabel = ref('No distance context yet')
 const distanceAnchorLabel = ref('Distances from your selected search anchor')
 const modeLabel = ref('Search not started')
 const sourceSummary = ref('Reviewed 0 · Nearby 0')
-const showReviewedSection = ref(false)
+const showNearbySection = ref(true)
+/** Set when the last search used a restaurant name (`q`); hides area “Found nearby” browsing. */
+const lastRestaurantQuery = ref('')
 const showMapSection = ref(false)
 const currentDistanceLat = ref<number | null>(null)
 const currentDistanceLon = ref<number | null>(null)
@@ -57,15 +66,34 @@ let baseRasterLayer: L.TileLayer | null = null
 
 const maxResults = ref<number>(15)
 
-const suburbForRequest = computed(() => (areaSuburbForApi.value?.trim() || fallbackSuburb.value.trim()))
+type UnifiedSuggestEntry =
+  | { kind: 'area'; key: string; area: LocationSuggestion }
+  | { kind: 'place'; key: string; place: PlaceSuggestion }
 
-const locationSuggestions = ref<LocationSuggestion[]>([])
-const locationSuggestOpen = ref(false)
-const locationSuggestLoading = ref(false)
-const locationSuggestActiveIndex = ref<number>(-1)
-let locationSuggestTimer: ReturnType<typeof setTimeout> | undefined
-const locationInvalid = ref(false)
-const locationHint = ref('')
+const areaSuggestions = ref<LocationSuggestion[]>([])
+const placeSuggestions = ref<PlaceSuggestion[]>([])
+const suggestOpen = ref(false)
+const suggestLoading = ref(false)
+const suggestActiveIndex = ref(-1)
+let suggestTimer: ReturnType<typeof setTimeout> | undefined
+let latestSuggestRequest = 0
+const searchInvalid = ref(false)
+const searchHint = ref('')
+
+const unifiedSuggestEntries = computed((): UnifiedSuggestEntry[] => {
+  const entries: UnifiedSuggestEntry[] = []
+  for (const area of areaSuggestions.value) {
+    entries.push({ kind: 'area', key: `area:${area.id}`, area })
+  }
+  for (const place of placeSuggestions.value) {
+    entries.push({ kind: 'place', key: `place:${place.id}`, place })
+  }
+  return entries
+})
+
+const hasSuggestResults = computed(
+  () => areaSuggestions.value.length > 0 || placeSuggestions.value.length > 0,
+)
 
 function normalizeLocationQuery(raw: string): string {
   const trimmed = raw.trim()
@@ -81,28 +109,45 @@ const filteredResults = computed(() => {
 })
 
 /** Full shortlist split by type — do not use a page slice here: API merges locals first then Nominatim, so paging hid all "nearby" rows on page 1. */
-const reviewedResults = computed(() => filteredResults.value.filter((r) => r.source === 'bitebud' && r.reviewCount > 0))
+const reviewedResults = computed(() =>
+  filteredResults.value.filter((restaurant) => restaurant.source === 'bitebud' && restaurant.reviewCount > 0),
+)
 const freshResults = computed(() =>
-  filteredResults.value.filter((r) => r.source === 'nominatim' || (r.source === 'bitebud' && r.reviewCount === 0)),
+  filteredResults.value.filter(
+    (restaurant) =>
+      restaurant.source === 'nominatim' || (restaurant.source === 'bitebud' && restaurant.reviewCount === 0),
+  ),
 )
 const hasAnyResult = computed(() => reviewedResults.value.length + freshResults.value.length > 0)
+const isRestaurantNameSearch = computed(() => lastRestaurantQuery.value.length > 0)
+/** Area/suburb browse block; for a restaurant name search only show unrated name matches. */
+const showFoundNearbyBlock = computed(() => {
+  if (isRestaurantNameSearch.value) return freshResults.value.length > 0
+  return true
+})
+const showNearbyEffective = computed(() => {
+  if (isRestaurantNameSearch.value) return true
+  return reviewedResults.value.length === 0 || showNearbySection.value
+})
 
 const closestDistanceText = computed(() => {
   const distances = filteredResults.value
-    .map((r) => r.distanceKm)
-    .filter((d): d is number => typeof d === 'number')
+    .map((restaurant) => restaurant.distanceKm)
+    .filter((distance): distance is number => typeof distance === 'number')
     .sort((a, b) => a - b)
   if (!distances.length) return 'Distance unavailable'
   return `${distances[0].toFixed(1)} km to closest option`
 })
 
 const mapPoints = computed(() =>
-  filteredResults.value.filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude)),
+  filteredResults.value.filter(
+    (restaurant) => Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude),
+  ),
 )
 
 const mapCenter = computed<[number, number]>(() => {
   if (mapPoints.value.length) {
-    const active = mapPoints.value.find((r) => r.id === activeMapId.value)
+    const active = mapPoints.value.find((restaurant) => restaurant.id === activeMapId.value)
     const chosen = active ?? mapPoints.value[0]
     return [chosen.latitude, chosen.longitude]
   }
@@ -128,18 +173,24 @@ function ensureRasterBasemap(leafletMap: L.Map): void {
 
 /** Fit all pins or fall back to mapCenter (Melbourne when empty). */
 function applySearchResultsToMap(leafletMap: L.Map): void {
-  const pts = mapPoints.value.filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
-  if (pts.length >= 2) {
-    const bounds = L.latLngBounds(pts.map((r) => [r.latitude, r.longitude] as [number, number]))
+  const validPoints = mapPoints.value.filter(
+    (restaurant) => Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude),
+  )
+  if (validPoints.length >= 2) {
+    const bounds = L.latLngBounds(
+      validPoints.map((restaurant) => [restaurant.latitude, restaurant.longitude] as [number, number]),
+    )
     if (bounds.isValid()) {
       leafletMap.fitBounds(bounds, { padding: [44, 44], maxZoom: 16, animate: false })
       return
     }
   }
-  if (pts.length === 1) {
-    leafletMap.setView([pts[0].latitude, pts[0].longitude], Math.min(16, Math.max(mapZoom.value, 13)), {
-      animate: false,
-    })
+  if (validPoints.length === 1) {
+    leafletMap.setView(
+      [validPoints[0].latitude, validPoints[0].longitude],
+      Math.min(16, Math.max(mapZoom.value, 13)),
+      { animate: false },
+    )
     return
   }
   if (
@@ -169,12 +220,16 @@ async function syncMapAfterReveal() {
 
   if (!showMapSection.value) return
 
-  setTimeout(() => {
-    const m = (mapEl.value as any)?.leafletObject as L.Map | undefined
-    if (!m) return
-    m.invalidateSize?.()
-    applySearchResultsToMap(m)
-  }, 80)
+  await new Promise<void>((resolve) => {
+    setTimeout(() => {
+      const refreshedMap = (mapEl.value as any)?.leafletObject as L.Map | undefined
+      if (refreshedMap) {
+        refreshedMap.invalidateSize?.()
+        applySearchResultsToMap(refreshedMap)
+      }
+      resolve()
+    }, 80)
+  })
 }
 
 const summaryText = computed(() => {
@@ -184,32 +239,25 @@ const summaryText = computed(() => {
 })
 
 watch(
-  () => filteredResults.value.map((r) => r.id),
-  (ids) => {
-    if (!ids.length) {
+  () => filteredResults.value.map((restaurant) => restaurant.id),
+  (restaurantIds) => {
+    if (!restaurantIds.length) {
       activeMapId.value = null
       return
     }
-    if (activeMapId.value && ids.includes(activeMapId.value)) return
-    activeMapId.value = ids[0] ?? null
+    if (activeMapId.value && restaurantIds.includes(activeMapId.value)) return
+    activeMapId.value = restaurantIds[0] ?? null
   },
 )
 
 async function runSearch(params?: { lat?: number; lon?: number; suburb?: string; q?: string }) {
-  loading.value = true
+  searchLoading.value = true
   error.value = ''
-  locationInvalid.value = false
-  locationHint.value = ''
+  searchInvalid.value = false
+  searchHint.value = ''
   try {
-    // Near me passes only lat/lon — do not reuse the location field text as `q` or the API stays in "typed" mode for the old suburb.
-    const geoOnly =
-      typeof params?.lat === 'number' &&
-      typeof params?.lon === 'number' &&
-      Number.isFinite(params.lat) &&
-      Number.isFinite(params.lon) &&
-      params?.q == null &&
-      params?.suburb == null
-    const queryText = (params?.q ?? (params?.suburb ? '' : geoOnly ? '' : fallbackSuburb.value)).trim()
+    const queryText = (params?.q ?? '').trim()
+    lastRestaurantQuery.value = queryText
     const data = await searchRestaurants({
       q: queryText || undefined,
       lat: params?.lat,
@@ -217,20 +265,20 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
       suburb: params?.suburb,
     })
     areaContext.value = data.areaContext
-    if (data.areaContext) {
-      fallbackSuburb.value = data.areaContext
+    if (data.areaContext && !queryText) {
+      searchQuery.value = data.areaContext
       areaSuburbForApi.value = null
     }
     results.value = Array.isArray(data.results) ? data.results : []
     // Active marker will be synced to filteredResults via watcher.
     warningText.value =
       Array.isArray(data.warnings) && data.warnings.length
-        ? data.warnings.map((w) => w.error).filter(Boolean).join(' · ')
+        ? data.warnings.map((warning) => warning.error).filter(Boolean).join(' · ')
         : ''
     modeLabel.value = data.modeUsed === 'near_me' ? 'Using your location' : data.modeUsed === 'area' ? 'Using area fallback' : 'Using typed search'
     sourceSummary.value = `Reviewed ${data.sourceCounts?.bitebud ?? reviewedResults.value.length} · Nearby ${data.sourceCounts?.nominatim ?? freshResults.value.length}`
-    const near = data.results.find((r) => r.distanceKm !== null)
-    const distance = near?.distanceKm
+    const nearestRestaurant = data.results.find((restaurant) => restaurant.distanceKm !== null)
+    const distance = nearestRestaurant?.distanceKm
     locationDistanceLabel.value = typeof distance === 'number' ? `${distance.toFixed(1)} km to nearby places` : 'No distance context yet'
     if (data.modeUsed === 'near_me') {
       distanceAnchorLabel.value = 'Distances from your current location'
@@ -250,7 +298,9 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
       searchFocusLat.value = params.lat
       searchFocusLon.value = params.lon
     } else {
-      const firstGeo = data.results.find((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
+      const firstGeo = data.results.find(
+        (restaurant) => Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude),
+      )
       if (firstGeo) {
         searchFocusLat.value = firstGeo.latitude
         searchFocusLon.value = firstGeo.longitude
@@ -266,9 +316,11 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
       nextQuery.lon = String(params.lon)
     }
     if (params?.suburb) nextQuery.suburb = params.suburb
-    else if (queryText) nextQuery.q = queryText
+    else if (areaSuburbForApi.value?.trim()) nextQuery.suburb = areaSuburbForApi.value.trim()
+    if (queryText) nextQuery.q = queryText
     void router.replace({ query: nextQuery })
-    void syncMapAfterReveal()
+    await nextTick()
+    await syncMapAfterReveal()
     return data
   } catch (e) {
     results.value = []
@@ -291,7 +343,7 @@ async function runSearch(params?: { lat?: number; lon?: number; suburb?: string;
     }
     return null
   } finally {
-    loading.value = false
+    searchLoading.value = false
     hasCompletedSearch.value = true
   }
 }
@@ -337,7 +389,7 @@ async function openResult(result: RestaurantSearchResult) {
     return
   }
   if (!result.nominatimPlaceId) return
-  loading.value = true
+  openingPlace.value = true
   error.value = ''
   try {
     const created = await createRestaurantFromNominatim({
@@ -361,18 +413,13 @@ async function openResult(result: RestaurantSearchResult) {
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Could not open restaurant rating'
   } finally {
-    loading.value = false
+    openingPlace.value = false
   }
 }
 
 function openReviewedAction(r: RestaurantSearchResult) {
   const returnToPath = router.currentRoute.value.fullPath
   void router.push({ name: 'restaurantReviewDetail', params: { id: r.id }, query: { returnToPath } })
-}
-
-function useAreaContext() {
-  if (!fallbackSuburb.value.trim() && areaContext.value) fallbackSuburb.value = areaContext.value
-  void runSearch({ suburb: suburbForRequest.value })
 }
 
 function suggestionPrimaryLine(s: LocationSuggestion): string {
@@ -387,30 +434,38 @@ function normalizeAreaToken(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+const EARTH_RADIUS_KM = 6371
+
 function distanceKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
-  const r = 6371
-  const dLat = ((bLat - aLat) * Math.PI) / 180
-  const dLon = ((bLon - aLon) * Math.PI) / 180
+  const deltaLat = ((bLat - aLat) * Math.PI) / 180
+  const deltaLon = ((bLon - aLon) * Math.PI) / 180
   const lat1 = (aLat * Math.PI) / 180
   const lat2 = (bLat * Math.PI) / 180
-  const h =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
-  return 2 * r * Math.asin(Math.sqrt(h))
+  const haversine =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2)
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(haversine))
 }
 
 function withDistanceFromCurrentLocation(items: RestaurantSearchResult[]): RestaurantSearchResult[] {
   if (currentDistanceLat.value == null || currentDistanceLon.value == null) return items
   if (!Number.isFinite(currentDistanceLat.value) || !Number.isFinite(currentDistanceLon.value)) return items
-  return items.map((r) => ({
-    ...r,
-    distanceKm: Number(distanceKm(currentDistanceLat.value!, currentDistanceLon.value!, r.latitude, r.longitude).toFixed(1)),
+  return items.map((restaurant) => ({
+    ...restaurant,
+    distanceKm: Number(
+      distanceKm(
+        currentDistanceLat.value!,
+        currentDistanceLon.value!,
+        restaurant.latitude,
+        restaurant.longitude,
+      ).toFixed(1),
+    ),
   }))
 }
 
 function refreshDistanceSummaryFromResults() {
-  const near = results.value.find((r) => r.distanceKm !== null)
-  const distance = near?.distanceKm
+  const nearestRestaurant = results.value.find((restaurant) => restaurant.distanceKm !== null)
+  const distance = nearestRestaurant?.distanceKm
   locationDistanceLabel.value = typeof distance === 'number' ? `${distance.toFixed(1)} km to nearby places` : 'No distance context yet'
 }
 
@@ -429,189 +484,235 @@ async function captureCurrentLocationForDistance(): Promise<boolean> {
   })
 }
 
+function scoreAreaSuggestion(query: string, suggestion: LocationSuggestion): number {
+  const normalizedQuery = normalizeAreaToken(query)
+  if (!normalizedQuery) return 0
+  const suburb = normalizeAreaToken(suggestion.suburb ?? '')
+  const area = normalizeAreaToken(suggestion.areaSearch ?? '')
+  const display = normalizeAreaToken(suggestion.displayName ?? '')
+  const postcode = normalizeAreaToken(suggestion.postcode ?? '')
+  let score = 0
+  if (suburb === normalizedQuery || area === normalizedQuery) score += 100
+  if (suburb.startsWith(normalizedQuery) || area.startsWith(normalizedQuery)) score += 70
+  if (suburb.includes(normalizedQuery) || area.includes(normalizedQuery)) score += 45
+  if (display.includes(normalizedQuery)) score += 20
+  if (postcode === normalizedQuery) score += 80
+  return score
+}
+
 function pickBestSuggestionForArea(query: string, suggestions: LocationSuggestion[]): LocationSuggestion | null {
   if (!suggestions.length) return null
-  const q = normalizeAreaToken(query)
-  if (!q) return suggestions[0] ?? null
+  const normalizedQuery = normalizeAreaToken(query)
+  if (!normalizedQuery) return suggestions[0] ?? null
 
   const scored = suggestions
-    .map((s) => {
-      const suburb = normalizeAreaToken(s.suburb ?? '')
-      const area = normalizeAreaToken(s.areaSearch ?? '')
-      const display = normalizeAreaToken(s.displayName ?? '')
-      const postcode = normalizeAreaToken(s.postcode ?? '')
-
-      let score = 0
-      if (suburb === q || area === q) score += 100
-      if (suburb.startsWith(q) || area.startsWith(q)) score += 70
-      if (suburb.includes(q) || area.includes(q)) score += 45
-      if (display.includes(q)) score += 20
-      if (postcode === q) score += 80
-
-      return { s, score }
-    })
+    .map((suggestion) => ({ suggestion, score: scoreAreaSuggestion(normalizedQuery, suggestion) }))
     .sort((a, b) => b.score - a.score)
 
   const top = scored[0]
-  if (!top || top.score <= 0) return suggestions[0] ?? null
-  return top.s
+  if (!top || top.score < 45) return null
+  return top.suggestion
 }
 
-async function fetchLocationSuggestions() {
-  const q = normalizeLocationQuery(fallbackSuburb.value)
+/** Prefer a strong suburb match; otherwise use the best weak Nominatim area hit. */
+function resolveAreaAnchor(query: string, suggestions: LocationSuggestion[]): LocationSuggestion | null {
+  const strong = pickBestSuggestionForArea(query, suggestions)
+  if (strong) return strong
+  if (!suggestions.length) return null
+  const normalizedQuery = normalizeAreaToken(query)
+  const scored = suggestions
+    .map((suggestion) => ({ suggestion, score: scoreAreaSuggestion(normalizedQuery, suggestion) }))
+    .sort((a, b) => b.score - a.score)
+  const top = scored[0]
+  if (top && top.score > 0) return top.suggestion
+  return suggestions[0] ?? null
+}
+
+async function runSearchFromAreaAnchor(anchor: LocationSuggestion, restaurantQ?: string) {
+  areaSuburbForApi.value = anchor.areaSearch
+  searchQuery.value = formatAreaLabel(anchor)
+  searchFocusLat.value = anchor.latitude
+  searchFocusLon.value = anchor.longitude
+  return runSearch({
+    lat: anchor.latitude,
+    lon: anchor.longitude,
+    suburb: anchor.areaSearch,
+    ...(restaurantQ ? { q: restaurantQ } : {}),
+  })
+}
+
+function formatAreaLabel(s: LocationSuggestion): string {
+  const meta = suggestionSecondaryLine(s)
+  const primary = suggestionPrimaryLine(s)
+  return meta ? `${primary} · ${meta}` : primary
+}
+
+function searchLocationContext(): { lat?: number; lon?: number; suburb?: string } {
+  const suburb = areaSuburbForApi.value?.trim() || areaContext.value?.trim() || undefined
+  const lat = searchFocusLat.value ?? currentDistanceLat.value ?? undefined
+  const lon = searchFocusLon.value ?? currentDistanceLon.value ?? undefined
+  if (
+    typeof lat === 'number' &&
+    typeof lon === 'number' &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lon)
+  ) {
+    return { lat, lon, suburb }
+  }
+  if (suburb) return { suburb }
+  return {}
+}
+
+async function fetchUnifiedSuggestions(): Promise<void> {
+  const q = normalizeLocationQuery(searchQuery.value)
   if (q.length < 2) {
-    locationSuggestions.value = []
-    locationSuggestOpen.value = false
-    locationSuggestActiveIndex.value = -1
-    locationInvalid.value = false
-    locationHint.value = ''
+    areaSuggestions.value = []
+    placeSuggestions.value = []
+    suggestOpen.value = false
+    suggestActiveIndex.value = -1
     return
   }
-  locationSuggestLoading.value = true
+  const requestId = ++latestSuggestRequest
+  suggestLoading.value = true
   try {
-    const res = await suggestRestaurantLocations(q, 10)
-    locationSuggestions.value = res.suggestions
-    locationSuggestOpen.value = true
-    locationSuggestActiveIndex.value = res.suggestions.length ? 0 : -1
+    const response = await suggestRestaurantUnified({
+      q,
+      limit: 8,
+      ...searchLocationContext(),
+    })
+    if (requestId !== latestSuggestRequest) return
+    areaSuggestions.value = response.areas
+    placeSuggestions.value = response.places
+    suggestOpen.value = true
+    suggestActiveIndex.value = unifiedSuggestEntries.value.length ? 0 : -1
   } catch {
-    locationSuggestions.value = []
-    locationSuggestOpen.value = true
-    locationSuggestActiveIndex.value = -1
+    if (requestId !== latestSuggestRequest) return
+    areaSuggestions.value = []
+    placeSuggestions.value = []
+    suggestOpen.value = true
+    suggestActiveIndex.value = -1
   } finally {
-    locationSuggestLoading.value = false
+    if (requestId === latestSuggestRequest) suggestLoading.value = false
   }
 }
 
-function onLocationInput() {
+function onSearchInput(): void {
   areaSuburbForApi.value = null
-  locationSuggestActiveIndex.value = -1
-  locationInvalid.value = false
-  locationHint.value = ''
-  const q = normalizeLocationQuery(fallbackSuburb.value)
-  locationSuggestOpen.value = q.length >= 2
-  if (locationSuggestTimer) clearTimeout(locationSuggestTimer)
-  locationSuggestTimer = setTimeout(() => {
-    locationSuggestTimer = undefined
-    void fetchLocationSuggestions()
-  }, 150)
+  suggestActiveIndex.value = -1
+  searchInvalid.value = false
+  searchHint.value = ''
+  const q = searchQuery.value.trim()
+  suggestOpen.value = q.length >= 2
+  if (suggestTimer) clearTimeout(suggestTimer)
+  suggestTimer = setTimeout(() => {
+    suggestTimer = undefined
+    void fetchUnifiedSuggestions()
+  }, 250)
 }
 
-function onLocationFocus() {
-  if (fallbackSuburb.value.trim().length >= 2) locationSuggestOpen.value = true
+function onSearchFocus(): void {
+  if (searchQuery.value.trim().length >= 2) suggestOpen.value = true
 }
 
-function onLocationBlur() {
+function onSearchBlur(): void {
   setTimeout(() => {
-    locationSuggestOpen.value = false
+    suggestOpen.value = false
   }, 200)
 }
 
-function moveLocationSuggest(delta: number) {
-  const n = locationSuggestions.value.length
+function moveSuggest(delta: number): void {
+  const n = unifiedSuggestEntries.value.length
   if (!n) {
-    locationSuggestActiveIndex.value = -1
+    suggestActiveIndex.value = -1
     return
   }
-  if (!locationSuggestOpen.value) locationSuggestOpen.value = true
-  const next = (locationSuggestActiveIndex.value < 0 ? 0 : locationSuggestActiveIndex.value + delta + n) % n
-  locationSuggestActiveIndex.value = next
+  if (!suggestOpen.value) suggestOpen.value = true
+  const next = (suggestActiveIndex.value < 0 ? 0 : suggestActiveIndex.value + delta + n) % n
+  suggestActiveIndex.value = next
 }
 
-function chooseActiveLocationSuggestion() {
-  const idx = locationSuggestActiveIndex.value
-  if (!locationSuggestOpen.value || idx < 0 || idx >= locationSuggestions.value.length) return false
-  pickLocationSuggestion(locationSuggestions.value[idx]!)
+function chooseActiveSuggestion(): boolean {
+  const entry = unifiedSuggestEntries.value[suggestActiveIndex.value]
+  if (!suggestOpen.value || !entry) return false
+  if (entry.kind === 'area') pickAreaSuggestion(entry.area)
+  else pickPlaceSuggestion(entry.place)
   return true
 }
 
-function onLocationKeydown(e: KeyboardEvent) {
+function onSearchKeydown(e: KeyboardEvent): void {
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    moveLocationSuggest(1)
+    moveSuggest(1)
     return
   }
   if (e.key === 'ArrowUp') {
     e.preventDefault()
-    moveLocationSuggest(-1)
+    moveSuggest(-1)
     return
   }
   if (e.key === 'Escape') {
-    locationSuggestOpen.value = false
+    suggestOpen.value = false
     return
   }
   if (e.key === 'Enter') {
-    // Prefer selecting from the list when open, otherwise run the normal search.
-    if (chooseActiveLocationSuggestion()) {
+    if (chooseActiveSuggestion()) {
       e.preventDefault()
       return
     }
     e.preventDefault()
-    void attemptAreaSearch()
-    return
+    void runUnifiedSearch()
   }
 }
 
-function pickLocationSuggestion(s: LocationSuggestion) {
+function pickAreaSuggestion(s: LocationSuggestion): void {
   areaSuburbForApi.value = s.areaSearch
-  const meta = suggestionSecondaryLine(s)
-  const primary = suggestionPrimaryLine(s)
-  fallbackSuburb.value = meta ? `${primary} · ${meta}` : primary
-  locationSuggestOpen.value = false
-  locationSuggestions.value = []
-  locationSuggestActiveIndex.value = -1
-  locationInvalid.value = false
-  locationHint.value = ''
+  searchQuery.value = formatAreaLabel(s)
+  suggestOpen.value = false
+  areaSuggestions.value = []
+  placeSuggestions.value = []
+  suggestActiveIndex.value = -1
+  searchInvalid.value = false
+  searchHint.value = ''
   searchFocusLat.value = s.latitude
   searchFocusLon.value = s.longitude
-  void runSearch({ lat: s.latitude, lon: s.longitude, suburb: s.areaSearch })
+  void runSearchFromAreaAnchor(s)
 }
 
-async function attemptAreaSearch() {
-  const q = normalizeLocationQuery(suburbForRequest.value)
-  locationInvalid.value = false
-  locationHint.value = ''
+function pickPlaceSuggestion(s: PlaceSuggestion): void {
+  searchQuery.value = s.name
+  suggestOpen.value = false
+  areaSuggestions.value = []
+  placeSuggestions.value = []
+  suggestActiveIndex.value = -1
+  searchFocusLat.value = s.latitude
+  searchFocusLon.value = s.longitude
+  void runSearch({
+    q: s.name,
+    lat: s.latitude,
+    lon: s.longitude,
+    suburb: areaSuburbForApi.value?.trim() || areaContext.value?.trim() || undefined,
+  })
+}
+
+async function runAreaSearchFromText(areaText: string, restaurantQ?: string): Promise<void> {
+  const q = normalizeLocationQuery(areaText)
+  searchInvalid.value = false
+  searchHint.value = ''
   if (q.length < 2) {
-    locationInvalid.value = true
-    locationHint.value = 'Enter a valid suburb name or postcode.'
-    locationSuggestOpen.value = true
+    searchInvalid.value = true
+    searchHint.value = 'Enter a valid suburb name or postcode.'
     return
   }
-  locationSuggestLoading.value = true
+  suggestLoading.value = true
   try {
-    let suggestions: LocationSuggestion[] = []
-    try {
-      const res = await suggestRestaurantLocations(q, 8)
-      suggestions = res.suggestions
-      locationSuggestions.value = res.suggestions
-      locationSuggestOpen.value = true
-      locationSuggestActiveIndex.value = res.suggestions.length ? 0 : -1
-    } catch (e: unknown) {
-      locationSuggestions.value = []
-      locationSuggestOpen.value = true
-      locationSuggestActiveIndex.value = -1
-      if (e instanceof ApiError) {
-        if (e.status === 404) {
-          const msg = e.message ?? ''
-          const looksLikeFastifyMissingRoute =
-            msg.includes('Route GET:') && msg.includes('not found')
-          error.value = looksLikeFastifyMissingRoute
-            ? 'Restaurant API on port 3001 is out of date (route missing). From the backend folder run npm run build, restart the server, or use npm run dev instead of npm start.'
-            : 'Restaurant API returned 404. Check that the backend is running on port 3001 with a current build.'
-        } else if (e.status === 502 || e.status === 503) {
-          error.value =
-            'Cannot reach the restaurant API. Start the backend (port 3001) so location search can load suggestions.'
-        }
-      }
-    }
-
-    const anchor = pickBestSuggestionForArea(q, suggestions)
+    const res = await suggestRestaurantLocations(q, 8)
+    const anchor = pickBestSuggestionForArea(q, res.suggestions)
     const data = anchor
-      ? await runSearch({
-          lat: anchor.latitude,
-          lon: anchor.longitude,
-          suburb: anchor.areaSearch,
+      ? await runSearchFromAreaAnchor(anchor, restaurantQ)
+      : await runSearch({
+          suburb: q,
+          ...(restaurantQ ? { q: restaurantQ } : {}),
         })
-      : await runSearch({ suburb: q })
 
     const gotCurrentLocation = await captureCurrentLocationForDistance()
     if (gotCurrentLocation) {
@@ -621,12 +722,52 @@ async function attemptAreaSearch() {
       distanceAnchorLabel.value = 'Distances from your current location'
     }
 
-    if (!suggestions.length && (data?.results?.length ?? 0) === 0) {
-      locationInvalid.value = true
-      locationHint.value = 'No matching suburb/postcode found. Please enter a valid suburb name or postcode.'
+    if (!res.suggestions.length && (data?.results?.length ?? 0) === 0) {
+      searchInvalid.value = true
+      searchHint.value = 'No matching suburb/postcode found. Try a restaurant name instead.'
     }
   } finally {
-    locationSuggestLoading.value = false
+    suggestLoading.value = false
+  }
+}
+
+async function runUnifiedSearch(): Promise<void> {
+  const text = searchQuery.value.trim()
+  searchInvalid.value = false
+  searchHint.value = ''
+  if (!text) {
+    searchInvalid.value = true
+    searchHint.value = 'Enter a suburb, postcode, or restaurant name.'
+    return
+  }
+
+  const commaIdx = text.indexOf(',')
+  if (commaIdx > 0) {
+    const namePart = text.slice(0, commaIdx).trim()
+    const areaPart = text.slice(commaIdx + 1).trim()
+    if (namePart && areaPart) {
+      await runAreaSearchFromText(areaPart, namePart)
+      return
+    }
+  }
+
+  const normalized = normalizeLocationQuery(text)
+  try {
+    const locRes = await suggestRestaurantLocations(normalized, 8)
+    const anchor = resolveAreaAnchor(normalized, locRes.suggestions)
+    if (anchor) {
+      await runSearchFromAreaAnchor(anchor)
+      return
+    }
+  } catch {
+    /* Nominatim suggest unavailable — suburb search still uses API suburb fallback */
+  }
+
+  await runAreaSearchFromText(normalized)
+
+  // If the text was not a suburb/postcode, try as a restaurant name.
+  if (results.value.length === 0 && !searchInvalid.value) {
+    await runSearch({ q: text })
   }
 }
 
@@ -648,22 +789,22 @@ watch(
 
 watch(
   () =>
-    `${mapPoints.value.map((p) => p.id).join(',')}|${searchFocusLat.value ?? ''}:${searchFocusLon.value ?? ''}`,
+    `${mapPoints.value.map((point) => point.id).join(',')}|${searchFocusLat.value ?? ''}:${searchFocusLon.value ?? ''}`,
   () => {
     void syncMapAfterReveal()
   },
 )
 
-function resultMeta(r: RestaurantSearchResult): string {
-  const cuisine = r.cuisine ?? 'Restaurant'
-  const reviews = `${r.reviewCount} reviews`
-  const comfort = `${r.comfortBadge} ${r.overallRating.toFixed(1)}/5`
-  const distance = r.distanceKm === null ? '' : ` · ${r.distanceKm.toFixed(1)} km`
+function resultMeta(restaurant: RestaurantSearchResult): string {
+  const cuisine = restaurant.cuisine ?? 'Restaurant'
+  const reviews = `${restaurant.reviewCount} reviews`
+  const comfort = `${restaurant.comfortBadge} ${restaurant.overallRating.toFixed(1)}/5`
+  const distance = restaurant.distanceKm === null ? '' : ` · ${restaurant.distanceKm.toFixed(1)} km`
   return `${cuisine} · ${reviews} · ${comfort}${distance}`
 }
 
-function freshResultMeta(r: RestaurantSearchResult): string {
-  const distance = r.distanceKm === null ? '' : ` · ${r.distanceKm.toFixed(1)} km`
+function freshResultMeta(restaurant: RestaurantSearchResult): string {
+  const distance = restaurant.distanceKm === null ? '' : ` · ${restaurant.distanceKm.toFixed(1)} km`
   return `No BiteBud sensory reviews yet${distance}`
 }
 
@@ -677,11 +818,11 @@ function showEasiestThree() {
   const ranked = [...filteredResults.value].sort((a, b) => {
     const badgeDelta = comfortRank(a.comfortBadge) - comfortRank(b.comfortBadge)
     if (badgeDelta !== 0) return badgeDelta
-    const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.MAX_SAFE_INTEGER
-    const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.MAX_SAFE_INTEGER
-    return da - db
+    const distanceA = typeof a.distanceKm === 'number' ? a.distanceKm : Number.MAX_SAFE_INTEGER
+    const distanceB = typeof b.distanceKm === 'number' ? b.distanceKm : Number.MAX_SAFE_INTEGER
+    return distanceA - distanceB
   })
-  recommendedIds.value = ranked.slice(0, 3).map((r) => r.id)
+  recommendedIds.value = ranked.slice(0, 3).map((restaurant) => restaurant.id)
   if (recommendedIds.value.length) activeMapId.value = recommendedIds.value[0]
 }
 
@@ -706,15 +847,22 @@ onMounted(() => {
 
   if (typeof max === 'number' && Number.isFinite(max)) maxResults.value = Math.min(30, Math.max(3, max))
 
+  if (suburb && q) searchQuery.value = `${q}, ${suburb}`
+  else if (suburb) searchQuery.value = suburb
+  else if (q) searchQuery.value = q
+
   if (suburb) {
-    fallbackSuburb.value = suburb
     areaSuburbForApi.value = suburb
-    void runSearch({ suburb, lat, lon })
+    void runSearch({
+      suburb,
+      lat,
+      lon,
+      ...(q ? { q } : {}),
+    })
     return
   }
   if (q) {
-    fallbackSuburb.value = q
-    void runSearch({ q })
+    void runSearch({ q, lat, lon })
     return
   }
   if (typeof lat === 'number' && typeof lon === 'number' && Number.isFinite(lat) && Number.isFinite(lon)) {
@@ -723,6 +871,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (suggestTimer) clearTimeout(suggestTimer)
   const leafletMap = (mapEl.value as any)?.leafletObject as L.Map | undefined
   if (leafletMap && baseRasterLayer) {
     leafletMap.removeLayer(baseRasterLayer)
@@ -732,64 +881,131 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="page">
+  <section class="page" :aria-busy="searchLoading">
+    <div
+      v-if="searchLoading"
+      class="search-loading-overlay"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      aria-label="Searching for restaurants"
+    >
+      <div class="search-loading-overlay__inner">
+        <div class="search-loading-overlay__spinner" aria-hidden="true" />
+        <p class="search-loading-overlay__title">Finding restaurants</p>
+        <p class="search-loading-overlay__hint">Searching your area and building your shortlist…</p>
+      </div>
+    </div>
+
+    <p class="page-back">
+      <RouterLink class="page-back-link" :to="{ name: 'cookingStart' }">Back to start</RouterLink>
+    </p>
     <header class="hero">
       <h1>Find a restaurant.</h1>
-      <p class="hint hero-hint">Search by restaurant, address, or suburb.</p>
+      <p class="hint hero-hint">
+        Search by suburb or postcode to browse nearby places, or type a restaurant name (add a suburb after a comma when you can).
+      </p>
     </header>
 
     <div class="page-layout" :class="{ 'page-layout--map-open': showMapSection }">
       <main class="results-column">
         <section class="top-controls" aria-label="Search controls">
           <div class="top-controls__inner">
-            <div class="fallback-row fallback-row--top">
+            <div class="fallback-row fallback-row--unified">
               <div class="location-field">
                 <input
-                  v-model="fallbackSuburb"
+                  v-model="searchQuery"
                   type="text"
-                  placeholder="Enter a suburb name or postcode"
+                  placeholder="Suburb, postcode, or restaurant name"
                   autocomplete="off"
                   aria-autocomplete="list"
-                  :aria-expanded="locationSuggestOpen"
-                  :class="{ 'location-input--invalid': locationInvalid }"
+                  :aria-expanded="suggestOpen"
+                  :class="{ 'location-input--invalid': searchInvalid }"
                   :aria-activedescendant="
-                    locationSuggestOpen && locationSuggestActiveIndex >= 0
-                      ? `location-suggest-${locationSuggestActiveIndex}`
-                      : undefined
+                    suggestOpen && suggestActiveIndex >= 0 ? `unified-suggest-${suggestActiveIndex}` : undefined
                   "
-                  @input="onLocationInput"
-                  @focus="onLocationFocus"
-                  @blur="onLocationBlur"
-                  @keydown="onLocationKeydown"
+                  @input="onSearchInput"
+                  @focus="onSearchFocus"
+                  @blur="onSearchBlur"
+                  @keydown="onSearchKeydown"
                 />
-                <ul v-show="locationSuggestOpen && locationSuggestions.length" class="location-suggest" role="listbox">
-                  <li
-                    v-for="(s, idx) in locationSuggestions"
-                    :key="s.id"
-                    role="option"
-                    class="location-suggest__item"
-                    :id="`location-suggest-${idx}`"
-                    :aria-selected="idx === locationSuggestActiveIndex"
-                    :class="{ 'location-suggest__item--active': idx === locationSuggestActiveIndex }"
-                    @mousedown.prevent="pickLocationSuggestion(s)"
-                  >
-                    <span class="location-suggest__primary">{{ suggestionPrimaryLine(s) }}</span>
-                    <span v-if="suggestionSecondaryLine(s)" class="location-suggest__meta">{{ suggestionSecondaryLine(s) }}</span>
-                  </li>
+                <ul
+                  v-show="suggestOpen && (hasSuggestResults || suggestLoading)"
+                  class="location-suggest location-suggest--unified"
+                  role="listbox"
+                >
+                  <template v-if="areaSuggestions.length">
+                    <li class="location-suggest__section" role="presentation">Areas</li>
+                    <li
+                      v-for="entry in unifiedSuggestEntries.filter((e) => e.kind === 'area')"
+                      :key="entry.key"
+                      role="option"
+                      class="location-suggest__item"
+                      :id="`unified-suggest-${unifiedSuggestEntries.indexOf(entry)}`"
+                      :aria-selected="unifiedSuggestEntries.indexOf(entry) === suggestActiveIndex"
+                      :class="{
+                        'location-suggest__item--active':
+                          unifiedSuggestEntries.indexOf(entry) === suggestActiveIndex,
+                      }"
+                      @mousedown.prevent="pickAreaSuggestion(entry.area)"
+                    >
+                      <span class="location-suggest__primary">{{ suggestionPrimaryLine(entry.area) }}</span>
+                      <span v-if="suggestionSecondaryLine(entry.area)" class="location-suggest__meta">{{
+                        suggestionSecondaryLine(entry.area)
+                      }}</span>
+                    </li>
+                  </template>
+                  <template v-if="placeSuggestions.length">
+                    <li class="location-suggest__section" role="presentation">Restaurants</li>
+                    <li
+                      v-for="entry in unifiedSuggestEntries.filter((e) => e.kind === 'place')"
+                      :key="entry.key"
+                      role="option"
+                      class="location-suggest__item"
+                      :id="`unified-suggest-${unifiedSuggestEntries.indexOf(entry)}`"
+                      :aria-selected="unifiedSuggestEntries.indexOf(entry) === suggestActiveIndex"
+                      :class="{
+                        'location-suggest__item--active':
+                          unifiedSuggestEntries.indexOf(entry) === suggestActiveIndex,
+                      }"
+                      @mousedown.prevent="pickPlaceSuggestion(entry.place)"
+                    >
+                      <span class="location-suggest__primary">{{ entry.place.name }}</span>
+                      <span v-if="entry.place.subtitle" class="location-suggest__meta">{{ entry.place.subtitle }}</span>
+                    </li>
+                  </template>
                 </ul>
                 <div
-                  v-if="locationSuggestOpen && !locationSuggestLoading && locationSuggestions.length === 0 && fallbackSuburb.trim().length >= 2"
+                  v-if="suggestOpen && !suggestLoading && !hasSuggestResults && searchQuery.trim().length >= 2"
                   class="location-suggest-empty"
                 >
-                  No matching suburb/postcode found.
+                  No matching areas or restaurants.
                 </div>
-                <p v-if="locationSuggestLoading" class="location-suggest__loading">Looking up locations…</p>
-                <p v-if="locationInvalid && locationHint" class="location-hint">{{ locationHint }}</p>
+                <p v-if="suggestLoading" class="location-suggest__loading">Searching…</p>
+                <p v-if="searchInvalid && searchHint" class="location-hint">{{ searchHint }}</p>
               </div>
-              <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" :disabled="loading" @click="attemptAreaSearch">
-                Use area
+              <button
+                class="bb-btn bb-btn--primary bb-btn--compact search-submit-btn"
+                type="button"
+                :disabled="busy"
+                @click="runUnifiedSearch"
+              >
+                Search
               </button>
             </div>
+
+            <details class="search-examples">
+              <summary class="search-examples__toggle">See search example</summary>
+              <div class="search-examples__panel" role="note" aria-label="Search examples">
+                <ul class="search-examples__list">
+                  <li><span class="search-examples__k">Suburb</span> Richmond</li>
+                  <li><span class="search-examples__k">Postcode</span> 3121</li>
+                  <li><span class="search-examples__k">Restaurant + area</span> Golden Dragon, Carlton</li>
+                  <li><span class="search-examples__k">Near you</span> tap <strong>Near me</strong> below</li>
+                </ul>
+                <p class="search-examples__tip">Pick an <strong>Areas</strong> suggestion from the list when it appears, then press Search.</p>
+              </div>
+            </details>
 
             <div class="top-stack">
               <div class="map-toggle-row">
@@ -798,10 +1014,10 @@ onBeforeUnmount(() => {
                 </button>
               </div>
               <div class="near-row">
-                <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" :disabled="loading" @click="useNearMe">Near me</button>
+                <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" :disabled="busy" @click="useNearMe">Near me</button>
                 <label class="filter near-row__filter">
                   <span>Show</span>
-                  <select v-model.number="maxResults" :disabled="loading">
+                  <select v-model.number="maxResults" :disabled="busy">
                     <option v-for="n in [3, 5, 8, 10, 12, 15, 20, 25, 30]" :key="n" :value="n">{{ n }}</option>
                   </select>
                 </label>
@@ -810,64 +1026,22 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <div v-if="areaContext || warningText || error || loading" class="status-strip">
+        <div v-if="areaContext || warningText || error" class="status-strip">
           <p v-if="warningText" class="warning">{{ warningText }}</p>
           <p v-if="error" class="error">{{ error }}</p>
-          <p v-if="loading" class="hint status-loading">Loading shortlist…</p>
         </div>
 
         <section class="section-card section-card--tight">
           <div class="section-head">
             <h2>Reviewed in BiteBud</h2>
-            <button
-              type="button"
-              class="bb-btn bb-btn--secondary bb-btn--compact"
-              :aria-expanded="showReviewedSection"
-              @click="showReviewedSection = !showReviewedSection"
-            >
-              {{
-                showReviewedSection
-                  ? 'Hide reviewed restaurants'
-                  : `Show reviewed restaurants (${reviewedResults.length})`
-              }}
-            </button>
           </div>
 
-          <div v-show="showReviewedSection">
-            <p v-if="!loading && hasCompletedSearch && reviewedResults.length === 0" class="hint section-hint">
-              No reviewed places for this search yet.
-            </p>
-            <ul class="result-list">
-              <li
-                v-for="r in reviewedResults"
-                :id="`restaurant-card-${r.id}`"
-                :key="r.id"
-                class="result-card"
-                :class="{ recommended: recommendedIds.includes(r.id), selected: activeMapId === r.id }"
-                @click="selectFromMap(r.id)"
-              >
-                <div class="result-card__body">
-                  <h3>{{ r.name }}</h3>
-                  <p v-if="recommendedIds.includes(r.id)" class="reco">Recommended</p>
-                  <p class="result-card__addr">{{ r.address ?? r.displayName }}</p>
-                  <p class="meta">{{ resultMeta(r) }}</p>
-                </div>
-                <div class="result-card__actions">
-                  <button class="bb-btn bb-btn--primary bb-btn--compact" type="button" :disabled="loading" @click.stop="openReviewedAction(r)">
-                    See details
-                  </button>
-                </div>
-              </li>
-            </ul>
-          </div>
-        </section>
-
-        <section class="section-card section-card--tight">
-          <h2>Found nearby</h2>
-          <p v-if="hasAnyResult" class="hint section-hint">{{ distanceAnchorLabel }}</p>
-          <ul v-if="freshResults.length" class="result-list">
+          <p v-if="!searchLoading && hasCompletedSearch && reviewedResults.length === 0" class="hint section-hint">
+            No reviewed places for this search yet.
+          </p>
+          <ul v-if="reviewedResults.length" class="result-list">
             <li
-              v-for="r in freshResults"
+              v-for="r in reviewedResults"
               :id="`restaurant-card-${r.id}`"
               :key="r.id"
               class="result-card"
@@ -878,26 +1052,63 @@ onBeforeUnmount(() => {
                 <h3>{{ r.name }}</h3>
                 <p v-if="recommendedIds.includes(r.id)" class="reco">Recommended</p>
                 <p class="result-card__addr">{{ r.address ?? r.displayName }}</p>
-                <p class="meta">{{ freshResultMeta(r) }}</p>
+                <p class="meta">{{ resultMeta(r) }}</p>
               </div>
-              <button
-                class="bb-btn bb-btn--secondary bb-btn--compact"
-                type="button"
-                :disabled="loading || !r.canRateNow"
-                @click.stop="openResult(r)"
-              >
-                {{ r.userHasReview ? 'Edit rating' : 'Rate this place' }}
-              </button>
+              <div class="result-card__actions">
+                <button class="bb-btn bb-btn--primary bb-btn--compact" type="button" :disabled="busy" @click.stop="openReviewedAction(r)">
+                  See rating
+                </button>
+              </div>
             </li>
           </ul>
-          <div
-            v-else-if="!loading && hasCompletedSearch && !hasAnyResult"
-            class="nearby-empty"
-          >
-            <p class="hint">Try another suburb or use Near me.</p>
-            <div class="empty-actions">
-              <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="useAreaContext">Use area context</button>
-              <button class="bb-btn bb-btn--secondary bb-btn--compact" type="button" @click="runSearch()">Typed search</button>
+        </section>
+
+        <section v-if="showFoundNearbyBlock" class="section-card section-card--tight">
+          <div class="section-head">
+            <h2>{{ isRestaurantNameSearch ? 'Matches' : 'Found nearby' }}</h2>
+            <button
+              v-if="!isRestaurantNameSearch && reviewedResults.length > 0"
+              type="button"
+              class="bb-btn bb-btn--secondary bb-btn--compact"
+              :aria-expanded="showNearbySection"
+              @click="showNearbySection = !showNearbySection"
+            >
+              {{ showNearbySection ? 'Hide nearby results' : `Show nearby results (${freshResults.length})` }}
+            </button>
+          </div>
+
+          <div v-show="showNearbyEffective">
+            <p v-if="hasAnyResult && !isRestaurantNameSearch" class="hint section-hint">{{ distanceAnchorLabel }}</p>
+            <ul v-if="freshResults.length" class="result-list">
+              <li
+                v-for="r in freshResults"
+                :id="`restaurant-card-${r.id}`"
+                :key="r.id"
+                class="result-card"
+                :class="{ recommended: recommendedIds.includes(r.id), selected: activeMapId === r.id }"
+                @click="selectFromMap(r.id)"
+              >
+                <div class="result-card__body">
+                  <h3>{{ r.name }}</h3>
+                  <p v-if="recommendedIds.includes(r.id)" class="reco">Recommended</p>
+                  <p class="result-card__addr">{{ r.address ?? r.displayName }}</p>
+                  <p class="meta">{{ freshResultMeta(r) }}</p>
+                </div>
+                <button
+                  class="bb-btn bb-btn--secondary bb-btn--compact"
+                  type="button"
+                  :disabled="busy || !r.canRateNow"
+                  @click.stop="openResult(r)"
+                >
+                  {{ r.userHasReview ? 'Edit rating' : 'Rate this place' }}
+                </button>
+              </li>
+            </ul>
+            <div
+              v-else-if="!searchLoading && hasCompletedSearch && !hasAnyResult"
+              class="nearby-empty"
+            >
+              <p class="hint">Try another suburb, a restaurant name, or use Near me.</p>
             </div>
           </div>
         </section>
@@ -960,12 +1171,73 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.page-back {
+  margin: 0 0 0.15rem;
+}
+.page-back-link {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--bb-accent);
+  text-decoration: none;
+}
+.page-back-link:hover {
+  text-decoration: underline;
+}
 .page {
   max-width: 92rem;
   margin: 0 auto;
   padding: 0.5rem 0.75rem 0.85rem;
   display: grid;
   gap: 0.45rem;
+  position: relative;
+}
+.search-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: color-mix(in srgb, var(--bb-bg) 82%, #000 18%);
+  backdrop-filter: blur(6px);
+}
+.search-loading-overlay__inner {
+  max-width: 22rem;
+  text-align: center;
+  padding: 1.5rem 1.25rem;
+  border-radius: 18px;
+  background: var(--bb-surface-low);
+  box-shadow: 0 20px 50px rgba(26, 28, 25, 0.12);
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 12%, transparent);
+}
+.search-loading-overlay__spinner {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  border: 3px solid color-mix(in srgb, var(--bb-muted) 25%, transparent);
+  border-top-color: var(--bb-primary);
+  border-radius: 50%;
+  animation: restaurant-search-spin 0.75s linear infinite;
+}
+@keyframes restaurant-search-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.search-loading-overlay__title {
+  margin: 1rem 0 0;
+  font-family: var(--bb-font-headline);
+  font-size: 1.25rem;
+  font-weight: 900;
+  color: var(--bb-text);
+  letter-spacing: -0.02em;
+}
+.search-loading-overlay__hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--bb-muted);
 }
 .hero h1 {
   margin: 0;
@@ -977,6 +1249,54 @@ onBeforeUnmount(() => {
 .hero-hint {
   margin: 0.12rem 0 0;
   font-size: 0.9rem;
+  line-height: 1.5;
+}
+.search-examples {
+  width: min(36rem, 100%);
+  justify-self: start;
+  text-align: left;
+}
+.search-examples__toggle {
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--bb-accent);
+  list-style: none;
+}
+.search-examples__toggle::-webkit-details-marker {
+  display: none;
+}
+.search-examples__toggle::marker {
+  content: '';
+}
+.search-examples__panel {
+  margin-top: 0.45rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  background: var(--bb-surface-low);
+  border: 1px solid color-mix(in srgb, var(--bb-primary) 8%, var(--bb-border));
+}
+.search-examples__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.28rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--bb-text);
+}
+.search-examples__k {
+  display: inline-block;
+  min-width: 7.5rem;
+  font-weight: 700;
+  color: var(--bb-muted);
+}
+.search-examples__tip {
+  margin: 0.45rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--bb-muted);
 }
 .hint {
   margin: 0;
@@ -1009,10 +1329,6 @@ onBeforeUnmount(() => {
   gap: 0.2rem;
   margin-bottom: 0.15rem;
 }
-.status-loading {
-  margin: 0;
-}
-
 .page-layout {
   display: flex;
   flex-direction: column;
@@ -1036,15 +1352,38 @@ onBeforeUnmount(() => {
   justify-content: center;
   padding: 0.25rem 0;
 }
-.fallback-row--top {
+.field-label {
+  margin: 0;
   width: min(36rem, 100%);
-  grid-area: search;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bb-muted);
+}
+.fallback-row--unified {
+  width: min(36rem, 100%);
+  justify-self: start;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
+}
+.location-suggest__section {
+  padding: 0.35rem 0.65rem 0.15rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bb-muted);
+  list-style: none;
+}
+.search-submit-btn {
+  align-self: start;
+  min-width: 5.5rem;
 }
 
 .top-stack {
   width: min(36rem, 100%);
+  justify-self: start;
   display: grid;
   gap: 0.45rem;
   justify-self: start;
@@ -1071,8 +1410,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 520px) {
-  .fallback-row--top {
+  .fallback-row--unified {
     grid-template-columns: 1fr;
+  }
+  .search-submit-btn {
+    width: 100%;
   }
   .top-stack {
     justify-self: center;
@@ -1341,13 +1683,6 @@ input {
   font-size: 0.95rem;
   font-family: var(--bb-font-headline);
   color: var(--bb-primary);
-}
-
-.empty-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.4rem;
-  margin-top: 0.45rem;
 }
 
 .result-list {

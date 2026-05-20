@@ -4,65 +4,71 @@ import {
   syncIngredientNodesWithSourceLines,
 } from "./graphRepair.js";
 
+const TITLE_MAX_LENGTH = 120;
+const MAX_INGREDIENTS = 60;
+const MAX_STEPS = 40;
+const LABEL_MAX_LENGTH = 80;
+const MAX_INGREDIENT_IDS_PER_STEP = 12;
+
 /** Choose a simple ingredient emoji based on keyword matches (fallback is a generic bowl). */
 function pickEmojiForIngredient(label: string): string {
-  const t = label.toLowerCase();
-  if (/(beef|steak|meat|pork|bacon|ham)/.test(t)) return "🥩";
-  if (/(chicken|turkey)/.test(t)) return "🍗";
-  if (/(fish|salmon|tuna|shrimp|prawn|seafood)/.test(t)) return "🐟";
-  if (/(milk|cheese|butter|cream|yogurt)/.test(t)) return "🥛";
-  if (/(pasta|noodle)/.test(t)) return "🍝";
-  if (/(rice)/.test(t)) return "🍚";
-  if (/(egg)/.test(t)) return "🥚";
-  if (/(tomato)/.test(t)) return "🍅";
-  if (/(onion|garlic)/.test(t)) return "🧅";
-  if (/(salt|pepper|spice|herb)/.test(t)) return "🧂";
+  const lowered = label.toLowerCase();
+  if (/(beef|steak|meat|pork|bacon|ham)/.test(lowered)) return "🥩";
+  if (/(chicken|turkey)/.test(lowered)) return "🍗";
+  if (/(fish|salmon|tuna|shrimp|prawn|seafood)/.test(lowered)) return "🐟";
+  if (/(milk|cheese|butter|cream|yogurt)/.test(lowered)) return "🥛";
+  if (/(pasta|noodle)/.test(lowered)) return "🍝";
+  if (/(rice)/.test(lowered)) return "🍚";
+  if (/(egg)/.test(lowered)) return "🥚";
+  if (/(tomato)/.test(lowered)) return "🍅";
+  if (/(onion|garlic)/.test(lowered)) return "🧅";
+  if (/(salt|pepper|spice|herb)/.test(lowered)) return "🧂";
   return "🥣";
 }
 
 /** Choose a single action emoji for a step based on coarse verb/method keywords (fallback arrow). */
 function pickEmojiForStep(text: string): string {
-  const t = text.toLowerCase();
-  if (/(chop|slice|dice|mince)/.test(t)) return "🔪";
-  if (/(mix|stir|whisk|combine)/.test(t)) return "🥣";
-  if (/(bake|roast|oven)/.test(t)) return "🔥";
-  if (/(boil|simmer|cook)/.test(t)) return "🍲";
-  if (/(fry|saute|pan)/.test(t)) return "🍳";
-  if (/(wait|rest|cool)/.test(t)) return "⏳";
-  if (/(serve|plate)/.test(t)) return "🍽️";
+  const lowered = text.toLowerCase();
+  if (/(chop|slice|dice|mince)/.test(lowered)) return "🔪";
+  if (/(mix|stir|whisk|combine)/.test(lowered)) return "🥣";
+  if (/(bake|roast|oven)/.test(lowered)) return "🔥";
+  if (/(boil|simmer|cook)/.test(lowered)) return "🍲";
+  if (/(fry|saute|pan)/.test(lowered)) return "🍳";
+  if (/(wait|rest|cool)/.test(lowered)) return "⏳";
+  if (/(serve|plate)/.test(lowered)) return "🍽️";
   return "➡️";
 }
 
-/** Infer a step node “type” from step text using a small keyword heuristic. */
+/** Infer a step node "type" from step text using a small keyword heuristic. */
 function pickStepType(text: string): RecipeNode["type"] {
-  const t = text.toLowerCase();
-  if (/(wait|rest|cool|set aside)/.test(t)) return "wait";
-  if (/(serve|plate)/.test(t)) return "serve";
-  if (/(mix|stir|combine|toss)/.test(t)) return "assemble";
-  if (/(bake|roast|oven|boil|simmer|cook|fry|saute)/.test(t)) return "cook";
+  const lowered = text.toLowerCase();
+  if (/(wait|rest|cool|set aside)/.test(lowered)) return "wait";
+  if (/(serve|plate)/.test(lowered)) return "serve";
+  if (/(mix|stir|combine|toss)/.test(lowered)) return "assemble";
+  if (/(bake|roast|oven|boil|simmer|cook|fry|saute)/.test(lowered)) return "cook";
   return "prep";
 }
 
-/** Extract a single “NN minutes” value from step text if present (best-effort). */
+/** Extract a single "NN minutes" value from step text if present (best-effort). */
 function extractMinutes(text: string): number | null {
-  const m = text.toLowerCase().match(/(\d+)\s*(min|mins|minutes)\b/);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return Number.isFinite(n) ? n : null;
+  const match = text.toLowerCase().match(/(\d+)\s*(min|mins|minutes)\b/);
+  if (!match) return null;
+  const minutes = Number(match[1]);
+  return Number.isFinite(minutes) ? minutes : null;
 }
 
 /** Split raw text into non-empty trimmed lines (used for crude section/step parsing). */
 function splitLines(raw: string): string[] {
   return raw
     .split(/\r?\n/)
-    .map((s) => s.trim())
+    .map((line) => line.trim())
     .filter(Boolean);
 }
 
 /**
  * Parse a plain recipe text blob into a minimal `RecipeGraph` using simple heuristics.
  *
- * Intended as a fallback when LLM parsing is unavailable; produces a usable linear step chain and “uses” edges,
+ * Intended as a fallback when LLM parsing is unavailable; produces a usable linear step chain and "uses" edges,
  * then applies `repairIngredientNodesFromRecipeText` to improve ingredient labeling.
  */
 export function basicRecipeTextToGraph(input: {
@@ -70,50 +76,57 @@ export function basicRecipeTextToGraph(input: {
   sourceUrl?: string | null;
 }): RecipeGraph {
   const lines = splitLines(input.text);
-  const title = lines[0]?.slice(0, 120) || "Recipe";
+  const title = lines[0]?.slice(0, TITLE_MAX_LENGTH) || "Recipe";
 
-  // crude section detection
-  const ingStart = lines.findIndex((l) => /^ingredients\b/i.test(l));
-  const instrStart = lines.findIndex((l) => /^instructions\b/i.test(l) || /^method\b/i.test(l) || /^steps\b/i.test(l));
+  const ingredientsHeaderIndex = lines.findIndex((line) => /^ingredients\b/i.test(line));
+  const instructionsHeaderIndex = lines.findIndex(
+    (line) => /^instructions\b/i.test(line) || /^method\b/i.test(line) || /^steps\b/i.test(line),
+  );
 
-  const ingLines =
-    ingStart >= 0
-      ? lines.slice(ingStart + 1, instrStart >= 0 ? instrStart : undefined)
+  const ingredientLines =
+    ingredientsHeaderIndex >= 0
+      ? lines.slice(
+          ingredientsHeaderIndex + 1,
+          instructionsHeaderIndex >= 0 ? instructionsHeaderIndex : undefined,
+        )
       : [];
-  const instrLines =
-    instrStart >= 0 ? lines.slice(instrStart + 1) : lines.slice(1);
+  const instructionLines =
+    instructionsHeaderIndex >= 0 ? lines.slice(instructionsHeaderIndex + 1) : lines.slice(1);
 
-  const ingredients = ingLines
-    .map((l) => l.replace(/^[\-\*\u2022]\s+/, "").trim())
+  const ingredients = ingredientLines
+    .map((line) => line.replace(/^[\-\*\u2022]\s+/, "").trim())
     .filter(Boolean)
-    .slice(0, 60);
+    .slice(0, MAX_INGREDIENTS);
 
-  let steps = instrLines
-    .map((l) => l.replace(/^\d+\.\s+/, "").trim())
+  let steps = instructionLines
+    .map((line) => line.replace(/^\d+\.\s+/, "").trim())
     .filter(Boolean);
 
   // If instructions are one long paragraph, split on sentence-ish boundaries.
   if (steps.length <= 2) {
-    const para = instrLines.join(" ");
-    const parts = para.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
-    if (parts.length >= steps.length) steps = parts;
+    const paragraph = instructionLines.join(" ");
+    const sentenceParts = paragraph
+      .split(/(?<=[.!?])\s+/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean);
+    if (sentenceParts.length >= steps.length) steps = sentenceParts;
   }
 
-  steps = steps.slice(0, 40);
+  steps = steps.slice(0, MAX_STEPS);
 
   const nodes: RecipeNode[] = [];
   const edges: RecipeEdge[] = [];
 
   const ingredientIds: string[] = [];
-  for (let i = 0; i < ingredients.length; i++) {
-    const label = ingredients[i].slice(0, 80);
-    const id = `i${i + 1}`;
+  for (const [ingredientIndex, ingredientLine] of ingredients.entries()) {
+    const label = ingredientLine.slice(0, LABEL_MAX_LENGTH);
+    const id = `i${ingredientIndex + 1}`;
     ingredientIds.push(id);
     nodes.push({
       id,
       type: "ingredient",
       label,
-      detail: ingredients[i],
+      detail: ingredientLine,
       emoji: pickEmojiForIngredient(label),
       lane: null,
       timeMinutes: null,
@@ -122,30 +135,34 @@ export function basicRecipeTextToGraph(input: {
   }
 
   const stepIds: string[] = [];
-  for (let i = 0; i < steps.length; i++) {
-    const id = `s${i + 1}`;
+  for (const [stepIndex, stepDetail] of steps.entries()) {
+    const id = `s${stepIndex + 1}`;
     stepIds.push(id);
-    const detail = steps[i];
     nodes.push({
       id,
-      type: pickStepType(detail),
-      label: detail.slice(0, 80),
-      detail,
-      emoji: pickEmojiForStep(detail),
+      type: pickStepType(stepDetail),
+      label: stepDetail.slice(0, LABEL_MAX_LENGTH),
+      detail: stepDetail,
+      emoji: pickEmojiForStep(stepDetail),
       lane: null,
-      timeMinutes: extractMinutes(detail),
-      ingredientIds: ingredientIds.slice(0, Math.min(ingredientIds.length, 12)),
+      timeMinutes: extractMinutes(stepDetail),
+      ingredientIds: ingredientIds.slice(
+        0,
+        Math.min(ingredientIds.length, MAX_INGREDIENT_IDS_PER_STEP),
+      ),
     });
   }
 
-  // linear requires edges between steps
-  for (let i = 1; i < stepIds.length; i++) {
-    edges.push({ source: stepIds[i - 1], target: stepIds[i], type: "requires" });
+  for (let stepIndex = 1; stepIndex < stepIds.length; stepIndex++) {
+    edges.push({
+      source: stepIds[stepIndex - 1],
+      target: stepIds[stepIndex],
+      type: "requires",
+    });
   }
-  // basic uses edges: every ingredient to first step (keeps graph usable)
   if (stepIds.length) {
-    for (const iid of ingredientIds) {
-      edges.push({ source: iid, target: stepIds[0], type: "uses" });
+    for (const ingredientId of ingredientIds) {
+      edges.push({ source: ingredientId, target: stepIds[0], type: "uses" });
     }
   }
 
@@ -158,6 +175,8 @@ export function basicRecipeTextToGraph(input: {
     edges,
   };
 
-  return syncIngredientNodesWithSourceLines(repairIngredientNodesFromRecipeText(graph, input.text), input.text);
+  return syncIngredientNodesWithSourceLines(
+    repairIngredientNodesFromRecipeText(graph, input.text),
+    input.text,
+  );
 }
-

@@ -21,7 +21,8 @@ From the repo root:
   - `npm install --prefix frontend`
 
 - **Environment**
-  - Create a root env file: `.env` (used by backend scripts via `dotenv -e ../.env ...`).
+  - Copy [`.env.example`](.env.example) to `.env` in the repo root (used by backend scripts via `dotenv -e ../.env ...`).
+  - Apply DB migrations (includes Epic 7 motivation tables): `npm run prisma:deploy --prefix backend`
   - Minimum backend vars commonly used:
     - `DATABASE_URL`
     - `DIRECT_URL`
@@ -36,9 +37,14 @@ From the repo root:
 - **Recipe search + library browsing** (including prep-time filters)
 - **Recipe visual overview** (lane-based flow + inline step details)
 - **Full steps view**
-- **Guided cooking mode** (ingredient checklist + step-by-step)
+- **Guided cooking mode** (ingredient checklist + step-by-step with voice and timers)
 - **Sensory profile setup** + ingredient conflict warnings
 - **Dietary & cultural constraint checks**
 - **Import recipes** (paste text or fetch from URL)
 - **AI refine + recipe lede generation**
+- **Resturant Search and Rate based on Sensory**
+- **Shopping List**
+- **Learn More**
+- **Motivation streaks**
+- **Activity and Pattern**
 
