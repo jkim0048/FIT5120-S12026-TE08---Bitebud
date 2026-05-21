@@ -70,7 +70,6 @@ onMounted(() => {
 function toggleSection(name: 'texture' | 'dietary' | 'food') {
   expanded.value = expanded.value === name ? null : name
   sectionError.value = ''
-  if (name === 'food') void loadFoodPickerItems()
 }
 
 function notifyPreferencesSaved() {
@@ -97,7 +96,6 @@ async function saveSection(name: 'texture' | 'dietary' | 'food') {
       if (i >= 0 && i < SECTION_ORDER.length - 1) {
         const next = SECTION_ORDER[i + 1]!
         expanded.value = next
-        if (next === 'food') void loadFoodPickerItems()
       }
     }
   } catch (e) {

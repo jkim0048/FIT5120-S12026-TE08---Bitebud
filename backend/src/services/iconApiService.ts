@@ -17,16 +17,54 @@ import {
 
 const WICKED_PICKER_LABEL_MAX_LENGTH = 120;
 let lastWickedCatalogIngestAt = Date.now();
+let wickedCatalogIngestInFlight: Promise<void> | null = null;
 
 export type PickerUnavailable = { kind: "unavailable"; message: string };
 export type PickerError = { kind: "error"; message: string };
 
-/** Wicked icon list for the Food Safety Tags picker, with periodic catalog sync. */
+type WickedIconPickerRow = {
+  id: string;
+  name: string;
+  category: string | null;
+  imageUrl: string | null;
+};
+
+function mapWickedIconRowToPickerItem(row: WickedIconPickerRow) {
+  const label = (row.name?.trim() || row.id.replace(/-/g, " ")).slice(0, WICKED_PICKER_LABEL_MAX_LENGTH);
+  const hint = row.category?.trim() ?? "";
+  return {
+    wickedIconId: row.id,
+    label,
+    hint,
+    imageUrl: row.imageUrl,
+  };
+}
+
+/** Refresh catalog from food.getwicked.app without blocking API responses. */
+function scheduleWickedCatalogRefresh(): void {
+  if (wickedCatalogIngestInFlight) return;
+  wickedCatalogIngestInFlight = ingestWickedIcons({
+    sourceUrl: DEFAULT_WICKED_SOURCE,
+    limit: WICKED_PICKER_INGEST_LIMIT,
+    includeAssets: false,
+  })
+    .then(() => {
+      lastWickedCatalogIngestAt = Date.now();
+    })
+    .catch(() => {
+      /* keep serving DB rows; retry on next stale window */
+    })
+    .finally(() => {
+      wickedCatalogIngestInFlight = null;
+    });
+}
+
+/** Wicked icon list for the Food Safety Tags picker (legacy bulk load; prefer search). */
 export async function getWickedPickerItems() {
   try {
     let count = await iconCatalogDatabase.wickedIconCount();
     const stale = Date.now() - lastWickedCatalogIngestAt >= WICKED_CATALOG_RESYNC_MS;
-    if (count === 0 || stale) {
+    if (count === 0) {
       await ingestWickedIcons({
         sourceUrl: DEFAULT_WICKED_SOURCE,
         limit: WICKED_PICKER_INGEST_LIMIT,
@@ -34,6 +72,8 @@ export async function getWickedPickerItems() {
       });
       lastWickedCatalogIngestAt = Date.now();
       count = await iconCatalogDatabase.wickedIconCount();
+    } else if (stale) {
+      scheduleWickedCatalogRefresh();
     }
     if (count === 0) {
       return {
@@ -47,22 +87,7 @@ export async function getWickedPickerItems() {
       take: WICKED_PICKER_PAGE_SIZE,
       select: { id: true, name: true, category: true, imageUrl: true },
     });
-    return {
-      items: rows.map((row) => {
-        const label = (row.name?.trim() || row.id.replace(/-/g, " ")).slice(
-          0,
-          WICKED_PICKER_LABEL_MAX_LENGTH,
-        );
-        const category = row.category?.trim();
-        const hint = category ?? "";
-        return {
-          wickedIconId: row.id,
-          label,
-          hint,
-          imageUrl: row.imageUrl,
-        };
-      }),
-    };
+    return { items: rows.map(mapWickedIconRowToPickerItem) };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Wicked picker failed";
     return { kind: "error", message } as PickerError;
@@ -89,23 +114,43 @@ export async function listIngredientIconMap() {
   };
 }
 
-/** Search the Wicked icon catalog by id or display name. */
+/** Search the Wicked icon catalog by id or display name (indexed id lookup + prefix/name contains). */
 export async function searchWickedIcons(query: string | undefined, limit?: number) {
-  const where = query
-    ? {
-        OR: [
-          { id: { contains: query, mode: "insensitive" as const } },
-          { name: { contains: query, mode: "insensitive" as const } },
-        ],
-      }
-    : undefined;
+  const q = query?.trim() ?? "";
+  const take = limit ?? WICKED_SEARCH_DEFAULT_LIMIT;
+  if (!q) {
+    return { icons: [] as WickedIconPickerRow[] };
+  }
+
+  const select = { id: true, name: true, imageUrl: true, category: true } as const;
+  const exact = await iconCatalogDatabase.wickedIconFindUnique({
+    where: { id: q },
+    select,
+  });
+  if (exact) {
+    return { icons: [exact] };
+  }
+
   const rows = await iconCatalogDatabase.wickedIconFindMany({
-    where,
-    orderBy: { name: "asc" },
-    take: limit ?? WICKED_SEARCH_DEFAULT_LIMIT,
-    select: { id: true, name: true, imageUrl: true, category: true },
+    where: {
+      OR: [
+        { name: { startsWith: q, mode: "insensitive" } },
+        { id: { startsWith: q, mode: "insensitive" } },
+        { name: { contains: q, mode: "insensitive" } },
+        { id: { contains: q, mode: "insensitive" } },
+      ],
+    },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    take,
+    select,
   });
   return { icons: rows };
+}
+
+/** Food-tag picker search — same shape as wicked-picker rows, small page size. */
+export async function searchWickedPickerItems(query: string, limit?: number) {
+  const { icons } = await searchWickedIcons(query, limit ?? WICKED_SEARCH_DEFAULT_LIMIT);
+  return { items: icons.map(mapWickedIconRowToPickerItem) };
 }
 
 export type IconNotFound = { kind: "not_found" };
