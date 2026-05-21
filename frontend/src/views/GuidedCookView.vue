@@ -5,7 +5,8 @@ import { biteBudUserIdHeader, getBiteBudUserId } from '../composables/useUserId'
 import { useSettings } from '../composables/useSettings'
 import { apiFetch, apiUrl } from '../lib/api'
 import { getOrderedRecipeSteps } from '../lib/recipeSteps'
-import { downloadShoppingListPdf } from '../lib/shoppingListPdf'
+import { splitIngredientNameAndQuantity } from '../lib/ingredientDisplay'
+import { downloadShoppingListPdf, type ShoppingListPdfRow } from '../lib/shoppingListPdf'
 import { stopReadAloud, useReadAloud } from '../composables/useReadAloud'
 import type { RecipeGraph } from '../types/recipe'
 import type { SensoryConflictResponse } from '../types/sensory'
@@ -345,6 +346,20 @@ function closeShoppingList() {
   shoppingListOpen.value = false
 }
 
+function shoppingListPdfRow(item: IngredientChecklistRow): ShoppingListPdfRow {
+  const { name, quantity } = splitIngredientNameAndQuantity(item.label, item.detail)
+  return {
+    name,
+    quantity,
+    imageSrc: ingredientVisualSrc(item),
+    visualFallback: ingredientVisualToken({
+      label: item.label,
+      emoji: item.emoji ?? undefined,
+      icon: item.icon ?? undefined,
+    }),
+  }
+}
+
 async function exportShoppingListPdf() {
   if (!graph.value) return
   if (uncheckedIngredientCount.value === 0) return
@@ -366,11 +381,11 @@ async function exportShoppingListPdf() {
           : null,
     buyGroups: uncheckedIngredientChecklistGroups.value.map((g) => ({
       title: g.sectionTitle ? formatSectionHeading(g.sectionTitle) : null,
-      lines: g.items.map((it) => ingredientChecklistSingleLine(it.label, it.detail)),
+      rows: g.items.map((it) => shoppingListPdfRow(it)),
     })),
     pantryGroups: checkedIngredientChecklistGroups.map((g) => ({
       title: g.sectionTitle ? formatSectionHeading(g.sectionTitle) : null,
-      lines: g.items.map((it) => ingredientChecklistSingleLine(it.label, it.detail)),
+      rows: g.items.map((it) => shoppingListPdfRow(it)),
     })),
   })
 }
